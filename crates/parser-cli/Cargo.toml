@@ -1,0 +1,13 @@
+[package]
+name = "parser-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "parser-cli"
+path = "src/main.rs"
+
+[dependencies]
+parser-core = { path = "../parser-core" }
+parser-formats = { path = "../parser-formats" }
+parser-schema = { path = "../parser-schema" }
