@@ -6,6 +6,6 @@ fn main() {
 mod tests {
     #[test]
     fn empty_cli_test() {
-        assert!(true);
+        assert_eq!(2 + 2, 4);
     }
 }
