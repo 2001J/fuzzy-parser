@@ -114,4 +114,4 @@ cargo run -p parser-cli -- --help
 
 ## License
 
-A license has not yet been selected.
+Licensed under the [Apache License, Version 2.0](LICENSE).
