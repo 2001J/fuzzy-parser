@@ -10,13 +10,15 @@ The project is currently under active development.
 
 Initial work focuses on:
 
-* Defining the canonical document model
-* Reading plain-text input
-* Providing structured errors
-* Exposing functionality through a CLI
-* Building a reliable automated test suite
+- Defining the canonical document model
+- Reading plain-text input
+- Providing structured errors
+- Exposing functionality through a CLI
+- Building a reliable automated test suite
 
 Fuzzy field extraction, CSV support, spreadsheet support, and TypeScript bindings will be added incrementally.
+
+See [Current State](docs/current-state.md) for the exact implemented behavior and [Roadmap](docs/roadmap.md) for planned releases.
 
 ## Requirements
 
@@ -34,15 +36,33 @@ cargo --version
 ```text
 fuzzy-parser/
 ├── Cargo.toml
+├── AGENTS.md
 ├── crates/
 │   ├── parser-core/
 │   ├── parser-formats/
 │   ├── parser-schema/
 │   └── parser-cli/
+├── docs/
 ├── fixtures/
 ├── examples/
 └── README.md
 ```
+
+## Documentation
+
+- [Documentation index](docs/README.md)
+- [Current state](docs/current-state.md)
+- [Product direction](docs/product-direction.md)
+- [Architecture](docs/architecture.md)
+- [Parsing pipeline](docs/parsing-pipeline.md)
+- [Data contracts](docs/data-contracts.md)
+- [Error and confidence model](docs/error-and-confidence-model.md)
+- [Testing strategy](docs/testing-strategy.md)
+- [Roadmap](docs/roadmap.md)
+- [Release and environment strategy](docs/release-and-environment-strategy.md)
+- [Integration strategy](docs/integration-strategy.md)
+- [Architecture decisions](docs/decisions/README.md)
+- [Agent working rules](AGENTS.md)
 
 ## Build
 
@@ -95,22 +115,22 @@ cargo build --workspace
 
 ## Running the CLI
 
-The CLI is not yet implemented.
-
-Once available, it will be run through the workspace package:
+The functional CLI is not yet implemented. The current placeholder binary can be run through the workspace package:
 
 ```bash
-cargo run -p parser-cli -- --help
+cargo run -p parser-cli
 ```
+
+The planned CLI contract is documented in [Integration Strategy](docs/integration-strategy.md).
 
 ## Design principles
 
-* The parser core must remain independent of any specific business domain.
-* Consuming applications provide schemas and domain-specific rules.
-* Original input must never be silently discarded or overwritten.
-* Parsing errors and warnings must be structured and machine-readable.
-* Every extracted value should remain traceable to its source.
-* New functionality must include tests.
+- The parser core must remain independent of any specific business domain.
+- Consuming applications provide schemas and domain-specific rules.
+- Original input must never be silently discarded or overwritten.
+- Parsing errors and warnings must be structured and machine-readable.
+- Every extracted value should remain traceable to its source.
+- New functionality must include tests.
 
 ## License
 
