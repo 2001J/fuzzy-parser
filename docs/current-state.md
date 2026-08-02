@@ -18,6 +18,7 @@ The workspace currently contains four crates:
 ## Implemented today
 
 - The workspace compiles as a multi-crate Rust project.
+- `parser-core` provides serializable canonical raw-document models, source locations, raw values, warnings, and structured parser errors.
 - Each library crate contains a minimal readiness function and a placeholder unit test.
 - The CLI binary prints `parser-cli ready` and contains a placeholder unit test.
 - GitHub Actions runs formatting, Clippy, tests, and a workspace build on pull requests and pushes to `main`.
@@ -28,8 +29,6 @@ The workspace currently contains four crates:
 
 The following capabilities are planned but do not exist yet:
 
-- Canonical raw document models.
-- Structured parser error types.
 - Pasted-text or standard-input ingestion.
 - TXT file validation or extraction.
 - CSV delimiter detection or extraction.
