@@ -115,13 +115,13 @@ cargo build --workspace
 
 ## Running the CLI
 
-The functional CLI is not yet implemented. The current placeholder binary can be run through the workspace package:
+The CLI currently supports raw TXT inspection:
 
 ```bash
-cargo run -p parser-cli
+cargo run -p parser-cli -- inspect fixtures/text/simple.txt
 ```
 
-The planned CLI contract is documented in [Integration Strategy](docs/integration-strategy.md).
+The command emits the canonical raw document as JSON. Its planned broader contract is documented in [Integration Strategy](docs/integration-strategy.md).
 
 ## Design principles
 

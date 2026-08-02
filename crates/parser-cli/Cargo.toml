@@ -11,3 +11,4 @@ path = "src/main.rs"
 parser-core = { path = "../parser-core" }
 parser-formats = { path = "../parser-formats" }
 parser-schema = { path = "../parser-schema" }
+serde_json = "1"

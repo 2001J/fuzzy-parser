@@ -21,6 +21,7 @@ dependencies = [
  "parser-core",
  "parser-formats",
  "parser-schema",
+ "serde_json",
 ]
 
 [[package]]
@@ -34,6 +35,9 @@ dependencies = [
 [[package]]
 name = "parser-formats"
 version = "0.1.0"
+dependencies = [
+ "parser-core",
+]
 
 [[package]]
 name = "parser-schema"

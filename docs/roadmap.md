@@ -14,6 +14,8 @@ Status: complete.
 
 ## 0.2 — TXT inspection path
 
+Status: complete.
+
 Goal: prove the first complete source-to-JSON path.
 
 - Structured errors.
