@@ -19,8 +19,9 @@ The workspace currently contains four crates:
 
 - The workspace compiles as a multi-crate Rust project.
 - `parser-core` provides serializable canonical raw-document models, source locations, raw values, warnings, and structured parser errors.
-- `parser-formats` reads UTF-8 TXT files into one raw block per source line while preserving content and byte locations.
-- The CLI supports `inspect <path>` and emits the canonical raw document as JSON, with structured JSON errors and nonzero exit codes.
+- `parser-formats` reads UTF-8 TXT files, pasted text, and standard input into one raw block per source line while preserving content and byte locations.
+- `parser-formats` exposes configurable default-safe byte and line-length limits for text input.
+- The CLI supports `inspect <path>`, `inspect --stdin`, and `inspect --text <content>`, emitting the canonical raw document as JSON with structured errors and nonzero exit codes.
 - GitHub Actions runs formatting, Clippy, tests, and a workspace build on pull requests and pushes to `main`.
 - The repository is licensed under Apache License 2.0.
 - The root README describes the intended workspace boundaries and local validation commands.
@@ -28,8 +29,6 @@ The workspace currently contains four crates:
 ## Not implemented yet
 
 The following capabilities are planned but do not exist yet:
-
-- Pasted-text or standard-input ingestion.
 
 - CSV delimiter detection or extraction.
 - XLSX workbook inspection or extraction.
@@ -57,4 +56,4 @@ cargo build --workspace
 
 ## Immediate next slice
 
-The next implementation slice should add pasted text and standard-input ingestion through a unified dispatcher, with configurable text-size and line-length limits. The project still performs extraction only; it does not yet normalize, segment, detect candidates, or assign schema fields.
+The next implementation slice should add CSV extraction with delimiter detection and row/column provenance. The project still performs extraction only; it does not yet normalize, segment, detect candidates, or assign schema fields.

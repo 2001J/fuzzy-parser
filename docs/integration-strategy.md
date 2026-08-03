@@ -39,12 +39,18 @@ Reasons:
 - Supports scripts and backend process invocation.
 - Avoids early native packaging complexity.
 
-Planned commands:
+Supported raw inspection commands:
 
 ```bash
-fuzzy-parser inspect --input sample.txt
-fuzzy-parser inspect --stdin
-fuzzy-parser parse --input sample.txt --schema schema.json
+parser-cli inspect sample.txt
+parser-cli inspect --stdin
+parser-cli inspect --text $'Ada Lovelace\nGrace Hopper'
+```
+
+Planned schema-driven parsing command:
+
+```bash
+parser-cli parse --input sample.txt --schema schema.json
 ```
 
 CLI rules:

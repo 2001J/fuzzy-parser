@@ -109,6 +109,19 @@ pub enum ParserError {
     InvalidUtf8 { path: String, valid_up_to: usize },
     #[serde(rename = "unsupported_input")]
     UnsupportedInput { source_type: String },
+    #[serde(rename = "input_too_large")]
+    InputTooLarge {
+        source: String,
+        limit: usize,
+        actual: usize,
+    },
+    #[serde(rename = "line_too_long")]
+    LineTooLong {
+        source: String,
+        line: usize,
+        limit: usize,
+        actual: usize,
+    },
 }
 
 impl ParserError {
@@ -117,6 +130,8 @@ impl ParserError {
             Self::Io { .. } => "io_error",
             Self::InvalidUtf8 { .. } => "invalid_utf8",
             Self::UnsupportedInput { .. } => "unsupported_input",
+            Self::InputTooLarge { .. } => "input_too_large",
+            Self::LineTooLong { .. } => "line_too_long",
         }
     }
 }
@@ -132,6 +147,23 @@ impl fmt::Display for ParserError {
             Self::UnsupportedInput { source_type } => {
                 write!(formatter, "unsupported input type: {source_type}")
             }
+            Self::InputTooLarge {
+                source,
+                limit,
+                actual,
+            } => write!(
+                formatter,
+                "{source} exceeds the {limit}-byte limit ({actual} bytes)"
+            ),
+            Self::LineTooLong {
+                source,
+                line,
+                limit,
+                actual,
+            } => write!(
+                formatter,
+                "{source} line {line} exceeds the {limit}-byte limit ({actual} bytes)"
+            ),
         }
     }
 }
@@ -186,6 +218,22 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "input.txt is not valid UTF-8 at byte offset 4"
+        );
+    }
+
+    #[test]
+    fn input_limits_have_stable_codes() {
+        let error = ParserError::LineTooLong {
+            source: "<stdin>".to_owned(),
+            line: 3,
+            limit: 10,
+            actual: 11,
+        };
+
+        assert_eq!(error.code(), "line_too_long");
+        assert_eq!(
+            error.to_string(),
+            "<stdin> line 3 exceeds the 10-byte limit (11 bytes)"
         );
     }
 

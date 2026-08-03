@@ -115,13 +115,15 @@ cargo build --workspace
 
 ## Running the CLI
 
-The CLI currently supports raw TXT inspection:
+The CLI currently supports raw text inspection from a TXT path, standard input, or a pasted argument:
 
 ```bash
 cargo run -p parser-cli -- inspect fixtures/text/simple.txt
+printf 'Ada Lovelace\nGrace Hopper\n' | cargo run -p parser-cli -- inspect --stdin
+cargo run -p parser-cli -- inspect --text $'Ada Lovelace\nGrace Hopper'
 ```
 
-The command emits the canonical raw document as JSON. Its planned broader contract is documented in [Integration Strategy](docs/integration-strategy.md).
+Each command emits the canonical raw document as JSON. The planned broader contract is documented in [Integration Strategy](docs/integration-strategy.md).
 
 ## Design principles
 

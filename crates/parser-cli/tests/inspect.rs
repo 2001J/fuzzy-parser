@@ -1,5 +1,9 @@
 use serde_json::Value;
-use std::{path::PathBuf, process::Command};
+use std::{
+    io::Write,
+    path::PathBuf,
+    process::{Command, Stdio},
+};
 
 fn fixture_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/text/simple.txt")
@@ -25,6 +29,42 @@ fn inspect_outputs_canonical_document_json() {
 }
 
 #[test]
+fn inspect_accepts_stdin() {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_parser-cli"))
+        .args(["inspect", "--stdin"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("CLI should run");
+    child
+        .stdin
+        .take()
+        .expect("stdin should be available")
+        .write_all(b"Ada Lovelace\nGrace Hopper")
+        .expect("input should be written");
+
+    let output = child.wait_with_output().expect("CLI should finish");
+
+    assert!(output.status.success());
+    let document: Value = serde_json::from_slice(&output.stdout).expect("stdout should be JSON");
+    assert_eq!(document["source"]["source_type"], "stdin");
+    assert_eq!(document["blocks"].as_array().map(Vec::len), Some(2));
+}
+
+#[test]
+fn inspect_accepts_pasted_text() {
+    let output = Command::new(env!("CARGO_BIN_EXE_parser-cli"))
+        .args(["inspect", "--text", "Ada Lovelace\nGrace Hopper"])
+        .output()
+        .expect("CLI should run");
+
+    assert!(output.status.success());
+    let document: Value = serde_json::from_slice(&output.stdout).expect("stdout should be JSON");
+    assert_eq!(document["source"]["source_type"], "text");
+    assert_eq!(document["blocks"][1]["value"]["value"], "Grace Hopper");
+}
+
+#[test]
 fn inspect_reports_missing_file_as_json_error() {
     let output = Command::new(env!("CARGO_BIN_EXE_parser-cli"))
         .args(["inspect", "fixtures/text/does-not-exist.txt"])
@@ -38,7 +78,7 @@ fn inspect_reports_missing_file_as_json_error() {
 }
 
 #[test]
-fn inspect_requires_command_and_path() {
+fn inspect_requires_command_and_input() {
     let output = Command::new(env!("CARGO_BIN_EXE_parser-cli"))
         .output()
         .expect("CLI should run");
@@ -46,6 +86,6 @@ fn inspect_requires_command_and_path() {
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(
         String::from_utf8_lossy(&output.stderr),
-        "usage: parser-cli inspect <path>\n"
+        "usage: parser-cli inspect <path> | --stdin | --text <content>\n"
     );
 }

@@ -30,6 +30,8 @@ The parser must still make no fuzzy interpretation in this release.
 
 ## 0.3 — Pasted text and input dispatch
 
+Status: complete.
+
 - Raw text input.
 - Standard input.
 - Unified input dispatcher.
