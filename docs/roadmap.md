@@ -51,6 +51,8 @@ Status: complete.
 
 ## 0.5 — XLSX extraction
 
+Status: complete.
+
 - Workbook inspection.
 - Sheet metadata.
 - Cell extraction with row, column, and sheet provenance.

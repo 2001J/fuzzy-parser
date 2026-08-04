@@ -9,3 +9,4 @@ path = "src/lib.rs"
 [dependencies]
 parser-core = { path = "../parser-core" }
 csv = "1"
+calamine = "0.36"

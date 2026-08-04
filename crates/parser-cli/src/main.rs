@@ -1,4 +1,6 @@
-use parser_formats::{CsvOptions, InputSource, TextLimits, read_csv_with_options, read_input};
+use parser_formats::{
+    CsvOptions, InputSource, TextLimits, read_csv_with_options, read_input, read_xlsx,
+};
 use std::{env, io, path::PathBuf, process};
 
 fn main() {
@@ -33,14 +35,18 @@ fn run() -> i32 {
 }
 
 fn inspect_path(path: PathBuf) -> i32 {
-    let is_csv = path
-        .extension()
-        .and_then(|extension| extension.to_str())
+    let extension = path.extension().and_then(|extension| extension.to_str());
+    let is_csv = extension
         .map(|extension| extension.eq_ignore_ascii_case("csv"))
+        .unwrap_or(false);
+    let is_xlsx = extension
+        .map(|extension| extension.eq_ignore_ascii_case("xlsx"))
         .unwrap_or(false);
 
     if is_csv {
         inspect_result(read_csv_with_options(&path, CsvOptions::default()))
+    } else if is_xlsx {
+        inspect_result(read_xlsx(&path))
     } else {
         inspect_result(read_input(
             InputSource::TxtFile(&path),

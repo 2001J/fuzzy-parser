@@ -1,3 +1,4 @@
+use calamine::{Data, Reader, Xlsx, open_workbook};
 use parser_core::{
     ParserError, RawBlock, RawDocument, RawValue, SourceLocation, SourceMetadata, SourceType,
 };
@@ -337,6 +338,91 @@ fn validate_csv_quotes(bytes: &[u8], source_path: &str, delimiter: u8) -> Result
     Ok(())
 }
 
+pub fn read_xlsx(path: impl AsRef<Path>) -> Result<RawDocument, ParserError> {
+    let path = path.as_ref();
+    let path_display = path.to_string_lossy().into_owned();
+    let size_bytes = fs::metadata(path)
+        .map_err(|error| ParserError::Io {
+            path: path_display.clone(),
+            kind: error.kind().into(),
+        })?
+        .len();
+    let mut workbook: Xlsx<_> = open_workbook(path).map_err(|error| ParserError::InvalidXlsx {
+        path: path_display.clone(),
+        message: format!("{error:?}"),
+    })?;
+
+    let mut blocks = Vec::new();
+    for (sheet_index, sheet_name) in workbook.sheet_names().into_iter().enumerate() {
+        let _merged_regions = workbook
+            .merge_cells_by_sheet_name(&sheet_name)
+            .map_err(|error| ParserError::InvalidXlsx {
+                path: path_display.clone(),
+                message: format!("sheet {sheet_name}: {error:?}"),
+            })?;
+        let range =
+            workbook
+                .worksheet_range(&sheet_name)
+                .map_err(|error| ParserError::InvalidXlsx {
+                    path: path_display.clone(),
+                    message: format!("sheet {sheet_name}: {error:?}"),
+                })?;
+        let Some((start_row, start_column)) = range.start() else {
+            continue;
+        };
+
+        for (row_offset, row) in range.rows().enumerate() {
+            for (column_offset, cell) in row.iter().enumerate() {
+                blocks.push(RawBlock {
+                    id: format!(
+                        "sheet-{}-row-{}-column-{}",
+                        sheet_index + 1,
+                        start_row as usize + row_offset + 1,
+                        start_column as usize + column_offset + 1
+                    ),
+                    value: raw_xlsx_value(cell),
+                    location: SourceLocation {
+                        row: Some(start_row as usize + row_offset + 1),
+                        column: Some(start_column as usize + column_offset + 1),
+                        sheet: Some(sheet_name.clone()),
+                        ..SourceLocation::default()
+                    },
+                });
+            }
+        }
+    }
+
+    Ok(RawDocument::new(
+        "xlsx-document",
+        SourceMetadata {
+            source_type: SourceType::Xlsx,
+            file_name: path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned()),
+            mime_type: Some(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".to_owned(),
+            ),
+            size_bytes: Some(size_bytes),
+            delimiter: None,
+        },
+        blocks,
+    ))
+}
+
+fn raw_xlsx_value(cell: &Data) -> RawValue {
+    match cell {
+        Data::Int(value) => RawValue::Integer(*value),
+        Data::Float(value) => RawValue::Decimal(*value),
+        Data::String(value) => RawValue::Text(value.clone()),
+        Data::Bool(value) => RawValue::Boolean(*value),
+        Data::DateTime(value) => RawValue::DateTime(value.as_f64()),
+        Data::DateTimeIso(value) => RawValue::DateTimeText(value.clone()),
+        Data::DurationIso(value) => RawValue::Duration(value.clone()),
+        Data::Error(value) => RawValue::Error(value.to_string()),
+        Data::Empty => RawValue::Null,
+    }
+}
+
 fn read_file_limited(
     path: &Path,
     source: &str,
@@ -574,6 +660,33 @@ mod tests {
         .expect_err("malformed CSV should fail");
 
         assert_eq!(error.code(), "invalid_csv");
+    }
+
+    #[test]
+    fn reads_xlsx_fixture_with_typed_cells_and_sheet_provenance() {
+        let path =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/xlsx/sample.xlsx");
+        let document = read_xlsx(path).expect("XLSX fixture should be readable");
+
+        assert_eq!(document.source.source_type, SourceType::Xlsx);
+        assert_eq!(document.source.file_name.as_deref(), Some("sample.xlsx"));
+        assert_eq!(document.blocks.len(), 12);
+        assert_eq!(document.blocks[4].value, RawValue::Text("Ada".to_owned()));
+        assert_eq!(document.blocks[5].value, RawValue::Decimal(42.0));
+        assert_eq!(document.blocks[6].value, RawValue::Boolean(true));
+        assert_eq!(document.blocks[7].value, RawValue::DateTime(45943.5));
+        assert_eq!(document.blocks[10].value, RawValue::Null);
+        assert_eq!(document.blocks[5].location.sheet.as_deref(), Some("Data"));
+        assert_eq!(document.blocks[5].location.row, Some(2));
+        assert_eq!(document.blocks[5].location.column, Some(2));
+    }
+
+    #[test]
+    fn rejects_invalid_xlsx_structurally() {
+        let error = read_xlsx("fixtures/xlsx/does-not-exist.xlsx")
+            .expect_err("missing XLSX should return an error");
+
+        assert_eq!(error.code(), "io_error");
     }
 
     #[test]

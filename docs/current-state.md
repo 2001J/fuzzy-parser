@@ -21,8 +21,9 @@ The workspace currently contains four crates:
 - `parser-core` provides serializable canonical raw-document models, source locations, raw values, warnings, and structured parser errors.
 - `parser-formats` reads UTF-8 TXT files, pasted text, standard input, and CSV files into canonical raw blocks while preserving content and source locations.
 - CSV extraction scores comma, semicolon, tab, and pipe delimiters, supports explicit overrides, quoted/multiline cells, empty cells, and row/column provenance.
+- `parser-formats` reads XLSX workbooks with sheet, row, column, and typed-cell provenance; it reads stored values only and does not execute formulas or macros.
 - `parser-formats` exposes configurable default-safe byte and line-length limits for text input.
-- The CLI supports `inspect <path>` for TXT/CSV files, `inspect --stdin`, and `inspect --text <content>`, emitting the canonical raw document as JSON with structured errors and nonzero exit codes.
+- The CLI supports `inspect <path>` for TXT, CSV, and XLSX files, `inspect --stdin`, and `inspect --text <content>`, emitting the canonical raw document as JSON with structured errors and nonzero exit codes.
 - GitHub Actions runs formatting, Clippy, tests, and a workspace build on pull requests and pushes to `main`.
 - The repository is licensed under Apache License 2.0.
 - The root README describes the intended workspace boundaries and local validation commands.
@@ -31,8 +32,6 @@ The workspace currently contains four crates:
 
 The following capabilities are planned but do not exist yet:
 
-
-- XLSX workbook inspection or extraction.
 - Text normalization.
 - Record segmentation.
 - Field candidate detection.
@@ -57,4 +56,4 @@ cargo build --workspace
 
 ## Immediate next slice
 
-The next implementation slice should add XLSX workbook inspection with sheet, cell-type, and cell-coordinate provenance. The project still performs extraction only; it does not yet normalize, segment, detect candidates, or assign schema fields.
+The next implementation slice should add derived text normalization while preserving raw source values and recording transformations. The project still performs extraction only; it does not yet normalize, segment, detect candidates, or assign schema fields.

@@ -20,6 +20,10 @@ pub enum RawValue {
     Integer(i64),
     Decimal(f64),
     Boolean(bool),
+    DateTime(f64),
+    DateTimeText(String),
+    Duration(String),
+    Error(String),
     Null,
 }
 
@@ -129,6 +133,8 @@ pub enum ParserError {
         record: Option<usize>,
         message: String,
     },
+    #[serde(rename = "invalid_xlsx")]
+    InvalidXlsx { path: String, message: String },
 }
 
 impl ParserError {
@@ -140,6 +146,7 @@ impl ParserError {
             Self::InputTooLarge { .. } => "input_too_large",
             Self::LineTooLong { .. } => "line_too_long",
             Self::InvalidCsv { .. } => "invalid_csv",
+            Self::InvalidXlsx { .. } => "invalid_xlsx",
         }
     }
 }
@@ -183,6 +190,9 @@ impl fmt::Display for ParserError {
                 ),
                 None => write!(formatter, "invalid CSV in {path}: {message}"),
             },
+            Self::InvalidXlsx { path, message } => {
+                write!(formatter, "invalid XLSX in {path}: {message}")
+            }
         }
     }
 }
