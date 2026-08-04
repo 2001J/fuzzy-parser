@@ -1,4 +1,4 @@
-use parser_formats::{InputSource, TextLimits, read_input};
+use parser_formats::{CsvOptions, InputSource, TextLimits, read_csv_with_options, read_input};
 use std::{env, io, path::PathBuf, process};
 
 fn main() {
@@ -33,10 +33,20 @@ fn run() -> i32 {
 }
 
 fn inspect_path(path: PathBuf) -> i32 {
-    inspect_result(read_input(
-        InputSource::TxtFile(&path),
-        TextLimits::default(),
-    ))
+    let is_csv = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| extension.eq_ignore_ascii_case("csv"))
+        .unwrap_or(false);
+
+    if is_csv {
+        inspect_result(read_csv_with_options(&path, CsvOptions::default()))
+    } else {
+        inspect_result(read_input(
+            InputSource::TxtFile(&path),
+            TextLimits::default(),
+        ))
+    }
 }
 
 fn inspect_stdin() -> i32 {

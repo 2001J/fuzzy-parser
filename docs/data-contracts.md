@@ -41,6 +41,7 @@ pub struct SourceMetadata {
     pub file_name: Option<String>,
     pub mime_type: Option<String>,
     pub size_bytes: Option<u64>,
+    pub delimiter: Option<String>,
 }
 
 pub struct RawBlock {

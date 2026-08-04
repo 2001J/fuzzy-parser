@@ -35,6 +35,7 @@ pub struct SourceMetadata {
     pub file_name: Option<String>,
     pub mime_type: Option<String>,
     pub size_bytes: Option<u64>,
+    pub delimiter: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -122,6 +123,12 @@ pub enum ParserError {
         limit: usize,
         actual: usize,
     },
+    #[serde(rename = "invalid_csv")]
+    InvalidCsv {
+        path: String,
+        record: Option<usize>,
+        message: String,
+    },
 }
 
 impl ParserError {
@@ -132,6 +139,7 @@ impl ParserError {
             Self::UnsupportedInput { .. } => "unsupported_input",
             Self::InputTooLarge { .. } => "input_too_large",
             Self::LineTooLong { .. } => "line_too_long",
+            Self::InvalidCsv { .. } => "invalid_csv",
         }
     }
 }
@@ -164,6 +172,17 @@ impl fmt::Display for ParserError {
                 formatter,
                 "{source} line {line} exceeds the {limit}-byte limit ({actual} bytes)"
             ),
+            Self::InvalidCsv {
+                path,
+                record,
+                message,
+            } => match record {
+                Some(record) => write!(
+                    formatter,
+                    "invalid CSV in {path} at record {record}: {message}"
+                ),
+                None => write!(formatter, "invalid CSV in {path}: {message}"),
+            },
         }
     }
 }
@@ -187,6 +206,7 @@ mod tests {
                 file_name: Some("sample.txt".to_owned()),
                 mime_type: Some("text/plain".to_owned()),
                 size_bytes: Some(5),
+                delimiter: None,
             },
             vec![RawBlock {
                 id: "block-1".to_owned(),

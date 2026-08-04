@@ -8,3 +8,4 @@ path = "src/lib.rs"
 
 [dependencies]
 parser-core = { path = "../parser-core" }
+csv = "1"

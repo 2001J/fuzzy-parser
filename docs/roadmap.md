@@ -40,6 +40,8 @@ Status: complete.
 
 ## 0.4 — CSV extraction
 
+Status: complete.
+
 - CSV adapter.
 - Comma, semicolon, tab, and pipe delimiter scoring.
 - Explicit delimiter override.

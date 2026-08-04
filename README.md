@@ -115,10 +115,11 @@ cargo build --workspace
 
 ## Running the CLI
 
-The CLI currently supports raw text inspection from a TXT path, standard input, or a pasted argument:
+The CLI currently supports raw text inspection from a TXT or CSV path, standard input, or a pasted argument:
 
 ```bash
 cargo run -p parser-cli -- inspect fixtures/text/simple.txt
+cargo run -p parser-cli -- inspect fixtures/csv/comma.csv
 printf 'Ada Lovelace\nGrace Hopper\n' | cargo run -p parser-cli -- inspect --stdin
 cargo run -p parser-cli -- inspect --text $'Ada Lovelace\nGrace Hopper'
 ```

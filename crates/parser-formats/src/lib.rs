@@ -1,7 +1,7 @@
 use parser_core::{
     ParserError, RawBlock, RawDocument, RawValue, SourceLocation, SourceMetadata, SourceType,
 };
-use std::{fs::File, io::Read, path::Path};
+use std::{fs, fs::File, io::Read, path::Path};
 
 pub const DEFAULT_MAX_TEXT_BYTES: usize = 1024 * 1024;
 pub const DEFAULT_MAX_LINE_BYTES: usize = 64 * 1024;
@@ -75,6 +75,266 @@ pub fn read_txt_bytes(
         SourceType::Txt,
         TextLimits::default(),
     )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CsvDelimiter {
+    Comma,
+    Semicolon,
+    Tab,
+    Pipe,
+}
+
+impl CsvDelimiter {
+    const CANDIDATES: [Self; 4] = [Self::Comma, Self::Semicolon, Self::Tab, Self::Pipe];
+
+    fn byte(self) -> u8 {
+        match self {
+            Self::Comma => b',',
+            Self::Semicolon => b';',
+            Self::Tab => b'\t',
+            Self::Pipe => b'|',
+        }
+    }
+
+    pub const fn symbol(self) -> &'static str {
+        match self {
+            Self::Comma => ",",
+            Self::Semicolon => ";",
+            Self::Tab => "\\t",
+            Self::Pipe => "|",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CsvOptions {
+    pub delimiter: Option<CsvDelimiter>,
+}
+
+impl CsvOptions {
+    pub const fn with_delimiter(delimiter: CsvDelimiter) -> Self {
+        Self {
+            delimiter: Some(delimiter),
+        }
+    }
+}
+
+pub fn read_csv(path: impl AsRef<Path>) -> Result<RawDocument, ParserError> {
+    read_csv_with_options(path, CsvOptions::default())
+}
+
+pub fn read_csv_with_options(
+    path: impl AsRef<Path>,
+    options: CsvOptions,
+) -> Result<RawDocument, ParserError> {
+    let path = path.as_ref();
+    let path_display = path.to_string_lossy().into_owned();
+    let bytes = fs::read(path).map_err(|error| ParserError::Io {
+        path: path_display.clone(),
+        kind: error.kind().into(),
+    })?;
+    let file_name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned());
+
+    read_csv_bytes(file_name.as_deref(), &bytes, &path_display, options)
+}
+
+pub fn read_csv_bytes(
+    file_name: Option<&str>,
+    bytes: &[u8],
+    source_path: &str,
+    options: CsvOptions,
+) -> Result<RawDocument, ParserError> {
+    let (delimiter, records) = match options.delimiter {
+        Some(delimiter) => (delimiter, parse_csv_records(bytes, source_path, delimiter)?),
+        None => detect_delimiter(bytes, source_path)?,
+    };
+
+    let blocks = records
+        .into_iter()
+        .enumerate()
+        .flat_map(|(row_index, row)| {
+            row.into_iter()
+                .enumerate()
+                .map(move |(column_index, value)| RawBlock {
+                    id: format!("row-{}-column-{}", row_index + 1, column_index + 1),
+                    value: RawValue::text(value),
+                    location: SourceLocation {
+                        row: Some(row_index + 1),
+                        column: Some(column_index + 1),
+                        ..SourceLocation::default()
+                    },
+                })
+        })
+        .collect();
+
+    Ok(RawDocument::new(
+        "csv-document",
+        SourceMetadata {
+            source_type: SourceType::Csv,
+            file_name: file_name.map(str::to_owned),
+            mime_type: Some("text/csv".to_owned()),
+            size_bytes: Some(bytes.len() as u64),
+            delimiter: Some(delimiter.symbol().to_owned()),
+        },
+        blocks,
+    ))
+}
+
+type DelimiterScore = (usize, usize, usize, usize);
+type DelimiterCandidate = (DelimiterScore, CsvDelimiter, Vec<Vec<String>>);
+
+fn detect_delimiter(
+    bytes: &[u8],
+    source_path: &str,
+) -> Result<(CsvDelimiter, Vec<Vec<String>>), ParserError> {
+    let mut best: Option<DelimiterCandidate> = None;
+    let mut first_error = None;
+
+    for (index, delimiter) in CsvDelimiter::CANDIDATES.into_iter().enumerate() {
+        match parse_csv_records(bytes, source_path, delimiter) {
+            Ok(records) => {
+                let score = delimiter_score(&records, index);
+                let should_replace = best
+                    .as_ref()
+                    .map(|(best_score, _, _)| score > *best_score)
+                    .unwrap_or(true);
+                if should_replace {
+                    best = Some((score, delimiter, records));
+                }
+            }
+            Err(error) => {
+                if first_error.is_none() {
+                    first_error = Some(error);
+                }
+            }
+        }
+    }
+
+    if let Some((_, delimiter, records)) = best {
+        Ok((delimiter, records))
+    } else if let Some(error) = first_error {
+        Err(error)
+    } else {
+        Err(ParserError::InvalidCsv {
+            path: source_path.to_owned(),
+            record: None,
+            message: "no supported delimiter could parse the input".to_owned(),
+        })
+    }
+}
+
+fn delimiter_score(records: &[Vec<String>], candidate_index: usize) -> DelimiterScore {
+    let multi_field_records = records.iter().filter(|record| record.len() > 1).count();
+    let total_fields = records.iter().map(Vec::len).sum();
+    let widest_record = records.iter().map(Vec::len).max().unwrap_or(0);
+    let consistent_records = records
+        .iter()
+        .filter(|record| record.len() == widest_record)
+        .count();
+
+    (
+        multi_field_records,
+        consistent_records,
+        total_fields,
+        usize::MAX - candidate_index,
+    )
+}
+
+fn parse_csv_records(
+    bytes: &[u8],
+    source_path: &str,
+    delimiter: CsvDelimiter,
+) -> Result<Vec<Vec<String>>, ParserError> {
+    validate_csv_quotes(bytes, source_path, delimiter.byte())?;
+
+    let mut reader = csv::ReaderBuilder::new()
+        .has_headers(false)
+        .flexible(true)
+        .delimiter(delimiter.byte())
+        .from_reader(bytes);
+    let mut records = Vec::new();
+
+    for result in reader.records() {
+        let record = result.map_err(|error| ParserError::InvalidCsv {
+            path: source_path.to_owned(),
+            record: Some(records.len() + 1),
+            message: error.to_string(),
+        })?;
+        records.push(record.iter().map(str::to_owned).collect());
+    }
+
+    Ok(records)
+}
+
+fn validate_csv_quotes(bytes: &[u8], source_path: &str, delimiter: u8) -> Result<(), ParserError> {
+    let mut in_quotes = false;
+    let mut field_start = true;
+    let mut index = 0;
+
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if in_quotes {
+            if byte == b'"' {
+                if bytes.get(index + 1) == Some(&b'"') {
+                    index += 2;
+                } else {
+                    in_quotes = false;
+                    field_start = false;
+                    index += 1;
+                }
+            } else {
+                index += 1;
+            }
+            continue;
+        }
+
+        match byte {
+            b'"' if field_start => {
+                in_quotes = true;
+                field_start = false;
+                index += 1;
+            }
+            b'"' => {
+                return Err(ParserError::InvalidCsv {
+                    path: source_path.to_owned(),
+                    record: None,
+                    message: "unexpected quote in unquoted field".to_owned(),
+                });
+            }
+            value if value == delimiter => {
+                field_start = true;
+                index += 1;
+            }
+            b'\n' => {
+                field_start = true;
+                index += 1;
+            }
+            b'\r' => {
+                field_start = true;
+                index += 1;
+                if bytes.get(index) == Some(&b'\n') {
+                    index += 1;
+                }
+            }
+            _ => {
+                field_start = false;
+                index += 1;
+            }
+        }
+    }
+
+    if in_quotes {
+        return Err(ParserError::InvalidCsv {
+            path: source_path.to_owned(),
+            record: None,
+            message: "unterminated quoted field".to_owned(),
+        });
+    }
+
+    Ok(())
 }
 
 fn read_file_limited(
@@ -169,6 +429,7 @@ fn document_from_bytes(
             file_name: file_name.map(str::to_owned),
             mime_type: Some("text/plain".to_owned()),
             size_bytes: Some(bytes.len() as u64),
+            delimiter: None,
         },
         blocks,
     ))
@@ -241,6 +502,78 @@ mod tests {
         assert_eq!(text_document.blocks, stdin_document.blocks);
         assert_eq!(text_document.source.source_type, SourceType::Text);
         assert_eq!(stdin_document.source.source_type, SourceType::Stdin);
+    }
+
+    #[test]
+    fn detects_comma_delimiter_and_cell_provenance() {
+        let document = read_csv_bytes(
+            Some("sample.csv"),
+            b"name,email\nAda,ada@example.test\n",
+            "sample.csv",
+            CsvOptions::default(),
+        )
+        .expect("comma CSV should be read");
+
+        assert_eq!(document.source.delimiter.as_deref(), Some(","));
+        assert_eq!(document.blocks.len(), 4);
+        assert_eq!(document.blocks[2].value, RawValue::text("Ada"));
+        assert_eq!(document.blocks[2].location.row, Some(2));
+        assert_eq!(document.blocks[2].location.column, Some(1));
+    }
+
+    #[test]
+    fn supports_semicolon_and_multiline_quoted_cells() {
+        let document = read_csv_bytes(
+            None,
+            b"name;note\nAda;\"line one\nline two\"\nGrace;;\n",
+            "messy.csv",
+            CsvOptions::default(),
+        )
+        .expect("semicolon CSV should be read");
+
+        assert_eq!(document.source.delimiter.as_deref(), Some(";"));
+        assert_eq!(
+            document.blocks[3].value,
+            RawValue::text("line one\nline two")
+        );
+        assert_eq!(document.blocks[3].location.row, Some(2));
+        assert_eq!(document.blocks[5].value, RawValue::text(""));
+    }
+
+    #[test]
+    fn supports_explicit_delimiter_override() {
+        let document = read_csv_bytes(
+            None,
+            b"left;right\n1;2\n",
+            "values.csv",
+            CsvOptions::with_delimiter(CsvDelimiter::Comma),
+        )
+        .expect("explicit delimiter should be honored");
+
+        assert_eq!(document.source.delimiter.as_deref(), Some(","));
+        assert_eq!(document.blocks.len(), 2);
+        assert_eq!(document.blocks[0].value, RawValue::text("left;right"));
+    }
+
+    #[test]
+    fn detects_pipe_delimiter() {
+        let document = read_csv_bytes(None, b"a|b\n1|2\n", "values.psv", CsvOptions::default())
+            .expect("pipe-delimited data should be read");
+
+        assert_eq!(document.source.delimiter.as_deref(), Some("|"));
+    }
+
+    #[test]
+    fn rejects_malformed_csv_structurally() {
+        let error = read_csv_bytes(
+            None,
+            b"name,note\nAda,\"unclosed\n",
+            "broken.csv",
+            CsvOptions::default(),
+        )
+        .expect_err("malformed CSV should fail");
+
+        assert_eq!(error.code(), "invalid_csv");
     }
 
     #[test]

@@ -9,6 +9,10 @@ fn fixture_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/text/simple.txt")
 }
 
+fn csv_fixture_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/csv/comma.csv")
+}
+
 #[test]
 fn inspect_outputs_canonical_document_json() {
     let output = Command::new(env!("CARGO_BIN_EXE_parser-cli"))
@@ -26,6 +30,26 @@ fn inspect_outputs_canonical_document_json() {
     assert_eq!(document["source"]["source_type"], "txt");
     assert_eq!(document["blocks"][0]["value"]["value"], "Ada Lovelace");
     assert_eq!(document["blocks"][1]["location"]["line"], 2);
+}
+
+#[test]
+fn inspect_outputs_csv_document_json() {
+    let output = Command::new(env!("CARGO_BIN_EXE_parser-cli"))
+        .args([
+            "inspect",
+            csv_fixture_path()
+                .to_str()
+                .expect("CSV fixture path is UTF-8"),
+        ])
+        .output()
+        .expect("CLI should run");
+
+    assert!(output.status.success());
+    let document: Value = serde_json::from_slice(&output.stdout).expect("stdout should be JSON");
+    assert_eq!(document["source"]["source_type"], "csv");
+    assert_eq!(document["source"]["delimiter"], ",");
+    assert_eq!(document["blocks"][2]["location"]["row"], 2);
+    assert_eq!(document["blocks"][2]["location"]["column"], 1);
 }
 
 #[test]
