@@ -71,6 +71,8 @@ Status: complete.
 
 ## 0.7 — Record segmentation
 
+Status: in progress.
+
 - Record candidate model.
 - One-line and one-row strategies.
 - Multiline continuation heuristics.

@@ -116,7 +116,57 @@ pub struct NormalizedBlock {
     pub transformations: Vec<Transformation>,
 }
 
+pub type Confidence = f64;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Reason {
+    pub code: String,
+    pub message: String,
+}
+
+impl Reason {
+    fn new(code: &'static str, message: &'static str) -> Self {
+        Self {
+            code: code.to_owned(),
+            message: message.to_owned(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SegmentationStrategy {
+    OneBlockPerRecord,
+    OneRowPerRecord,
+    JoinIndentedContinuations,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SegmentationOptions {
+    pub strategy: SegmentationStrategy,
+    pub join_separator: String,
+}
+
+impl Default for SegmentationOptions {
+    fn default() -> Self {
+        Self {
+            strategy: SegmentationStrategy::OneBlockPerRecord,
+            join_separator: "\n".to_owned(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RecordCandidate {
+    pub id: String,
+    pub source_block_ids: Vec<String>,
+    pub text: String,
+    pub confidence: Confidence,
+    pub reasons: Vec<Reason>,
+    pub warnings: Vec<ParserWarning>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ParserWarning {
     pub code: String,
     pub message: String,
@@ -329,6 +379,148 @@ fn has_sender_prefix(value: &str) -> bool {
         .is_some_and(|(prefix, _)| !prefix.is_empty() && !prefix.contains(' '))
 }
 
+pub fn segment_document(
+    document: &RawDocument,
+    options: &SegmentationOptions,
+) -> Vec<RecordCandidate> {
+    let normalized = normalize_document(document);
+    segment_normalized_blocks(document, &normalized, options)
+}
+
+pub fn segment_normalized_blocks(
+    document: &RawDocument,
+    normalized: &[NormalizedBlock],
+    options: &SegmentationOptions,
+) -> Vec<RecordCandidate> {
+    let groups = match options.strategy {
+        SegmentationStrategy::OneBlockPerRecord => {
+            normalized.iter().map(|block| vec![block]).collect()
+        }
+        SegmentationStrategy::OneRowPerRecord => group_by_row(document, normalized),
+        SegmentationStrategy::JoinIndentedContinuations => group_indented_continuations(normalized),
+    };
+
+    groups
+        .into_iter()
+        .enumerate()
+        .map(|(index, group)| {
+            let joined = group
+                .iter()
+                .map(|block| block.normalized_text.as_str())
+                .collect::<Vec<_>>()
+                .join(&options.join_separator);
+            let source_block_ids = group
+                .iter()
+                .map(|block| block.source_block_id.clone())
+                .collect();
+            let (confidence, reason) = match options.strategy {
+                SegmentationStrategy::OneBlockPerRecord => (
+                    1.0,
+                    Reason::new("one_block_boundary", "one source block is one record"),
+                ),
+                SegmentationStrategy::OneRowPerRecord => (
+                    0.98,
+                    Reason::new("one_row_boundary", "source cells share one row"),
+                ),
+                SegmentationStrategy::JoinIndentedContinuations if group.len() > 1 => (
+                    0.85,
+                    Reason::new(
+                        "indented_continuation",
+                        "indented source blocks were joined to the preceding block",
+                    ),
+                ),
+                SegmentationStrategy::JoinIndentedContinuations => (
+                    1.0,
+                    Reason::new("record_start", "no continuation evidence joined this block"),
+                ),
+            };
+
+            RecordCandidate {
+                id: format!("record-{}", index + 1),
+                source_block_ids,
+                text: joined,
+                confidence,
+                reasons: vec![reason],
+                warnings: Vec::new(),
+            }
+        })
+        .collect()
+}
+
+fn group_by_row<'a>(
+    document: &RawDocument,
+    normalized: &'a [NormalizedBlock],
+) -> Vec<Vec<&'a NormalizedBlock>> {
+    let mut groups: Vec<Vec<&NormalizedBlock>> = Vec::new();
+
+    for block in normalized {
+        let joins_previous = groups
+            .last()
+            .and_then(|group| group.last())
+            .is_some_and(|previous| same_source_row(document, previous, block));
+        if joins_previous {
+            groups.last_mut().expect("group exists").push(block);
+        } else {
+            groups.push(vec![block]);
+        }
+    }
+
+    groups
+}
+
+fn group_indented_continuations(normalized: &[NormalizedBlock]) -> Vec<Vec<&NormalizedBlock>> {
+    let mut groups: Vec<Vec<&NormalizedBlock>> = Vec::new();
+
+    for block in normalized {
+        let joins_previous = !block.normalized_text.is_empty()
+            && has_leading_whitespace(&block.original)
+            && groups.last().is_some();
+        if joins_previous {
+            groups.last_mut().expect("group exists").push(block);
+        } else {
+            groups.push(vec![block]);
+        }
+    }
+
+    groups
+}
+
+fn has_leading_whitespace(value: &RawValue) -> bool {
+    value
+        .to_text()
+        .chars()
+        .next()
+        .is_some_and(char::is_whitespace)
+}
+
+fn same_source_row(
+    document: &RawDocument,
+    first: &NormalizedBlock,
+    second: &NormalizedBlock,
+) -> bool {
+    let Some(first_location) = source_location(document, &first.source_block_id) else {
+        return false;
+    };
+    let Some(second_location) = source_location(document, &second.source_block_id) else {
+        return false;
+    };
+
+    first_location.row.is_some()
+        && first_location.row == second_location.row
+        && first_location.sheet == second_location.sheet
+}
+
+fn source_location<'a>(
+    document: &'a RawDocument,
+    source_block_id: &str,
+) -> Option<&'a SourceLocation> {
+    document
+        .blocks
+        .iter()
+        .find(|block| block.id == source_block_id)
+        .map(|block| &block.location)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum IoErrorKind {
@@ -450,6 +642,20 @@ pub fn core_ready() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_document(blocks: Vec<RawBlock>) -> RawDocument {
+        RawDocument::new(
+            "test-document",
+            SourceMetadata {
+                source_type: SourceType::Text,
+                file_name: None,
+                mime_type: Some("text/plain".to_owned()),
+                size_bytes: None,
+                delimiter: None,
+            },
+            blocks,
+        )
+    }
 
     #[test]
     fn raw_document_round_trips_as_json() {
@@ -598,6 +804,136 @@ mod tests {
 
         assert_eq!(normalized.normalized_text, "42");
         assert_eq!(normalized.original, RawValue::Integer(42));
+    }
+
+    #[test]
+    fn one_block_strategy_produces_traceable_candidates() {
+        let document = test_document(vec![
+            RawBlock {
+                id: "block-1".to_owned(),
+                value: RawValue::text("Ada"),
+                location: SourceLocation {
+                    line: Some(1),
+                    ..SourceLocation::default()
+                },
+            },
+            RawBlock {
+                id: "block-2".to_owned(),
+                value: RawValue::text("Grace"),
+                location: SourceLocation {
+                    line: Some(2),
+                    ..SourceLocation::default()
+                },
+            },
+        ]);
+
+        let candidates = segment_document(&document, &SegmentationOptions::default());
+
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates[0].id, "record-1");
+        assert_eq!(candidates[0].source_block_ids, vec!["block-1"]);
+        assert_eq!(candidates[0].text, "Ada");
+        assert_eq!(candidates[0].confidence, 1.0);
+        assert_eq!(candidates[0].reasons[0].code, "one_block_boundary");
+    }
+
+    #[test]
+    fn one_row_strategy_groups_cells_without_losing_provenance() {
+        let document = test_document(vec![
+            RawBlock {
+                id: "row-1-column-1".to_owned(),
+                value: RawValue::text("Ada"),
+                location: SourceLocation {
+                    row: Some(1),
+                    column: Some(1),
+                    ..SourceLocation::default()
+                },
+            },
+            RawBlock {
+                id: "row-1-column-2".to_owned(),
+                value: RawValue::text("ada@example.test"),
+                location: SourceLocation {
+                    row: Some(1),
+                    column: Some(2),
+                    ..SourceLocation::default()
+                },
+            },
+            RawBlock {
+                id: "row-2-column-1".to_owned(),
+                value: RawValue::text("Grace"),
+                location: SourceLocation {
+                    row: Some(2),
+                    column: Some(1),
+                    ..SourceLocation::default()
+                },
+            },
+        ]);
+        let options = SegmentationOptions {
+            strategy: SegmentationStrategy::OneRowPerRecord,
+            join_separator: " | ".to_owned(),
+        };
+
+        let candidates = segment_document(&document, &options);
+
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates[0].text, "Ada | ada@example.test");
+        assert_eq!(
+            candidates[0].source_block_ids,
+            vec!["row-1-column-1", "row-1-column-2"]
+        );
+        assert_eq!(candidates[0].confidence, 0.98);
+        assert_eq!(candidates[1].text, "Grace");
+    }
+
+    #[test]
+    fn indented_continuations_join_with_lower_confidence() {
+        let document = test_document(vec![
+            RawBlock {
+                id: "line-1".to_owned(),
+                value: RawValue::text("Name: Ada"),
+                location: SourceLocation::default(),
+            },
+            RawBlock {
+                id: "line-2".to_owned(),
+                value: RawValue::text("  email: ada@example.test"),
+                location: SourceLocation::default(),
+            },
+            RawBlock {
+                id: "line-3".to_owned(),
+                value: RawValue::text("Name: Grace"),
+                location: SourceLocation::default(),
+            },
+        ]);
+        let options = SegmentationOptions {
+            strategy: SegmentationStrategy::JoinIndentedContinuations,
+            join_separator: "\n".to_owned(),
+        };
+
+        let candidates = segment_document(&document, &options);
+
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates[0].text, "Name: Ada\nemail: ada@example.test");
+        assert_eq!(candidates[0].confidence, 0.85);
+        assert_eq!(candidates[0].reasons[0].code, "indented_continuation");
+        assert_eq!(candidates[1].text, "Name: Grace");
+    }
+
+    #[test]
+    fn segmentation_serializes_candidates_and_keeps_blank_blocks() {
+        let document = test_document(vec![RawBlock {
+            id: "blank".to_owned(),
+            value: RawValue::text(""),
+            location: SourceLocation::default(),
+        }]);
+
+        let candidates = segment_document(&document, &SegmentationOptions::default());
+        let json = serde_json::to_string(&candidates[0]).expect("candidate should serialize");
+        let decoded: RecordCandidate =
+            serde_json::from_str(&json).expect("candidate should deserialize");
+
+        assert_eq!(decoded, candidates[0]);
+        assert_eq!(decoded.source_block_ids, vec!["blank"]);
+        assert_eq!(decoded.text, "");
     }
 
     #[test]

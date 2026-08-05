@@ -102,6 +102,25 @@ pub struct RecordCandidate {
 
 A record may originate from one source block or several joined blocks.
 
+The initial segmentation API uses a bounded `Confidence` score and stable reason metadata:
+
+```rust
+type Confidence = f64;
+
+pub struct Reason {
+    pub code: String,
+    pub message: String,
+}
+
+pub enum SegmentationStrategy {
+    OneBlockPerRecord,
+    OneRowPerRecord,
+    JoinIndentedContinuations,
+}
+```
+
+Current segmentation proposes one-block, one-row, and indented-continuation boundaries. It does not yet split repeated records within one line or infer header/section boundaries.
+
 ## Target schema
 
 ```rust
