@@ -71,9 +71,21 @@ pub struct NormalizedBlock {
     pub normalized_text: String,
     pub transformations: Vec<Transformation>,
 }
+
+pub enum Transformation {
+    LineEndingsNormalized,
+    WhitespaceTrimmed,
+    WhitespaceCollapsed,
+    DashesNormalized,
+    QuotesNormalized,
+    ListMarkerDetected,
+    TimestampPrefixDetected,
+    SenderPrefixDetected,
+    HeadingDetected,
+}
 ```
 
-Normalization derives a representation. It never replaces the raw source.
+Normalization derives a representation. It never replaces the raw source. Noise detections are recorded as transformations and do not delete source prefixes.
 
 ## Record candidate
 

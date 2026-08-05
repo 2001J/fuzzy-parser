@@ -31,6 +31,20 @@ impl RawValue {
     pub fn text(value: impl Into<String>) -> Self {
         Self::Text(value.into())
     }
+
+    pub fn to_text(&self) -> String {
+        match self {
+            Self::Text(value) => value.clone(),
+            Self::Integer(value) => value.to_string(),
+            Self::Decimal(value) => value.to_string(),
+            Self::Boolean(value) => value.to_string(),
+            Self::DateTime(value) => value.to_string(),
+            Self::DateTimeText(value) => value.clone(),
+            Self::Duration(value) => value.clone(),
+            Self::Error(value) => value.clone(),
+            Self::Null => String::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -59,6 +73,49 @@ pub struct RawBlock {
     pub location: SourceLocation,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Transformation {
+    LineEndingsNormalized,
+    WhitespaceTrimmed,
+    WhitespaceCollapsed,
+    DashesNormalized,
+    QuotesNormalized,
+    ListMarkerDetected,
+    TimestampPrefixDetected,
+    SenderPrefixDetected,
+    HeadingDetected,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NormalizationOptions {
+    pub normalize_line_endings: bool,
+    pub trim_whitespace: bool,
+    pub collapse_whitespace: bool,
+    pub normalize_punctuation: bool,
+    pub mark_noise: bool,
+}
+
+impl Default for NormalizationOptions {
+    fn default() -> Self {
+        Self {
+            normalize_line_endings: true,
+            trim_whitespace: true,
+            collapse_whitespace: true,
+            normalize_punctuation: true,
+            mark_noise: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct NormalizedBlock {
+    pub source_block_id: String,
+    pub original: RawValue,
+    pub normalized_text: String,
+    pub transformations: Vec<Transformation>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ParserWarning {
     pub code: String,
@@ -83,6 +140,193 @@ impl RawDocument {
             warnings: Vec::new(),
         }
     }
+}
+
+pub fn normalize_block(block: &RawBlock) -> NormalizedBlock {
+    normalize_block_with_options(block, &NormalizationOptions::default())
+}
+
+pub fn normalize_block_with_options(
+    block: &RawBlock,
+    options: &NormalizationOptions,
+) -> NormalizedBlock {
+    let original = block.value.clone();
+    let mut transformations = Vec::new();
+    let normalized_text = normalize_text(&original.to_text(), options, &mut transformations);
+
+    NormalizedBlock {
+        source_block_id: block.id.clone(),
+        original,
+        normalized_text,
+        transformations,
+    }
+}
+
+pub fn normalize_document(document: &RawDocument) -> Vec<NormalizedBlock> {
+    normalize_document_with_options(document, &NormalizationOptions::default())
+}
+
+pub fn normalize_document_with_options(
+    document: &RawDocument,
+    options: &NormalizationOptions,
+) -> Vec<NormalizedBlock> {
+    document
+        .blocks
+        .iter()
+        .map(|block| normalize_block_with_options(block, options))
+        .collect()
+}
+
+fn normalize_text(
+    input: &str,
+    options: &NormalizationOptions,
+    transformations: &mut Vec<Transformation>,
+) -> String {
+    let mut value = input.to_owned();
+
+    if options.normalize_line_endings {
+        let normalized = value.replace("\r\n", "\n").replace('\r', "\n");
+        if normalized != value {
+            transformations.push(Transformation::LineEndingsNormalized);
+            value = normalized;
+        }
+    }
+
+    if options.normalize_punctuation {
+        let mut dash_changed = false;
+        let mut quote_changed = false;
+        let normalized: String = value
+            .chars()
+            .map(|character| match character {
+                '\u{2010}' | '\u{2011}' | '\u{2012}' | '\u{2013}' | '\u{2014}' | '\u{2212}' => {
+                    dash_changed = true;
+                    '-'
+                }
+                '\u{2018}' | '\u{2019}' => {
+                    quote_changed = true;
+                    '\''
+                }
+                '\u{201c}' | '\u{201d}' => {
+                    quote_changed = true;
+                    '"'
+                }
+                _ => character,
+            })
+            .collect();
+        if dash_changed {
+            transformations.push(Transformation::DashesNormalized);
+        }
+        if quote_changed {
+            transformations.push(Transformation::QuotesNormalized);
+        }
+        if normalized != value {
+            value = normalized;
+        }
+    }
+
+    if options.trim_whitespace {
+        let normalized = value.trim().to_owned();
+        if normalized != value {
+            transformations.push(Transformation::WhitespaceTrimmed);
+            value = normalized;
+        }
+    }
+
+    if options.collapse_whitespace {
+        let normalized = collapse_whitespace(&value);
+        if normalized != value {
+            transformations.push(Transformation::WhitespaceCollapsed);
+            value = normalized;
+        }
+    }
+
+    if options.mark_noise {
+        mark_noise(&value, transformations);
+    }
+
+    value
+}
+
+fn collapse_whitespace(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let mut in_whitespace = false;
+
+    for character in input.chars() {
+        if character.is_whitespace() {
+            if !in_whitespace {
+                output.push(' ');
+            }
+            in_whitespace = true;
+        } else {
+            output.push(character);
+            in_whitespace = false;
+        }
+    }
+
+    output
+}
+
+fn mark_noise(value: &str, transformations: &mut Vec<Transformation>) {
+    if has_list_marker(value) {
+        transformations.push(Transformation::ListMarkerDetected);
+    }
+    if has_timestamp_prefix(value) {
+        transformations.push(Transformation::TimestampPrefixDetected);
+    }
+    if has_sender_prefix(value) {
+        transformations.push(Transformation::SenderPrefixDetected);
+    }
+    if value.starts_with('#') || (value.ends_with(':') && !value.contains(' ')) {
+        transformations.push(Transformation::HeadingDetected);
+    }
+}
+
+fn has_list_marker(value: &str) -> bool {
+    let Some(first) = value.chars().next() else {
+        return false;
+    };
+    if matches!(first, '-' | '*' | '•') {
+        return value.chars().nth(1).is_some_and(char::is_whitespace);
+    }
+
+    let marker_end = value
+        .char_indices()
+        .take_while(|(_, character)| character.is_ascii_digit())
+        .map(|(index, character)| index + character.len_utf8())
+        .last();
+    marker_end.is_some_and(|index| {
+        matches!(value.as_bytes().get(index), Some(b'.' | b')'))
+            && value[index + 1..]
+                .chars()
+                .next()
+                .is_some_and(char::is_whitespace)
+    })
+}
+
+fn has_timestamp_prefix(value: &str) -> bool {
+    let token = value
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .trim_matches(['[', ']']);
+    let Some((hours, minutes)) = token.split_once(':') else {
+        return false;
+    };
+
+    hours.len() <= 2
+        && !hours.is_empty()
+        && minutes.len() == 2
+        && hours.chars().all(|character| character.is_ascii_digit())
+        && minutes.chars().all(|character| character.is_ascii_digit())
+}
+
+fn has_sender_prefix(value: &str) -> bool {
+    if let Some(end) = value.find("]: ") {
+        return value.starts_with('[') && end > 1;
+    }
+    value
+        .split_once(": ")
+        .is_some_and(|(prefix, _)| !prefix.is_empty() && !prefix.contains(' '))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -265,6 +509,95 @@ mod tests {
             error.to_string(),
             "<stdin> line 3 exceeds the 10-byte limit (11 bytes)"
         );
+    }
+
+    #[test]
+    fn normalization_preserves_raw_value_and_records_transforms() {
+        let block = RawBlock {
+            id: "block-1".to_owned(),
+            value: RawValue::text("  Ada  —  “Lovelace”\r\n"),
+            location: SourceLocation::default(),
+        };
+
+        let normalized = normalize_block(&block);
+
+        assert_eq!(normalized.source_block_id, "block-1");
+        assert_eq!(normalized.original, block.value);
+        assert_eq!(normalized.normalized_text, "Ada - \"Lovelace\"");
+        assert_eq!(
+            normalized.transformations,
+            vec![
+                Transformation::LineEndingsNormalized,
+                Transformation::DashesNormalized,
+                Transformation::QuotesNormalized,
+                Transformation::WhitespaceTrimmed,
+                Transformation::WhitespaceCollapsed,
+            ]
+        );
+
+        let json = serde_json::to_string(&normalized).expect("normalized block should serialize");
+        let decoded: NormalizedBlock =
+            serde_json::from_str(&json).expect("normalized block should deserialize");
+        assert_eq!(decoded, normalized);
+    }
+
+    #[test]
+    fn normalization_marks_noise_without_removing_it() {
+        let cases = [
+            ("- item", Transformation::ListMarkerDetected),
+            ("12. item", Transformation::ListMarkerDetected),
+            ("[12:30] Alice", Transformation::TimestampPrefixDetected),
+            ("[Alice]: value", Transformation::SenderPrefixDetected),
+            ("# Heading", Transformation::HeadingDetected),
+        ];
+
+        for (value, expected) in cases {
+            let block = RawBlock {
+                id: value.to_owned(),
+                value: RawValue::text(value),
+                location: SourceLocation::default(),
+            };
+            let normalized = normalize_block(&block);
+
+            assert_eq!(normalized.normalized_text, value);
+            assert!(normalized.transformations.contains(&expected));
+        }
+    }
+
+    #[test]
+    fn normalization_options_can_disable_derived_changes() {
+        let block = RawBlock {
+            id: "block-1".to_owned(),
+            value: RawValue::text("  Ada  —  Lovelace  "),
+            location: SourceLocation::default(),
+        };
+        let options = NormalizationOptions {
+            normalize_line_endings: false,
+            trim_whitespace: false,
+            collapse_whitespace: false,
+            normalize_punctuation: false,
+            mark_noise: false,
+        };
+
+        let normalized = normalize_block_with_options(&block, &options);
+
+        assert_eq!(normalized.normalized_text, "  Ada  —  Lovelace  ");
+        assert!(normalized.transformations.is_empty());
+        assert_eq!(normalized.original, block.value);
+    }
+
+    #[test]
+    fn normalization_converts_typed_values_without_replacing_originals() {
+        let block = RawBlock {
+            id: "number".to_owned(),
+            value: RawValue::Integer(42),
+            location: SourceLocation::default(),
+        };
+
+        let normalized = normalize_block(&block);
+
+        assert_eq!(normalized.normalized_text, "42");
+        assert_eq!(normalized.original, RawValue::Integer(42));
     }
 
     #[test]

@@ -61,6 +61,8 @@ Status: complete.
 
 ## 0.6 — Normalization
 
+Status: complete.
+
 - Normalized block model.
 - Whitespace and punctuation normalization.
 - Recorded transformations.

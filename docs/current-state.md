@@ -18,7 +18,7 @@ The workspace currently contains four crates:
 ## Implemented today
 
 - The workspace compiles as a multi-crate Rust project.
-- `parser-core` provides serializable canonical raw-document models, source locations, raw values, warnings, and structured parser errors.
+- `parser-core` provides serializable canonical raw-document models, source locations, raw values, warnings, structured parser errors, and configurable derived text normalization.
 - `parser-formats` reads UTF-8 TXT files, pasted text, standard input, and CSV files into canonical raw blocks while preserving content and source locations.
 - CSV extraction scores comma, semicolon, tab, and pipe delimiters, supports explicit overrides, quoted/multiline cells, empty cells, and row/column provenance.
 - `parser-formats` reads XLSX workbooks with sheet, row, column, and typed-cell provenance; it reads stored values only and does not execute formulas or macros.
@@ -32,7 +32,6 @@ The workspace currently contains four crates:
 
 The following capabilities are planned but do not exist yet:
 
-- Text normalization.
 - Record segmentation.
 - Field candidate detection.
 - Caller-provided schema parsing and validation.
@@ -56,4 +55,4 @@ cargo build --workspace
 
 ## Immediate next slice
 
-The next implementation slice should add derived text normalization while preserving raw source values and recording transformations. The project still performs extraction only; it does not yet normalize, segment, detect candidates, or assign schema fields.
+The next implementation slice should add record segmentation over normalized blocks, beginning with one-line and one-row strategies. The project does not yet detect candidates or assign schema fields.
