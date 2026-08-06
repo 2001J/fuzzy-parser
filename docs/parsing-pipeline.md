@@ -77,7 +77,7 @@ Output:
 - Reasons for joins or splits.
 - Warnings for ambiguous boundaries.
 
-Segmentation must not fabricate field values.
+The implemented repeated-identifier strategy uses only strong, configured label markers. It splits a block only when one marker repeats from the beginning with non-empty values; near misses and competing marker sets remain intact, with a warning when the boundary is ambiguous. Segmentation must not fabricate field values.
 
 ## 5. Field candidate detection
 

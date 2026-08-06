@@ -76,8 +76,8 @@ Status: in progress.
 - Record candidate model.
 - One-line and one-row strategies.
 - Multiline continuation heuristics.
-- Multiple-records-per-line heuristics.
-- Boundary confidence and reasons.
+- Conservative repeated-identifier splits for multiple records per line, using generic defaults or caller-provided markers.
+- Boundary confidence, reasons, and ambiguity warnings.
 
 ## 0.8 — Schema contract
 

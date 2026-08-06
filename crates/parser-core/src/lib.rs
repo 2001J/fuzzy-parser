@@ -139,6 +139,7 @@ pub enum SegmentationStrategy {
     OneBlockPerRecord,
     OneRowPerRecord,
     JoinIndentedContinuations,
+    SplitRepeatedIdentifiers,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -387,17 +388,33 @@ pub fn segment_document(
     segment_normalized_blocks(document, &normalized, options)
 }
 
+pub fn segment_document_with_repeated_identifier_markers(
+    document: &RawDocument,
+    markers: &[String],
+) -> Vec<RecordCandidate> {
+    let normalized = normalize_document(document);
+    segment_repeated_identifier_blocks(document, &normalized, markers)
+}
+
 pub fn segment_normalized_blocks(
     document: &RawDocument,
     normalized: &[NormalizedBlock],
     options: &SegmentationOptions,
 ) -> Vec<RecordCandidate> {
+    if options.strategy == SegmentationStrategy::SplitRepeatedIdentifiers {
+        let markers = default_repeated_identifier_markers();
+        return segment_repeated_identifier_blocks(document, normalized, &markers);
+    }
+
     let groups = match options.strategy {
         SegmentationStrategy::OneBlockPerRecord => {
             normalized.iter().map(|block| vec![block]).collect()
         }
         SegmentationStrategy::OneRowPerRecord => group_by_row(document, normalized),
         SegmentationStrategy::JoinIndentedContinuations => group_indented_continuations(normalized),
+        SegmentationStrategy::SplitRepeatedIdentifiers => {
+            unreachable!("repeated identifier segmentation is handled before grouping")
+        }
     };
 
     groups
@@ -433,6 +450,9 @@ pub fn segment_normalized_blocks(
                     1.0,
                     Reason::new("record_start", "no continuation evidence joined this block"),
                 ),
+                SegmentationStrategy::SplitRepeatedIdentifiers => unreachable!(
+                    "repeated identifier segmentation is handled before candidate construction"
+                ),
             };
 
             RecordCandidate {
@@ -445,6 +465,199 @@ pub fn segment_normalized_blocks(
             }
         })
         .collect()
+}
+
+const DEFAULT_REPEATED_IDENTIFIER_MARKERS: &[&str] = &["id:", "record:", "item:"];
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RepeatedIdentifierOutcome {
+    Split(Vec<String>),
+    NoEvidence,
+    Ambiguous,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct IdentifierOccurrence {
+    marker: String,
+    start: usize,
+}
+
+fn default_repeated_identifier_markers() -> Vec<String> {
+    DEFAULT_REPEATED_IDENTIFIER_MARKERS
+        .iter()
+        .map(|marker| (*marker).to_owned())
+        .collect()
+}
+
+fn segment_repeated_identifier_blocks(
+    document: &RawDocument,
+    normalized: &[NormalizedBlock],
+    markers: &[String],
+) -> Vec<RecordCandidate> {
+    let mut candidates = Vec::new();
+
+    for block in normalized {
+        match split_on_repeated_identifier(&block.normalized_text, markers) {
+            RepeatedIdentifierOutcome::Split(parts) => {
+                for part in parts {
+                    candidates.push(RecordCandidate {
+                        id: format!("record-{}", candidates.len() + 1),
+                        source_block_ids: vec![block.source_block_id.clone()],
+                        text: part,
+                        confidence: 0.82,
+                        reasons: vec![Reason::new(
+                            "repeated_identifier_boundary",
+                            "a repeated strong identifier marker established a record boundary",
+                        )],
+                        warnings: Vec::new(),
+                    });
+                }
+            }
+            RepeatedIdentifierOutcome::NoEvidence => {
+                candidates.push(RecordCandidate {
+                    id: format!("record-{}", candidates.len() + 1),
+                    source_block_ids: vec![block.source_block_id.clone()],
+                    text: block.normalized_text.clone(),
+                    confidence: 0.9,
+                    reasons: vec![Reason::new(
+                        "no_repeated_identifier_boundary",
+                        "no repeated strong identifier marker established a record boundary",
+                    )],
+                    warnings: Vec::new(),
+                });
+            }
+            RepeatedIdentifierOutcome::Ambiguous => {
+                candidates.push(RecordCandidate {
+                    id: format!("record-{}", candidates.len() + 1),
+                    source_block_ids: vec![block.source_block_id.clone()],
+                    text: block.normalized_text.clone(),
+                    confidence: 0.35,
+                    reasons: vec![Reason::new(
+                        "ambiguous_repeated_identifier_boundary",
+                        "repeated identifier evidence did not establish a safe record boundary",
+                    )],
+                    warnings: vec![ParserWarning {
+                        code: "ambiguous_repeated_identifier_boundary".to_owned(),
+                        message: "the block was kept intact because repeated identifier evidence was ambiguous".to_owned(),
+                        location: source_location(document, &block.source_block_id).cloned(),
+                    }],
+                });
+            }
+        }
+    }
+
+    candidates
+}
+
+fn split_on_repeated_identifier(text: &str, markers: &[String]) -> RepeatedIdentifierOutcome {
+    let occurrences = identifier_occurrences(text, markers);
+    if occurrences.is_empty() {
+        return RepeatedIdentifierOutcome::NoEvidence;
+    }
+
+    let mut marker_positions: Vec<(String, Vec<usize>)> = Vec::new();
+    for occurrence in occurrences {
+        if let Some((_, positions)) = marker_positions
+            .iter_mut()
+            .find(|(marker, _)| marker == &occurrence.marker)
+        {
+            positions.push(occurrence.start);
+        } else {
+            marker_positions.push((occurrence.marker, vec![occurrence.start]));
+        }
+    }
+
+    for (_, positions) in &mut marker_positions {
+        positions.sort_unstable();
+        positions.dedup();
+    }
+
+    let repeated_markers: Vec<_> = marker_positions
+        .into_iter()
+        .filter(|(_, positions)| positions.len() > 1)
+        .collect();
+    if repeated_markers.is_empty() {
+        return RepeatedIdentifierOutcome::NoEvidence;
+    }
+    if repeated_markers.len() > 1 {
+        return RepeatedIdentifierOutcome::Ambiguous;
+    }
+
+    let (marker, positions) = repeated_markers
+        .into_iter()
+        .next()
+        .expect("repeated marker exists");
+    if positions[0] != 0 {
+        return RepeatedIdentifierOutcome::Ambiguous;
+    }
+
+    let parts = positions
+        .iter()
+        .enumerate()
+        .map(|(index, start)| {
+            let end = positions.get(index + 1).copied().unwrap_or(text.len());
+            text[*start..end].trim().to_owned()
+        })
+        .collect::<Vec<_>>();
+    let has_values = positions.iter().enumerate().all(|(index, start)| {
+        let value_start = start + marker.len();
+        let value_end = positions.get(index + 1).copied().unwrap_or(text.len());
+        !text[value_start..value_end].trim().is_empty()
+    });
+
+    if !has_values || parts.iter().any(String::is_empty) {
+        RepeatedIdentifierOutcome::Ambiguous
+    } else {
+        RepeatedIdentifierOutcome::Split(parts)
+    }
+}
+
+fn identifier_occurrences(text: &str, markers: &[String]) -> Vec<IdentifierOccurrence> {
+    let lowered_text = text.to_ascii_lowercase();
+    let mut occurrences = Vec::new();
+
+    for marker in markers {
+        let marker = marker.trim().to_ascii_lowercase();
+        if marker.is_empty() || (!marker.ends_with(':') && !marker.ends_with('=')) {
+            continue;
+        }
+
+        let mut search_start = 0;
+        while search_start < lowered_text.len() {
+            let Some(relative_start) = lowered_text[search_start..].find(&marker) else {
+                break;
+            };
+            let start = search_start + relative_start;
+            let end = start + marker.len();
+            if is_strong_identifier_occurrence(text, start, end) {
+                occurrences.push(IdentifierOccurrence {
+                    marker: marker.clone(),
+                    start,
+                });
+            }
+            search_start = end.max(start + 1);
+        }
+    }
+
+    occurrences.sort_by(|left, right| {
+        left.start
+            .cmp(&right.start)
+            .then_with(|| left.marker.len().cmp(&right.marker.len()))
+            .then_with(|| left.marker.cmp(&right.marker))
+    });
+    occurrences
+}
+
+fn is_strong_identifier_occurrence(text: &str, start: usize, end: usize) -> bool {
+    let before_is_boundary = text[..start].chars().next_back().is_none_or(|character| {
+        character.is_whitespace() || matches!(character, '|' | ';' | ',' | '(' | '[')
+    });
+    let after_is_value = text[end..]
+        .chars()
+        .next()
+        .is_some_and(|character| character.is_whitespace() || character == '=');
+
+    before_is_boundary && after_is_value
 }
 
 fn group_by_row<'a>(
@@ -916,6 +1129,107 @@ mod tests {
         assert_eq!(candidates[0].confidence, 0.85);
         assert_eq!(candidates[0].reasons[0].code, "indented_continuation");
         assert_eq!(candidates[1].text, "Name: Grace");
+    }
+
+    #[test]
+    fn repeated_identifier_strategy_splits_one_block_without_losing_source_reference() {
+        let document = test_document(vec![RawBlock {
+            id: "line-1".to_owned(),
+            value: RawValue::text("ID: first ID: second"),
+            location: SourceLocation {
+                line: Some(1),
+                ..SourceLocation::default()
+            },
+        }]);
+        let options = SegmentationOptions {
+            strategy: SegmentationStrategy::SplitRepeatedIdentifiers,
+            join_separator: " | ".to_owned(),
+        };
+
+        let candidates = segment_document(&document, &options);
+
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates[0].text, "ID: first");
+        assert_eq!(candidates[1].text, "ID: second");
+        assert_eq!(candidates[0].source_block_ids, vec!["line-1"]);
+        assert_eq!(candidates[1].source_block_ids, vec!["line-1"]);
+        assert_eq!(candidates[0].confidence, 0.82);
+        assert_eq!(
+            candidates[0].reasons[0].code,
+            "repeated_identifier_boundary"
+        );
+    }
+
+    #[test]
+    fn repeated_identifier_strategy_keeps_near_miss_intact() {
+        let document = test_document(vec![RawBlock {
+            id: "line-1".to_owned(),
+            value: RawValue::text("ID: first identifier: second"),
+            location: SourceLocation::default(),
+        }]);
+        let options = SegmentationOptions {
+            strategy: SegmentationStrategy::SplitRepeatedIdentifiers,
+            join_separator: "\n".to_owned(),
+        };
+
+        let candidates = segment_document(&document, &options);
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].text, "ID: first identifier: second");
+        assert_eq!(candidates[0].confidence, 0.9);
+        assert!(candidates[0].warnings.is_empty());
+    }
+
+    #[test]
+    fn repeated_identifier_strategy_reports_ambiguous_marker_sets() {
+        let document = test_document(vec![RawBlock {
+            id: "line-1".to_owned(),
+            value: RawValue::text("ID: first ID: second Record: third Record: fourth"),
+            location: SourceLocation {
+                line: Some(7),
+                ..SourceLocation::default()
+            },
+        }]);
+        let options = SegmentationOptions {
+            strategy: SegmentationStrategy::SplitRepeatedIdentifiers,
+            join_separator: "\n".to_owned(),
+        };
+
+        let candidates = segment_document(&document, &options);
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].confidence, 0.35);
+        assert_eq!(
+            candidates[0].reasons[0].code,
+            "ambiguous_repeated_identifier_boundary"
+        );
+        assert_eq!(
+            candidates[0].warnings[0]
+                .location
+                .as_ref()
+                .and_then(|location| location.line),
+            Some(7)
+        );
+    }
+
+    #[test]
+    fn repeated_identifier_markers_can_be_supplied_by_the_caller() {
+        let document = test_document(vec![RawBlock {
+            id: "line-1".to_owned(),
+            value: RawValue::text("Ref: first Ref: second"),
+            location: SourceLocation::default(),
+        }]);
+        let markers = vec!["Ref:".to_owned()];
+
+        let candidates = segment_document_with_repeated_identifier_markers(&document, &markers);
+
+        assert_eq!(
+            candidates
+                .iter()
+                .map(|candidate| candidate.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Ref: first", "Ref: second"]
+        );
     }
 
     #[test]
