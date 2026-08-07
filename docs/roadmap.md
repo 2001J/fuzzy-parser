@@ -71,12 +71,13 @@ Status: complete.
 
 ## 0.7 — Record segmentation
 
-Status: in progress.
+Status: complete.
 
 - Record candidate model.
 - One-line and one-row strategies.
 - Multiline continuation heuristics.
 - Conservative repeated-identifier splits for multiple records per line, using generic defaults or caller-provided markers.
+- Heading-aware boundaries that preserve section markers and warn on ambiguous indented content.
 - Boundary confidence, reasons, and ambiguity warnings.
 
 ## 0.8 — Schema contract

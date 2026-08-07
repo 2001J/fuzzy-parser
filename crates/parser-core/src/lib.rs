@@ -430,6 +430,12 @@ pub fn segment_normalized_blocks(
                 .iter()
                 .map(|block| block.source_block_id.clone())
                 .collect();
+            let heading_warning = if options.strategy == SegmentationStrategy::JoinIndentedContinuations
+            {
+                heading_following_warning(document, normalized, &group)
+            } else {
+                None
+            };
             let (confidence, reason) = match options.strategy {
                 SegmentationStrategy::OneBlockPerRecord => (
                     1.0,
@@ -438,6 +444,21 @@ pub fn segment_normalized_blocks(
                 SegmentationStrategy::OneRowPerRecord => (
                     0.98,
                     Reason::new("one_row_boundary", "source cells share one row"),
+                ),
+                SegmentationStrategy::JoinIndentedContinuations if heading_warning.is_some() => (
+                    0.35,
+                    Reason::new(
+                        "ambiguous_heading_continuation",
+                        "indented text after a heading was kept separate because its record boundary is ambiguous",
+                    ),
+                ),
+                SegmentationStrategy::JoinIndentedContinuations
+                    if group.len() == 1 && is_heading_block(group[0]) => (
+                    0.98,
+                    Reason::new(
+                        "heading_boundary",
+                        "a heading-marked source block starts a visible section boundary",
+                    ),
                 ),
                 SegmentationStrategy::JoinIndentedContinuations if group.len() > 1 => (
                     0.85,
@@ -461,7 +482,7 @@ pub fn segment_normalized_blocks(
                 text: joined,
                 confidence,
                 reasons: vec![reason],
-                warnings: Vec::new(),
+                warnings: heading_warning.into_iter().collect(),
             }
         })
         .collect()
@@ -685,9 +706,12 @@ fn group_indented_continuations(normalized: &[NormalizedBlock]) -> Vec<Vec<&Norm
     let mut groups: Vec<Vec<&NormalizedBlock>> = Vec::new();
 
     for block in normalized {
+        let previous = groups.last().and_then(|group| group.last()).copied();
         let joins_previous = !block.normalized_text.is_empty()
             && has_leading_whitespace(&block.original)
-            && groups.last().is_some();
+            && previous.is_some()
+            && !is_heading_block(block)
+            && !previous.is_some_and(is_heading_block);
         if joins_previous {
             groups.last_mut().expect("group exists").push(block);
         } else {
@@ -696,6 +720,41 @@ fn group_indented_continuations(normalized: &[NormalizedBlock]) -> Vec<Vec<&Norm
     }
 
     groups
+}
+
+fn is_heading_block(block: &NormalizedBlock) -> bool {
+    block
+        .transformations
+        .contains(&Transformation::HeadingDetected)
+}
+
+fn heading_following_warning(
+    document: &RawDocument,
+    normalized: &[NormalizedBlock],
+    group: &[&NormalizedBlock],
+) -> Option<ParserWarning> {
+    let [block] = group else {
+        return None;
+    };
+    if !has_leading_whitespace(&block.original) {
+        return None;
+    }
+
+    let block_index = normalized
+        .iter()
+        .position(|candidate| candidate.source_block_id == block.source_block_id)?;
+    let previous = block_index
+        .checked_sub(1)
+        .and_then(|index| normalized.get(index))?;
+    if !is_heading_block(previous) {
+        return None;
+    }
+
+    Some(ParserWarning {
+        code: "ambiguous_heading_continuation".to_owned(),
+        message: "indented text after a heading was kept separate because its record boundary is ambiguous".to_owned(),
+        location: source_location(document, &block.source_block_id).cloned(),
+    })
 }
 
 fn has_leading_whitespace(value: &RawValue) -> bool {
@@ -1129,6 +1188,94 @@ mod tests {
         assert_eq!(candidates[0].confidence, 0.85);
         assert_eq!(candidates[0].reasons[0].code, "indented_continuation");
         assert_eq!(candidates[1].text, "Name: Grace");
+    }
+
+    #[test]
+    fn heading_boundaries_keep_sections_observable_and_warn_on_indented_followers() {
+        let document = test_document(vec![
+            RawBlock {
+                id: "line-1".to_owned(),
+                value: RawValue::text("Name: Ada"),
+                location: SourceLocation {
+                    line: Some(1),
+                    ..SourceLocation::default()
+                },
+            },
+            RawBlock {
+                id: "line-2".to_owned(),
+                value: RawValue::text("  email: ada@example.test"),
+                location: SourceLocation {
+                    line: Some(2),
+                    ..SourceLocation::default()
+                },
+            },
+            RawBlock {
+                id: "line-3".to_owned(),
+                value: RawValue::text("# Section"),
+                location: SourceLocation {
+                    line: Some(3),
+                    ..SourceLocation::default()
+                },
+            },
+            RawBlock {
+                id: "line-4".to_owned(),
+                value: RawValue::text("  section text"),
+                location: SourceLocation {
+                    line: Some(4),
+                    ..SourceLocation::default()
+                },
+            },
+        ]);
+        let options = SegmentationOptions {
+            strategy: SegmentationStrategy::JoinIndentedContinuations,
+            join_separator: "\n".to_owned(),
+        };
+
+        let candidates = segment_document(&document, &options);
+
+        assert_eq!(candidates.len(), 3);
+        assert_eq!(candidates[0].text, "Name: Ada\nemail: ada@example.test");
+        assert_eq!(candidates[1].text, "# Section");
+        assert_eq!(candidates[1].reasons[0].code, "heading_boundary");
+        assert_eq!(candidates[2].text, "section text");
+        assert_eq!(candidates[2].confidence, 0.35);
+        assert_eq!(
+            candidates[2].warnings[0].code,
+            "ambiguous_heading_continuation"
+        );
+        assert_eq!(
+            candidates[2].warnings[0]
+                .location
+                .as_ref()
+                .and_then(|location| location.line),
+            Some(4)
+        );
+    }
+
+    #[test]
+    fn indented_heading_does_not_join_the_previous_record() {
+        let document = test_document(vec![
+            RawBlock {
+                id: "line-1".to_owned(),
+                value: RawValue::text("Name: Ada"),
+                location: SourceLocation::default(),
+            },
+            RawBlock {
+                id: "line-2".to_owned(),
+                value: RawValue::text("  # Section"),
+                location: SourceLocation::default(),
+            },
+        ]);
+        let options = SegmentationOptions {
+            strategy: SegmentationStrategy::JoinIndentedContinuations,
+            join_separator: "\n".to_owned(),
+        };
+
+        let candidates = segment_document(&document, &options);
+
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates[1].text, "# Section");
+        assert_eq!(candidates[1].reasons[0].code, "heading_boundary");
     }
 
     #[test]
