@@ -7,3 +7,4 @@ edition.workspace = true
 path = "src/lib.rs"
 
 [dependencies]
+serde = { version = "1", features = ["derive"] }
