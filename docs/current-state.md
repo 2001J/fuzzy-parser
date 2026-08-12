@@ -22,6 +22,7 @@ The workspace currently contains four crates:
 - `parser-formats` reads UTF-8 TXT files, pasted text, standard input, and CSV files into canonical raw blocks while preserving content and source locations.
 - CSV extraction scores comma, semicolon, tab, and pipe delimiters, supports explicit overrides, quoted/multiline cells, empty cells, and row/column provenance.
 - `parser-formats` reads XLSX workbooks with sheet, row, column, and typed-cell provenance; it reads stored values only and does not execute formulas or macros.
+- `parser-schema` provides serializable generic target-schema models for fields, enum values, aliases, and basic constraints, plus structural schema validation.
 - `parser-formats` exposes configurable default-safe byte and line-length limits for text input.
 - The CLI supports `inspect <path>` for TXT, CSV, and XLSX files, `inspect --stdin`, and `inspect --text <content>`, emitting the canonical raw document as JSON with structured errors and nonzero exit codes.
 - GitHub Actions runs formatting, Clippy, tests, and a workspace build on pull requests and pushes to `main`.
@@ -33,7 +34,7 @@ The workspace currently contains four crates:
 The following capabilities are planned but do not exist yet:
 
 - Field candidate detection.
-- Caller-provided schema parsing and validation.
+- CLI schema loading and caller-provided schema parsing.
 - Candidate-to-field assignment.
 - Confidence scoring or explanations.
 - Structured warnings or rejected fragments.
