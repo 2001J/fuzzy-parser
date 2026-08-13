@@ -168,6 +168,113 @@ pub struct RecordCandidate {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TextSpan {
+    pub byte_start: usize,
+    pub byte_end: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CandidateType {
+    Email,
+    Integer,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FieldCandidate {
+    pub candidate_type: CandidateType,
+    pub raw_value: String,
+    pub normalized_value: Option<serde_json::Value>,
+    pub source_span: TextSpan,
+    pub confidence: Confidence,
+    pub reasons: Vec<Reason>,
+}
+
+pub fn detect_email_candidates(text: &str) -> Vec<FieldCandidate> {
+    text.split_whitespace()
+        .scan(0, |search_start, token| {
+            let start = text[*search_start..].find(token)? + *search_start;
+            *search_start = start + token.len();
+            Some((start, token))
+        })
+        .filter_map(|(token_start, token)| {
+            let value = token.trim_matches(|character: char| {
+                matches!(
+                    character,
+                    '.' | ',' | ';' | ':' | '(' | ')' | '[' | ']' | '<' | '>'
+                )
+            });
+            if !is_email(value) {
+                return None;
+            }
+            let value_offset = token.find(value)?;
+            let byte_start = token_start + value_offset;
+            let byte_end = byte_start + value.len();
+            Some(FieldCandidate {
+                candidate_type: CandidateType::Email,
+                raw_value: value.to_owned(),
+                normalized_value: Some(serde_json::Value::String(value.to_ascii_lowercase())),
+                source_span: TextSpan {
+                    byte_start,
+                    byte_end,
+                },
+                confidence: 0.98,
+                reasons: vec![Reason::new(
+                    "email_pattern_match",
+                    "the value matches a conservative email pattern",
+                )],
+            })
+        })
+        .collect()
+}
+
+fn is_email(value: &str) -> bool {
+    let Some((local, domain)) = value.split_once('@') else {
+        return false;
+    };
+    !local.is_empty()
+        && !domain.is_empty()
+        && domain.contains('.')
+        && value.chars().all(|character| {
+            character.is_ascii_alphanumeric()
+                || matches!(character, '.' | '_' | '%' | '+' | '-' | '@')
+        })
+}
+
+pub fn detect_integer_candidates(text: &str) -> Vec<FieldCandidate> {
+    text.split_whitespace()
+        .scan(0, |search_start, token| {
+            let start = text[*search_start..].find(token)? + *search_start;
+            *search_start = start + token.len();
+            Some((start, token))
+        })
+        .filter_map(|(token_start, token)| {
+            let value = token.trim_matches(|character: char| {
+                matches!(character, '.' | ',' | ';' | ':' | '(' | ')' | '[' | ']')
+            });
+            let parsed = value.parse::<i64>().ok()?;
+            let value_offset = token.find(value)?;
+            let byte_start = token_start + value_offset;
+            let byte_end = byte_start + value.len();
+            Some(FieldCandidate {
+                candidate_type: CandidateType::Integer,
+                raw_value: value.to_owned(),
+                normalized_value: Some(serde_json::Value::Number(parsed.into())),
+                source_span: TextSpan {
+                    byte_start,
+                    byte_end,
+                },
+                confidence: 0.96,
+                reasons: vec![Reason::new(
+                    "integer_pattern_match",
+                    "the value is a complete signed integer token",
+                )],
+            })
+        })
+        .collect()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ParserWarning {
     pub code: String,
     pub message: String,
@@ -957,6 +1064,49 @@ mod tests {
             serde_json::from_str(&json).expect("document should deserialize");
 
         assert_eq!(decoded, document);
+    }
+
+    #[test]
+    fn email_detection_preserves_value_and_byte_span() {
+        let text = "Contact: Ada ada@example.test.";
+        let candidates = detect_email_candidates(text);
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].candidate_type, CandidateType::Email);
+        assert_eq!(candidates[0].raw_value, "ada@example.test");
+        assert_eq!(
+            &text[candidates[0].source_span.byte_start..candidates[0].source_span.byte_end],
+            "ada@example.test"
+        );
+        assert_eq!(
+            candidates[0].normalized_value,
+            Some(serde_json::Value::String("ada@example.test".to_owned()))
+        );
+    }
+
+    #[test]
+    fn email_detection_ignores_near_misses() {
+        assert!(detect_email_candidates("missing-at.example invalid@localhost").is_empty());
+    }
+
+    #[test]
+    fn integer_detection_returns_normalized_values_and_spans() {
+        let text = "count: -42, next 7.";
+        let candidates = detect_integer_candidates(text);
+
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates[0].raw_value, "-42");
+        assert_eq!(candidates[0].normalized_value, Some(serde_json::json!(-42)));
+        assert_eq!(
+            &text[candidates[0].source_span.byte_start..candidates[0].source_span.byte_end],
+            "-42"
+        );
+        assert_eq!(candidates[1].raw_value, "7");
+    }
+
+    #[test]
+    fn integer_detection_does_not_extract_digits_from_mixed_tokens() {
+        assert!(detect_integer_candidates("phone 555-0123 room12").is_empty());
     }
 
     #[test]
