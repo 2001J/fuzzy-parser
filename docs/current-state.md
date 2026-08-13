@@ -19,6 +19,7 @@ The workspace currently contains four crates:
 
 - The workspace compiles as a multi-crate Rust project.
 - `parser-core` provides serializable canonical raw-document models, source locations, raw values, warnings, structured parser errors, configurable derived text normalization, and deterministic record segmentation strategies including repeated-identifier splitting and heading-aware boundaries.
+- `parser-core` detects conservative email and integer field candidates with raw values, normalized values, confidence, reason codes, and byte-accurate source spans.
 - `parser-formats` reads UTF-8 TXT files, pasted text, standard input, and CSV files into canonical raw blocks while preserving content and source locations.
 - CSV extraction scores comma, semicolon, tab, and pipe delimiters, supports explicit overrides, quoted/multiline cells, empty cells, and row/column provenance.
 - `parser-formats` reads XLSX workbooks with sheet, row, column, and typed-cell provenance; it reads stored values only and does not execute formulas or macros.
@@ -33,7 +34,7 @@ The workspace currently contains four crates:
 
 The following capabilities are planned but do not exist yet:
 
-- Field candidate detection.
+- Additional field candidate detection beyond email and integer values.
 - CLI schema loading and caller-provided schema parsing.
 - Candidate-to-field assignment.
 - Confidence scoring or explanations.
@@ -55,4 +56,4 @@ cargo build --workspace
 
 ## Immediate next slice
 
-The next implementation slice should establish the caller-provided schema contract. The project does not yet detect field candidates or assign schema fields.
+The next implementation slice should extend candidate detection to phone, decimal, date, boolean, and caller-defined enum values before schema-driven assignment.
