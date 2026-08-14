@@ -178,6 +178,8 @@ pub struct TextSpan {
 pub enum CandidateType {
     Email,
     Integer,
+    Decimal,
+    PhoneNumber,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -268,6 +270,85 @@ pub fn detect_integer_candidates(text: &str) -> Vec<FieldCandidate> {
                 reasons: vec![Reason::new(
                     "integer_pattern_match",
                     "the value is a complete signed integer token",
+                )],
+            })
+        })
+        .collect()
+}
+
+pub fn detect_decimal_candidates(text: &str) -> Vec<FieldCandidate> {
+    text.split_whitespace()
+        .scan(0, |search_start, token| {
+            let start = text[*search_start..].find(token)? + *search_start;
+            *search_start = start + token.len();
+            Some((start, token))
+        })
+        .filter_map(|(token_start, token)| {
+            let value = token.trim_matches(|character: char| {
+                matches!(character, ',' | ';' | ':' | '(' | ')' | '[' | ']')
+            });
+            if !value.contains('.') || value.parse::<f64>().is_err() || value.parse::<i64>().is_ok()
+            {
+                return None;
+            }
+            let value_offset = token.find(value)?;
+            let byte_start = token_start + value_offset;
+            let byte_end = byte_start + value.len();
+            Some(FieldCandidate {
+                candidate_type: CandidateType::Decimal,
+                raw_value: value.to_owned(),
+                normalized_value: Some(serde_json::json!(value.parse::<f64>().ok()?)),
+                source_span: TextSpan {
+                    byte_start,
+                    byte_end,
+                },
+                confidence: 0.94,
+                reasons: vec![Reason::new(
+                    "decimal_pattern_match",
+                    "the value is a complete decimal token",
+                )],
+            })
+        })
+        .collect()
+}
+
+pub fn detect_phone_candidates(text: &str) -> Vec<FieldCandidate> {
+    text.split_whitespace()
+        .scan(0, |search_start, token| {
+            let start = text[*search_start..].find(token)? + *search_start;
+            *search_start = start + token.len();
+            Some((start, token))
+        })
+        .filter_map(|(token_start, token)| {
+            let value = token.trim_matches(|character: char| {
+                matches!(character, '.' | ',' | ';' | ':' | '(' | ')' | '[' | ']')
+            });
+            let digits = value
+                .chars()
+                .filter(char::is_ascii_digit)
+                .collect::<String>();
+            if !(7..=15).contains(&digits.len())
+                || !value.chars().all(|character| {
+                    character.is_ascii_digit() || matches!(character, '+' | '-' | '(' | ')' | '.')
+                })
+            {
+                return None;
+            }
+            let value_offset = token.find(value)?;
+            let byte_start = token_start + value_offset;
+            let byte_end = byte_start + value.len();
+            Some(FieldCandidate {
+                candidate_type: CandidateType::PhoneNumber,
+                raw_value: value.to_owned(),
+                normalized_value: Some(serde_json::Value::String(digits)),
+                source_span: TextSpan {
+                    byte_start,
+                    byte_end,
+                },
+                confidence: 0.88,
+                reasons: vec![Reason::new(
+                    "phone_pattern_match",
+                    "the value contains a plausible number of phone digits and valid separators",
                 )],
             })
         })
@@ -1107,6 +1188,43 @@ mod tests {
     #[test]
     fn integer_detection_does_not_extract_digits_from_mixed_tokens() {
         assert!(detect_integer_candidates("phone 555-0123 room12").is_empty());
+    }
+
+    #[test]
+    fn decimal_detection_excludes_integers_and_normalizes_values() {
+        let text = "whole 7 decimal -12.50, invalid 1.2.3";
+        let candidates = detect_decimal_candidates(text);
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].candidate_type, CandidateType::Decimal);
+        assert_eq!(candidates[0].raw_value, "-12.50");
+        assert_eq!(
+            candidates[0].normalized_value,
+            Some(serde_json::json!(-12.5))
+        );
+    }
+
+    #[test]
+    fn phone_detection_normalizes_separators_and_preserves_span() {
+        let text = "call +1-555-012-3456.";
+        let candidates = detect_phone_candidates(text);
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].candidate_type, CandidateType::PhoneNumber);
+        assert_eq!(candidates[0].raw_value, "+1-555-012-3456");
+        assert_eq!(
+            candidates[0].normalized_value,
+            Some(serde_json::json!("15550123456"))
+        );
+        assert_eq!(
+            &text[candidates[0].source_span.byte_start..candidates[0].source_span.byte_end],
+            "+1-555-012-3456"
+        );
+    }
+
+    #[test]
+    fn phone_detection_ignores_short_and_mixed_tokens() {
+        assert!(detect_phone_candidates("room 12345 code A5550123").is_empty());
     }
 
     #[test]
