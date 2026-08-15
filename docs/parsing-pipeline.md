@@ -95,7 +95,7 @@ Initial detector types may include:
 - Residual text.
 - Person-name candidate.
 
-Email, integer, decimal, and phone-number detection are currently implemented with conservative whole-token matching. These detectors preserve raw values, provide normalized values where safe, and report byte-accurate source spans.
+Email, integer, decimal, phone-number, boolean, and date detection are currently implemented with conservative whole-token matching. These detectors preserve raw values, provide normalized values where safe, and report byte-accurate source spans.
 
 Each candidate records:
 
