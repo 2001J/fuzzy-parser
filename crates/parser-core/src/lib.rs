@@ -180,6 +180,8 @@ pub enum CandidateType {
     Integer,
     Decimal,
     PhoneNumber,
+    Boolean,
+    Date,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -353,6 +355,100 @@ pub fn detect_phone_candidates(text: &str) -> Vec<FieldCandidate> {
             })
         })
         .collect()
+}
+
+pub fn detect_boolean_candidates(text: &str) -> Vec<FieldCandidate> {
+    text.split_whitespace()
+        .scan(0, |search_start, token| {
+            let start = text[*search_start..].find(token)? + *search_start;
+            *search_start = start + token.len();
+            Some((start, token))
+        })
+        .filter_map(|(token_start, token)| {
+            let value = token.trim_matches(|character: char| {
+                matches!(character, '.' | ',' | ';' | ':' | '(' | ')' | '[' | ']')
+            });
+            let normalized = match value.to_ascii_lowercase().as_str() {
+                "true" | "yes" | "on" => true,
+                "false" | "no" | "off" => false,
+                _ => return None,
+            };
+            let value_offset = token.find(value)?;
+            let byte_start = token_start + value_offset;
+            let byte_end = byte_start + value.len();
+            Some(FieldCandidate {
+                candidate_type: CandidateType::Boolean,
+                raw_value: value.to_owned(),
+                normalized_value: Some(serde_json::Value::Bool(normalized)),
+                source_span: TextSpan {
+                    byte_start,
+                    byte_end,
+                },
+                confidence: 0.93,
+                reasons: vec![Reason::new(
+                    "boolean_alias_match",
+                    "the value matches a configured generic boolean alias",
+                )],
+            })
+        })
+        .collect()
+}
+
+pub fn detect_date_candidates(text: &str) -> Vec<FieldCandidate> {
+    text.split_whitespace()
+        .scan(0, |search_start, token| {
+            let start = text[*search_start..].find(token)? + *search_start;
+            *search_start = start + token.len();
+            Some((start, token))
+        })
+        .filter_map(|(token_start, token)| {
+            let value = token.trim_matches(|character: char| {
+                matches!(character, ',' | ';' | ':' | '(' | ')' | '[' | ']')
+            });
+            let (year, month, day, separator) = parse_date(value)?;
+            let value_offset = token.find(value)?;
+            let byte_start = token_start + value_offset;
+            let byte_end = byte_start + value.len();
+            Some(FieldCandidate {
+                candidate_type: CandidateType::Date,
+                raw_value: value.to_owned(),
+                normalized_value: Some(serde_json::json!(format!("{year:04}-{month:02}-{day:02}"))),
+                source_span: TextSpan {
+                    byte_start,
+                    byte_end,
+                },
+                confidence: if separator == '-' { 0.96 } else { 0.91 },
+                reasons: vec![Reason::new(
+                    "date_pattern_match",
+                    "the value matches a validated year-month-day pattern",
+                )],
+            })
+        })
+        .collect()
+}
+
+fn parse_date(value: &str) -> Option<(u32, u32, u32, char)> {
+    let separator = if value.contains('-') { '-' } else { '/' };
+    let parts = value.split(separator).collect::<Vec<_>>();
+    if parts.len() != 3 || parts.iter().any(|part| part.len() != 2 && part.len() != 4) {
+        return None;
+    }
+    if parts[0].len() != 4 || parts[1].len() != 2 || parts[2].len() != 2 {
+        return None;
+    }
+    let year = parts[0].parse::<u32>().ok()?;
+    let month = parts[1].parse::<u32>().ok()?;
+    let day = parts[2].parse::<u32>().ok()?;
+    let days_in_month = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if year.is_multiple_of(400) || (year.is_multiple_of(4) && !year.is_multiple_of(100)) => {
+            29
+        }
+        2 => 28,
+        _ => return None,
+    };
+    (day > 0 && day <= days_in_month).then_some((year, month, day, separator))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1225,6 +1321,46 @@ mod tests {
     #[test]
     fn phone_detection_ignores_short_and_mixed_tokens() {
         assert!(detect_phone_candidates("room 12345 code A5550123").is_empty());
+    }
+
+    #[test]
+    fn boolean_detection_normalizes_common_aliases() {
+        let candidates = detect_boolean_candidates("Enabled: YES disabled: off maybe");
+
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates[0].raw_value, "YES");
+        assert_eq!(
+            candidates[0].normalized_value,
+            Some(serde_json::json!(true))
+        );
+        assert_eq!(candidates[1].raw_value, "off");
+        assert_eq!(
+            candidates[1].normalized_value,
+            Some(serde_json::json!(false))
+        );
+    }
+
+    #[test]
+    fn boolean_detection_ignores_embedded_aliases() {
+        assert!(detect_boolean_candidates("yesterday onboard truthful").is_empty());
+    }
+
+    #[test]
+    fn date_detection_normalizes_supported_formats() {
+        let text = "started 2026-08-23, renewed 2027/01/05";
+        let candidates = detect_date_candidates(text);
+
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates[0].raw_value, "2026-08-23");
+        assert_eq!(
+            candidates[1].normalized_value,
+            Some(serde_json::json!("2027-01-05"))
+        );
+    }
+
+    #[test]
+    fn date_detection_rejects_invalid_calendar_values() {
+        assert!(detect_date_candidates("2026-02-29 2026-13-01 26-01-01").is_empty());
     }
 
     #[test]
