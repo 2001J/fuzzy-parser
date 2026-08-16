@@ -182,6 +182,8 @@ pub enum CandidateType {
     PhoneNumber,
     Boolean,
     Date,
+    Currency,
+    Enum,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -421,6 +423,84 @@ pub fn detect_date_candidates(text: &str) -> Vec<FieldCandidate> {
                 reasons: vec![Reason::new(
                     "date_pattern_match",
                     "the value matches a validated year-month-day pattern",
+                )],
+            })
+        })
+        .collect()
+}
+
+pub fn detect_currency_candidates(text: &str) -> Vec<FieldCandidate> {
+    text.split_whitespace()
+        .scan(0, |search_start, token| {
+            let start = text[*search_start..].find(token)? + *search_start;
+            *search_start = start + token.len();
+            Some((start, token))
+        })
+        .filter_map(|(token_start, token)| {
+            let value = token.trim_matches(|character: char| {
+                matches!(character, ',' | ';' | ':' | '(' | ')' | '[' | ']')
+            });
+            let numeric = value.trim_start_matches(['$', '€', '£', '¥']);
+            if numeric == value || numeric.parse::<f64>().is_err() {
+                return None;
+            }
+            let amount = numeric.parse::<f64>().ok()?;
+            let value_offset = token.find(value)?;
+            let byte_start = token_start + value_offset;
+            let byte_end = byte_start + value.len();
+            Some(FieldCandidate {
+                candidate_type: CandidateType::Currency,
+                raw_value: value.to_owned(),
+                normalized_value: Some(serde_json::json!(amount)),
+                source_span: TextSpan {
+                    byte_start,
+                    byte_end,
+                },
+                confidence: 0.92,
+                reasons: vec![Reason::new(
+                    "currency_symbol_match",
+                    "the value has a recognized currency symbol and numeric amount",
+                )],
+            })
+        })
+        .collect()
+}
+
+pub fn detect_enum_candidates(
+    text: &str,
+    definitions: &[(String, Vec<String>)],
+) -> Vec<FieldCandidate> {
+    text.split_whitespace()
+        .scan(0, |search_start, token| {
+            let start = text[*search_start..].find(token)? + *search_start;
+            *search_start = start + token.len();
+            Some((start, token))
+        })
+        .filter_map(|(token_start, token)| {
+            let value = token.trim_matches(|character: char| {
+                matches!(character, '.' | ',' | ';' | ':' | '(' | ')' | '[' | ']')
+            });
+            let definition = definitions.iter().find(|(canonical, aliases)| {
+                canonical.eq_ignore_ascii_case(value)
+                    || aliases
+                        .iter()
+                        .any(|alias| alias.eq_ignore_ascii_case(value))
+            })?;
+            let value_offset = token.find(value)?;
+            let byte_start = token_start + value_offset;
+            let byte_end = byte_start + value.len();
+            Some(FieldCandidate {
+                candidate_type: CandidateType::Enum,
+                raw_value: value.to_owned(),
+                normalized_value: Some(serde_json::Value::String(definition.0.clone())),
+                source_span: TextSpan {
+                    byte_start,
+                    byte_end,
+                },
+                confidence: 0.9,
+                reasons: vec![Reason::new(
+                    "enum_alias_match",
+                    "the value matches a caller-provided enum value or alias",
                 )],
             })
         })
@@ -1321,6 +1401,57 @@ mod tests {
     #[test]
     fn phone_detection_ignores_short_and_mixed_tokens() {
         assert!(detect_phone_candidates("room 12345 code A5550123").is_empty());
+    }
+
+    #[test]
+    fn currency_detection_normalizes_symbol_amounts_and_preserves_span() {
+        let text = "Total: $12.50, other EUR 9.00";
+        let candidates = detect_currency_candidates(text);
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].candidate_type, CandidateType::Currency);
+        assert_eq!(candidates[0].raw_value, "$12.50");
+        assert_eq!(
+            candidates[0].normalized_value,
+            Some(serde_json::json!(12.5))
+        );
+        assert_eq!(
+            &text[candidates[0].source_span.byte_start..candidates[0].source_span.byte_end],
+            "$12.50"
+        );
+    }
+
+    #[test]
+    fn currency_detection_ignores_unmarked_amounts() {
+        assert!(detect_currency_candidates("amount 12.50 dollars").is_empty());
+    }
+
+    #[test]
+    fn enum_detection_normalizes_aliases_to_canonical_values() {
+        let definitions = vec![(
+            "active".to_owned(),
+            vec!["enabled".to_owned(), "on".to_owned()],
+        )];
+        let text = "Status: ENABLED.";
+        let candidates = detect_enum_candidates(text, &definitions);
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].candidate_type, CandidateType::Enum);
+        assert_eq!(candidates[0].raw_value, "ENABLED");
+        assert_eq!(
+            candidates[0].normalized_value,
+            Some(serde_json::json!("active"))
+        );
+        assert_eq!(
+            &text[candidates[0].source_span.byte_start..candidates[0].source_span.byte_end],
+            "ENABLED"
+        );
+    }
+
+    #[test]
+    fn enum_detection_ignores_values_without_definitions() {
+        let definitions = vec![("active".to_owned(), vec!["enabled".to_owned()])];
+        assert!(detect_enum_candidates("pending unknown", &definitions).is_empty());
     }
 
     #[test]
