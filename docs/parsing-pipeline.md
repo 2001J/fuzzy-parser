@@ -108,6 +108,8 @@ Each candidate records:
 
 Multiple candidates of the same type are valid.
 
+The current assignment slice matches candidate types against caller-provided field definitions. Single-value fields select the highest-confidence match and report ambiguity when multiple matches exist; multiple-value fields retain all compatible matches. Required fields without a compatible candidate and candidates left unassigned are reported without fabricating values.
+
 ## 6. Schema-driven assignment
 
 The caller-provided schema describes the desired fields. Assignment scores compatible candidates against those fields.
