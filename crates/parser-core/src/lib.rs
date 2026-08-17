@@ -196,6 +196,113 @@ pub struct FieldCandidate {
     pub reasons: Vec<Reason>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssignmentField {
+    pub name: String,
+    pub candidate_type: CandidateType,
+    pub required: bool,
+    pub multiple: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AssignedField {
+    pub name: String,
+    pub candidates: Vec<FieldCandidate>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AssignmentResult {
+    pub fields: Vec<AssignedField>,
+    pub unassigned_candidates: Vec<FieldCandidate>,
+    pub warnings: Vec<ParserWarning>,
+}
+
+pub fn assign_candidates(
+    candidates: &[FieldCandidate],
+    fields: &[AssignmentField],
+) -> AssignmentResult {
+    let mut assigned = vec![false; candidates.len()];
+    let mut result_fields = Vec::new();
+    let mut warnings = Vec::new();
+
+    for field in fields {
+        let matching_indices = candidates
+            .iter()
+            .enumerate()
+            .filter(|(index, candidate)| {
+                !assigned[*index] && candidate.candidate_type == field.candidate_type
+            })
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+
+        if matching_indices.is_empty() {
+            if field.required {
+                warnings.push(ParserWarning {
+                    code: "required_field_missing".to_owned(),
+                    message: format!("required field {} has no compatible candidate", field.name),
+                    location: None,
+                });
+            }
+            continue;
+        }
+
+        let selected_indices = if field.multiple {
+            matching_indices
+        } else {
+            if matching_indices.len() > 1 {
+                warnings.push(ParserWarning {
+                    code: "multiple_candidates_ambiguous".to_owned(),
+                    message: format!(
+                        "field {} has multiple compatible candidates; the highest-confidence candidate was selected",
+                        field.name
+                    ),
+                    location: None,
+                });
+            }
+            vec![select_highest_confidence(candidates, &matching_indices)]
+        };
+
+        let selected = selected_indices
+            .into_iter()
+            .map(|index| {
+                assigned[index] = true;
+                candidates[index].clone()
+            })
+            .collect();
+        result_fields.push(AssignedField {
+            name: field.name.clone(),
+            candidates: selected,
+        });
+    }
+
+    let unassigned_candidates = candidates
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| !assigned[*index])
+        .map(|(_, candidate)| candidate.clone())
+        .collect();
+
+    AssignmentResult {
+        fields: result_fields,
+        unassigned_candidates,
+        warnings,
+    }
+}
+
+fn select_highest_confidence(candidates: &[FieldCandidate], indices: &[usize]) -> usize {
+    indices
+        .iter()
+        .copied()
+        .max_by(|left, right| {
+            candidates[*left]
+                .confidence
+                .partial_cmp(&candidates[*right].confidence)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| right.cmp(left))
+        })
+        .expect("assignment requires at least one matching candidate")
+}
+
 pub fn detect_email_candidates(text: &str) -> Vec<FieldCandidate> {
     text.split_whitespace()
         .scan(0, |search_start, token| {
@@ -1452,6 +1559,62 @@ mod tests {
     fn enum_detection_ignores_values_without_definitions() {
         let definitions = vec![("active".to_owned(), vec!["enabled".to_owned()])];
         assert!(detect_enum_candidates("pending unknown", &definitions).is_empty());
+    }
+
+    #[test]
+    fn assignment_selects_highest_confidence_compatible_candidate() {
+        let mut candidates = detect_email_candidates("first a@example.test second b@example.test");
+        candidates[0].confidence = 0.8;
+        let result = assign_candidates(
+            &candidates,
+            &[AssignmentField {
+                name: "email".to_owned(),
+                candidate_type: CandidateType::Email,
+                required: true,
+                multiple: false,
+            }],
+        );
+
+        assert_eq!(result.fields.len(), 1);
+        assert_eq!(result.fields[0].candidates[0].raw_value, "b@example.test");
+        assert_eq!(result.unassigned_candidates.len(), 1);
+        assert_eq!(result.warnings[0].code, "multiple_candidates_ambiguous");
+    }
+
+    #[test]
+    fn assignment_reports_missing_required_and_unassigned_candidates() {
+        let candidates = detect_integer_candidates("count 4");
+        let result = assign_candidates(
+            &candidates,
+            &[AssignmentField {
+                name: "email".to_owned(),
+                candidate_type: CandidateType::Email,
+                required: true,
+                multiple: false,
+            }],
+        );
+
+        assert!(result.fields.is_empty());
+        assert_eq!(result.unassigned_candidates.len(), 1);
+        assert_eq!(result.warnings[0].code, "required_field_missing");
+    }
+
+    #[test]
+    fn assignment_keeps_all_compatible_candidates_for_multiple_fields() {
+        let candidates = detect_integer_candidates("first 4 second 7");
+        let result = assign_candidates(
+            &candidates,
+            &[AssignmentField {
+                name: "counts".to_owned(),
+                candidate_type: CandidateType::Integer,
+                required: false,
+                multiple: true,
+            }],
+        );
+
+        assert_eq!(result.fields[0].candidates.len(), 2);
+        assert!(result.warnings.is_empty());
+        assert!(result.unassigned_candidates.is_empty());
     }
 
     #[test]
