@@ -199,6 +199,7 @@ pub struct FieldCandidate {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssignmentField {
     pub name: String,
+    pub aliases: Vec<String>,
     pub candidate_type: CandidateType,
     pub required: bool,
     pub multiple: bool,
@@ -218,6 +219,7 @@ pub struct AssignmentResult {
 }
 
 pub fn assign_candidates(
+    text: &str,
     candidates: &[FieldCandidate],
     fields: &[AssignmentField],
 ) -> AssignmentResult {
@@ -259,7 +261,12 @@ pub fn assign_candidates(
                     location: None,
                 });
             }
-            vec![select_highest_confidence(candidates, &matching_indices)]
+            vec![select_highest_confidence(
+                text,
+                candidates,
+                &matching_indices,
+                field,
+            )]
         };
 
         let selected = selected_indices
@@ -289,18 +296,32 @@ pub fn assign_candidates(
     }
 }
 
-fn select_highest_confidence(candidates: &[FieldCandidate], indices: &[usize]) -> usize {
+fn select_highest_confidence(
+    text: &str,
+    candidates: &[FieldCandidate],
+    indices: &[usize],
+    field: &AssignmentField,
+) -> usize {
     indices
         .iter()
         .copied()
         .max_by(|left, right| {
-            candidates[*left]
-                .confidence
-                .partial_cmp(&candidates[*right].confidence)
+            candidate_score(text, &candidates[*left], field)
+                .partial_cmp(&candidate_score(text, &candidates[*right], field))
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then_with(|| right.cmp(left))
         })
         .expect("assignment requires at least one matching candidate")
+}
+
+fn candidate_score(text: &str, candidate: &FieldCandidate, field: &AssignmentField) -> (bool, f64) {
+    let context_start = candidate.source_span.byte_start.saturating_sub(40);
+    let context = text[context_start..candidate.source_span.byte_start].to_ascii_lowercase();
+    let labels = std::iter::once(&field.name).chain(field.aliases.iter());
+    let has_label_context = labels
+        .map(|label| format!("{}:", label.to_ascii_lowercase()))
+        .any(|label| context.contains(&label));
+    (has_label_context, candidate.confidence)
 }
 
 pub fn detect_email_candidates(text: &str) -> Vec<FieldCandidate> {
@@ -1566,9 +1587,11 @@ mod tests {
         let mut candidates = detect_email_candidates("first a@example.test second b@example.test");
         candidates[0].confidence = 0.8;
         let result = assign_candidates(
+            "first a@example.test second b@example.test",
             &candidates,
             &[AssignmentField {
                 name: "email".to_owned(),
+                aliases: Vec::new(),
                 candidate_type: CandidateType::Email,
                 required: true,
                 multiple: false,
@@ -1582,12 +1605,34 @@ mod tests {
     }
 
     #[test]
-    fn assignment_reports_missing_required_and_unassigned_candidates() {
-        let candidates = detect_integer_candidates("count 4");
+    fn assignment_prefers_nearby_field_label_over_confidence_alone() {
+        let text = "backup a@example.test Email: b@example.test";
+        let mut candidates = detect_email_candidates(text);
+        candidates[1].confidence = 0.8;
         let result = assign_candidates(
+            text,
             &candidates,
             &[AssignmentField {
                 name: "email".to_owned(),
+                aliases: vec!["contact".to_owned()],
+                candidate_type: CandidateType::Email,
+                required: true,
+                multiple: false,
+            }],
+        );
+
+        assert_eq!(result.fields[0].candidates[0].raw_value, "b@example.test");
+    }
+
+    #[test]
+    fn assignment_reports_missing_required_and_unassigned_candidates() {
+        let candidates = detect_integer_candidates("count 4");
+        let result = assign_candidates(
+            "count 4",
+            &candidates,
+            &[AssignmentField {
+                name: "email".to_owned(),
+                aliases: Vec::new(),
                 candidate_type: CandidateType::Email,
                 required: true,
                 multiple: false,
@@ -1603,9 +1648,11 @@ mod tests {
     fn assignment_keeps_all_compatible_candidates_for_multiple_fields() {
         let candidates = detect_integer_candidates("first 4 second 7");
         let result = assign_candidates(
+            "first 4 second 7",
             &candidates,
             &[AssignmentField {
                 name: "counts".to_owned(),
+                aliases: Vec::new(),
                 candidate_type: CandidateType::Integer,
                 required: false,
                 multiple: true,
