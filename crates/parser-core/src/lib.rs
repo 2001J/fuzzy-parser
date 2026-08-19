@@ -203,6 +203,16 @@ pub struct AssignmentField {
     pub candidate_type: CandidateType,
     pub required: bool,
     pub multiple: bool,
+    pub unique: bool,
+    pub constraints: Vec<AssignmentConstraint>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AssignmentConstraint {
+    MinimumInteger(i64),
+    MaximumInteger(i64),
+    MinimumLength(usize),
+    MaximumLength(usize),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -232,7 +242,9 @@ pub fn assign_candidates(
             .iter()
             .enumerate()
             .filter(|(index, candidate)| {
-                !assigned[*index] && candidate.candidate_type == field.candidate_type
+                !assigned[*index]
+                    && candidate.candidate_type == field.candidate_type
+                    && candidate_satisfies_constraints(candidate, field)
             })
             .map(|(index, _)| index)
             .collect::<Vec<_>>();
@@ -269,13 +281,20 @@ pub fn assign_candidates(
             )]
         };
 
-        let selected = selected_indices
+        let selected: Vec<FieldCandidate> = selected_indices
             .into_iter()
             .map(|index| {
                 assigned[index] = true;
                 candidates[index].clone()
             })
             .collect();
+        if field.unique && selected.len() > 1 {
+            warnings.push(ParserWarning {
+                code: "unique_field_multiple_values".to_owned(),
+                message: format!("unique field {} received multiple candidates", field.name),
+                location: None,
+            });
+        }
         result_fields.push(AssignedField {
             name: field.name.clone(),
             candidates: selected,
@@ -294,6 +313,31 @@ pub fn assign_candidates(
         unassigned_candidates,
         warnings,
     }
+}
+
+fn candidate_satisfies_constraints(candidate: &FieldCandidate, field: &AssignmentField) -> bool {
+    field.constraints.iter().all(|constraint| match constraint {
+        AssignmentConstraint::MinimumInteger(minimum) => candidate
+            .normalized_value
+            .as_ref()
+            .and_then(serde_json::Value::as_i64)
+            .is_some_and(|value| value >= *minimum),
+        AssignmentConstraint::MaximumInteger(maximum) => candidate
+            .normalized_value
+            .as_ref()
+            .and_then(serde_json::Value::as_i64)
+            .is_some_and(|value| value <= *maximum),
+        AssignmentConstraint::MinimumLength(minimum) => candidate
+            .normalized_value
+            .as_ref()
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|value| value.chars().count() >= *minimum),
+        AssignmentConstraint::MaximumLength(maximum) => candidate
+            .normalized_value
+            .as_ref()
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|value| value.chars().count() <= *maximum),
+    })
 }
 
 fn select_highest_confidence(
@@ -1595,6 +1639,8 @@ mod tests {
                 candidate_type: CandidateType::Email,
                 required: true,
                 multiple: false,
+                unique: true,
+                constraints: Vec::new(),
             }],
         );
 
@@ -1618,6 +1664,8 @@ mod tests {
                 candidate_type: CandidateType::Email,
                 required: true,
                 multiple: false,
+                unique: true,
+                constraints: Vec::new(),
             }],
         );
 
@@ -1636,6 +1684,8 @@ mod tests {
                 candidate_type: CandidateType::Email,
                 required: true,
                 multiple: false,
+                unique: true,
+                constraints: Vec::new(),
             }],
         );
 
@@ -1656,12 +1706,59 @@ mod tests {
                 candidate_type: CandidateType::Integer,
                 required: false,
                 multiple: true,
+                unique: false,
+                constraints: Vec::new(),
             }],
         );
 
         assert_eq!(result.fields[0].candidates.len(), 2);
         assert!(result.warnings.is_empty());
         assert!(result.unassigned_candidates.is_empty());
+    }
+
+    #[test]
+    fn assignment_filters_candidates_that_violate_integer_constraints() {
+        let text = "small 3 valid 12";
+        let candidates = detect_integer_candidates(text);
+        let result = assign_candidates(
+            text,
+            &candidates,
+            &[AssignmentField {
+                name: "quantity".to_owned(),
+                aliases: Vec::new(),
+                candidate_type: CandidateType::Integer,
+                required: true,
+                multiple: false,
+                unique: true,
+                constraints: vec![AssignmentConstraint::MinimumInteger(10)],
+            }],
+        );
+
+        assert_eq!(result.fields[0].candidates[0].raw_value, "12");
+        assert_eq!(result.unassigned_candidates[0].raw_value, "3");
+    }
+
+    #[test]
+    fn assignment_reports_missing_required_when_all_candidates_violate_constraints() {
+        let text = "quantity 3";
+        let candidates = detect_integer_candidates(text);
+        let result = assign_candidates(
+            text,
+            &candidates,
+            &[AssignmentField {
+                name: "quantity".to_owned(),
+                aliases: Vec::new(),
+                candidate_type: CandidateType::Integer,
+                required: true,
+                multiple: false,
+                unique: true,
+                constraints: vec![AssignmentConstraint::MinimumInteger(10)],
+            }],
+        );
+
+        assert!(result.fields.is_empty());
+        assert_eq!(result.unassigned_candidates.len(), 1);
+        assert_eq!(result.warnings[0].code, "required_field_missing");
     }
 
     #[test]
