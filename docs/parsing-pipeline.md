@@ -108,7 +108,7 @@ Each candidate records:
 
 Multiple candidates of the same type are valid.
 
-The current assignment slice matches candidate types against caller-provided field definitions and uses nearby canonical or caller-provided labels as context. Single-value fields prefer a context-matched candidate, then select the highest-confidence match and report ambiguity when multiple matches remain; multiple-value fields retain all compatible matches. Required fields without a compatible candidate and candidates left unassigned are reported without fabricating values.
+The current assignment slice matches candidate types against caller-provided field definitions and uses nearby canonical or caller-provided labels as context. Integer and length constraints filter incompatible candidates before selection. Single-value fields prefer a context-matched candidate, then select the highest-confidence match and report ambiguity when multiple matches remain; multiple-value fields retain all compatible matches. Required fields without a compatible candidate and candidates left unassigned are reported without fabricating values.
 
 ## 6. Schema-driven assignment
 

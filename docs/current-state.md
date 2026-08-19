@@ -20,7 +20,7 @@ The workspace currently contains four crates:
 - The workspace compiles as a multi-crate Rust project.
 - `parser-core` provides serializable canonical raw-document models, source locations, raw values, warnings, structured parser errors, configurable derived text normalization, and deterministic record segmentation strategies including repeated-identifier splitting and heading-aware boundaries.
 - `parser-core` detects conservative email, integer, decimal, phone-number, boolean, date, currency, and caller-defined enum field candidates with raw values, normalized values, confidence, reason codes, and byte-accurate source spans.
-- `parser-core` assigns compatible candidates to caller-provided fields, uses nearby canonical or caller-provided labels as assignment context, selects the highest-confidence candidate when context is equal, preserves multiple values when requested, and reports missing required fields, ambiguity, and unassigned candidates.
+- `parser-core` assigns compatible candidates to caller-provided fields, uses nearby canonical or caller-provided labels as assignment context, applies caller-provided integer and length constraints, selects the highest-confidence candidate when context is equal, preserves multiple values when requested, and reports missing required fields, ambiguity, and unassigned candidates.
 - `parser-formats` reads UTF-8 TXT files, pasted text, standard input, and CSV files into canonical raw blocks while preserving content and source locations.
 - CSV extraction scores comma, semicolon, tab, and pipe delimiters, supports explicit overrides, quoted/multiline cells, empty cells, and row/column provenance.
 - `parser-formats` reads XLSX workbooks with sheet, row, column, and typed-cell provenance; it reads stored values only and does not execute formulas or macros.
@@ -38,7 +38,7 @@ The following capabilities are planned but do not exist yet:
 - Additional field candidate detection beyond email, integer, decimal, phone-number, boolean, date, currency, and caller-defined enum values.
 - CLI schema loading and caller-provided schema parsing.
 - Header and column context scoring during assignment.
-- Confidence scoring or explanations.
+- Confidence aggregation and explanations.
 - Structured warnings or rejected fragments.
 - General parse request/response contracts beyond raw-document inspection.
 - TypeScript, WebAssembly, native Node, or HTTP integration.
@@ -57,4 +57,4 @@ cargo build --workspace
 
 ## Immediate next slice
 
-The next implementation slice should add uniqueness and caller-provided constraint validation.
+The next implementation slice should add header and column context scoring for structured inputs.
