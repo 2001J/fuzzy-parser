@@ -196,7 +196,7 @@ pub struct FieldCandidate {
     pub reasons: Vec<Reason>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AssignmentField {
     pub name: String,
     pub aliases: Vec<String>,
@@ -207,7 +207,7 @@ pub struct AssignmentField {
     pub constraints: Vec<AssignmentConstraint>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum AssignmentConstraint {
     MinimumInteger(i64),
     MaximumInteger(i64),
@@ -215,13 +215,13 @@ pub enum AssignmentConstraint {
     MaximumLength(usize),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AssignedField {
     pub name: String,
     pub candidates: Vec<FieldCandidate>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AssignmentResult {
     pub fields: Vec<AssignedField>,
     pub unassigned_candidates: Vec<FieldCandidate>,
@@ -1759,6 +1759,29 @@ mod tests {
         assert!(result.fields.is_empty());
         assert_eq!(result.unassigned_candidates.len(), 1);
         assert_eq!(result.warnings[0].code, "required_field_missing");
+    }
+
+    #[test]
+    fn assignment_models_round_trip_through_json() {
+        let field = AssignmentField {
+            name: "quantity".to_owned(),
+            aliases: vec!["count".to_owned()],
+            candidate_type: CandidateType::Integer,
+            required: true,
+            multiple: false,
+            unique: true,
+            constraints: vec![AssignmentConstraint::MinimumInteger(1)],
+        };
+        let result = assign_candidates(
+            "quantity: 4",
+            &detect_integer_candidates("quantity: 4"),
+            &[field],
+        );
+        let json = serde_json::to_string(&result).expect("assignment should serialize");
+        let decoded: AssignmentResult =
+            serde_json::from_str(&json).expect("assignment should deserialize");
+
+        assert_eq!(decoded, result);
     }
 
     #[test]
