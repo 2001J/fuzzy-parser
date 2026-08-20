@@ -78,6 +78,23 @@ pub enum SchemaValidationError {
     InvalidLengthRange { field: String },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SchemaParseError {
+    InvalidJson(String),
+    InvalidSchema(SchemaValidationError),
+}
+
+impl fmt::Display for SchemaParseError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidJson(message) => write!(formatter, "invalid schema JSON: {message}"),
+            Self::InvalidSchema(error) => write!(formatter, "invalid schema: {error}"),
+        }
+    }
+}
+
+impl Error for SchemaParseError {}
+
 impl fmt::Display for SchemaValidationError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -110,6 +127,19 @@ impl fmt::Display for SchemaValidationError {
 impl Error for SchemaValidationError {}
 
 impl TargetSchema {
+    pub fn from_json(input: &str) -> Result<Self, SchemaParseError> {
+        let schema: TargetSchema = serde_json::from_str(input)
+            .map_err(|error| SchemaParseError::InvalidJson(error.to_string()))?;
+        schema.validate().map_err(SchemaParseError::InvalidSchema)?;
+        Ok(schema)
+    }
+
+    pub fn to_json(&self) -> Result<String, SchemaParseError> {
+        self.validate().map_err(SchemaParseError::InvalidSchema)?;
+        serde_json::to_string_pretty(self)
+            .map_err(|error| SchemaParseError::InvalidJson(error.to_string()))
+    }
+
     pub fn validate(&self) -> Result<(), SchemaValidationError> {
         if self.schema_version.trim().is_empty() {
             return Err(SchemaValidationError::EmptySchemaVersion);
@@ -299,6 +329,31 @@ mod tests {
                 field: "status".to_owned(),
                 value: "active".to_owned(),
             })
+        );
+    }
+
+    #[test]
+    fn valid_schema_round_trips_through_json() {
+        let schema = TargetSchema {
+            schema_version: SCHEMA_VERSION.to_owned(),
+            record_name: Some("contact".to_owned()),
+            fields: Vec::new(),
+            options: SchemaOptions::default(),
+        };
+        let json = schema.to_json().expect("schema should serialize");
+
+        assert_eq!(TargetSchema::from_json(&json), Ok(schema));
+    }
+
+    #[test]
+    fn invalid_schema_json_reports_validation_error() {
+        let json = r#"{"schema_version":"0.1","record_name":null,"fields":[{"name":"","field_type":"email","required":false,"multiple":false,"aliases":[],"constraints":[]}],"options":{"allow_unknown_fields":true}}"#;
+
+        assert_eq!(
+            TargetSchema::from_json(json),
+            Err(SchemaParseError::InvalidSchema(
+                SchemaValidationError::EmptyFieldName
+            ))
         );
     }
 }
