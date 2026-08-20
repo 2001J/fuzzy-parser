@@ -160,6 +160,8 @@ enum
 
 Product-specific concepts should be represented as generic fields plus caller-provided enum values, aliases, and constraints.
 
+`TargetSchema::from_json` validates a JSON schema before returning it, and `TargetSchema::to_json` refuses to serialize an invalid schema. Parsing and validation errors remain structured as `SchemaParseError` values.
+
 ## Field candidate
 
 ```rust
@@ -178,17 +180,29 @@ Candidates are evidence. They are not automatically assignments.
 ## Field assignment
 
 ```rust
-pub struct FieldAssignment {
-    pub field_name: String,
-    pub value: Option<serde_json::Value>,
-    pub source_candidate_ids: Vec<String>,
-    pub confidence: Confidence,
-    pub reasons: Vec<Reason>,
+pub struct AssignmentField {
+    pub name: String,
+    pub aliases: Vec<String>,
+    pub candidate_type: CandidateType,
+    pub required: bool,
+    pub multiple: bool,
+    pub unique: bool,
+    pub constraints: Vec<AssignmentConstraint>,
+}
+
+pub struct AssignedField {
+    pub name: String,
+    pub candidates: Vec<FieldCandidate>,
+}
+
+pub struct AssignmentResult {
+    pub fields: Vec<AssignedField>,
+    pub unassigned_candidates: Vec<FieldCandidate>,
     pub warnings: Vec<ParserWarning>,
 }
 ```
 
-A missing value is different from an empty string. Ambiguous assignments should remain observable.
+`assign_candidates` matches candidate types against caller-provided fields, applies integer and length constraints, uses nearby labels as context, and serializes its result for integration surfaces. A missing value is different from an empty string. Ambiguous assignments and unassigned candidates remain observable.
 
 ## Parsed record
 
