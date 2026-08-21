@@ -39,15 +39,15 @@ fn run() -> i32 {
         (Some(command), Some(path), None, None) if command == "inspect" => {
             inspect_path(PathBuf::from(path))
         }
-        (Some(command), Some(action), Some(path), None)
-            if command == "schema" && action == "validate" =>
-        {
-            validate_schema_path(PathBuf::from(path))
-        }
         (Some(command), Some(action), Some(flag), None)
             if command == "schema" && action == "validate" && flag == "--stdin" =>
         {
             validate_schema_stdin()
+        }
+        (Some(command), Some(action), Some(path), None)
+            if command == "schema" && action == "validate" =>
+        {
+            validate_schema_path(PathBuf::from(path))
         }
         (Some(command), Some(action), Some(flag), Some(content))
             if command == "schema" && action == "validate" && flag == "--text" =>

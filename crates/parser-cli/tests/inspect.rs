@@ -173,3 +173,40 @@ fn schema_validate_outputs_validated_schema_json() {
     assert_eq!(schema["schema_version"], "0.1");
     assert_eq!(schema["fields"][0]["name"], "email");
 }
+
+#[test]
+fn schema_validate_accepts_stdin() {
+    let schema =
+        std::fs::read_to_string(schema_fixture_path()).expect("schema fixture should read");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_parser-cli"))
+        .args(["schema", "validate", "--stdin"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("CLI should run");
+    child
+        .stdin
+        .take()
+        .expect("stdin should be available")
+        .write_all(schema.as_bytes())
+        .expect("schema should be written");
+
+    let output = child.wait_with_output().expect("CLI should finish");
+
+    assert!(output.status.success());
+    let result: Value = serde_json::from_slice(&output.stdout).expect("stdout should be JSON");
+    assert_eq!(result["record_name"], "contact");
+}
+
+#[test]
+fn schema_validate_accepts_inline_text() {
+    let schema = r#"{"schema_version":"0.1","record_name":"inline","fields":[],"options":{"allow_unknown_fields":true}}"#;
+    let output = Command::new(env!("CARGO_BIN_EXE_parser-cli"))
+        .args(["schema", "validate", "--text", schema])
+        .output()
+        .expect("CLI should run");
+
+    assert!(output.status.success());
+    let result: Value = serde_json::from_slice(&output.stdout).expect("stdout should be JSON");
+    assert_eq!(result["record_name"], "inline");
+}
