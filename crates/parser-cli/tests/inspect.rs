@@ -17,6 +17,10 @@ fn xlsx_fixture_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/xlsx/sample.xlsx")
 }
 
+fn schema_fixture_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/schema/contact.json")
+}
+
 #[test]
 fn inspect_outputs_canonical_document_json() {
     let output = Command::new(env!("CARGO_BIN_EXE_parser-cli"))
@@ -148,4 +152,24 @@ fn schema_validate_reports_missing_file_as_json_error() {
     let error: Value = serde_json::from_slice(&output.stderr).expect("stderr should be JSON");
     assert_eq!(error["error"]["code"], "schema_io_error");
     assert!(output.stdout.is_empty());
+}
+
+#[test]
+fn schema_validate_outputs_validated_schema_json() {
+    let output = Command::new(env!("CARGO_BIN_EXE_parser-cli"))
+        .args([
+            "schema",
+            "validate",
+            schema_fixture_path()
+                .to_str()
+                .expect("schema path is UTF-8"),
+        ])
+        .output()
+        .expect("CLI should run");
+
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    let schema: Value = serde_json::from_slice(&output.stdout).expect("stdout should be JSON");
+    assert_eq!(schema["schema_version"], "0.1");
+    assert_eq!(schema["fields"][0]["name"], "email");
 }
