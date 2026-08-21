@@ -21,6 +21,10 @@ fn schema_fixture_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/schema/contact.json")
 }
 
+fn invalid_schema_fixture_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/schema/invalid.json")
+}
+
 #[test]
 fn inspect_outputs_canonical_document_json() {
     let output = Command::new(env!("CARGO_BIN_EXE_parser-cli"))
@@ -209,4 +213,27 @@ fn schema_validate_accepts_inline_text() {
     assert!(output.status.success());
     let result: Value = serde_json::from_slice(&output.stdout).expect("stdout should be JSON");
     assert_eq!(result["record_name"], "inline");
+}
+
+#[test]
+fn schema_validate_reports_invalid_schema_as_json_error() {
+    let output = Command::new(env!("CARGO_BIN_EXE_parser-cli"))
+        .args([
+            "schema",
+            "validate",
+            invalid_schema_fixture_path()
+                .to_str()
+                .expect("schema path is UTF-8"),
+        ])
+        .output()
+        .expect("CLI should run");
+
+    assert_eq!(output.status.code(), Some(1));
+    let error: Value = serde_json::from_slice(&output.stderr).expect("stderr should be JSON");
+    assert_eq!(error["error"]["code"], "schema_validation_error");
+    assert!(
+        error["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("field name"))
+    );
 }

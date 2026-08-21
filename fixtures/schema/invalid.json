@@ -1,0 +1,17 @@
+{
+  "schema_version": "0.1",
+  "record_name": "invalid",
+  "fields": [
+    {
+      "name": "",
+      "field_type": "email",
+      "required": true,
+      "multiple": false,
+      "aliases": [],
+      "constraints": []
+    }
+  ],
+  "options": {
+    "allow_unknown_fields": true
+  }
+}
