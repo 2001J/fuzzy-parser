@@ -124,9 +124,11 @@ cargo run -p parser-cli -- inspect fixtures/xlsx/sample.xlsx
 printf 'Ada Lovelace\nGrace Hopper\n' | cargo run -p parser-cli -- inspect --stdin
 cargo run -p parser-cli -- inspect --text $'Ada Lovelace\nGrace Hopper'
 cargo run -p parser-cli -- schema validate fixtures/schema/contact.json
+cat fixtures/schema/contact.json | cargo run -p parser-cli -- schema validate --stdin
+cargo run -p parser-cli -- schema validate --text '{"schema_version":"0.1","record_name":"inline","fields":[],"options":{"allow_unknown_fields":true}}'
 ```
 
-Inspection commands emit the canonical raw document as JSON. The schema validation command emits the validated schema as JSON and reports failures as structured JSON on stderr. The planned broader contract is documented in [Integration Strategy](docs/integration-strategy.md).
+Inspection commands emit the canonical raw document as JSON. The schema validation command accepts a path, standard input, or inline text, emits the validated schema as JSON, and reports failures as structured JSON on stderr. The planned broader contract is documented in [Integration Strategy](docs/integration-strategy.md).
 
 ## Design principles
 

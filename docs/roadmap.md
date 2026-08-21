@@ -90,7 +90,7 @@ Status: in progress. The reusable schema model, structural validation, and CLI l
 - Enum values and aliases.
 - Locale and caller hints.
 - Schema validation.
-- CLI schema loading and validation output.
+- CLI schema loading and validation output from paths, standard input, and inline text.
 
 ## 0.9 — Candidate detection
 
