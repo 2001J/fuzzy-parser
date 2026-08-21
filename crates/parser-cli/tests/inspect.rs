@@ -133,6 +133,19 @@ fn inspect_requires_command_and_input() {
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(
         String::from_utf8_lossy(&output.stderr),
-        "usage: parser-cli inspect <path> | --stdin | --text <content>\n"
+        "usage: parser-cli inspect <path> | --stdin | --text <content> | schema validate <path>\n"
     );
+}
+
+#[test]
+fn schema_validate_reports_missing_file_as_json_error() {
+    let output = Command::new(env!("CARGO_BIN_EXE_parser-cli"))
+        .args(["schema", "validate", "fixtures/schema/does-not-exist.json"])
+        .output()
+        .expect("CLI should run");
+
+    assert_eq!(output.status.code(), Some(1));
+    let error: Value = serde_json::from_slice(&output.stderr).expect("stderr should be JSON");
+    assert_eq!(error["error"]["code"], "schema_io_error");
+    assert!(output.stdout.is_empty());
 }
