@@ -16,11 +16,18 @@ fn run() -> i32 {
     let mut arguments = env::args_os();
     let _program = arguments.next();
 
-    match (arguments.next(), arguments.next(), arguments.next()) {
-        (Some(command), Some(flag), None) if command == "inspect" && flag == "--stdin" => {
+    match (
+        arguments.next(),
+        arguments.next(),
+        arguments.next(),
+        arguments.next(),
+    ) {
+        (Some(command), Some(flag), None, None) if command == "inspect" && flag == "--stdin" => {
             inspect_stdin()
         }
-        (Some(command), Some(flag), Some(content)) if command == "inspect" && flag == "--text" => {
+        (Some(command), Some(flag), Some(content), None)
+            if command == "inspect" && flag == "--text" =>
+        {
             match content.into_string() {
                 Ok(content) => inspect_text(&content),
                 Err(_) => {
@@ -29,18 +36,29 @@ fn run() -> i32 {
                 }
             }
         }
-        (Some(command), Some(path), None) if command == "inspect" => {
+        (Some(command), Some(path), None, None) if command == "inspect" => {
             inspect_path(PathBuf::from(path))
         }
-        (Some(command), Some(action), Some(path))
+        (Some(command), Some(action), Some(path), None)
             if command == "schema" && action == "validate" =>
         {
             validate_schema_path(PathBuf::from(path))
         }
-        (Some(command), Some(action), Some(flag))
+        (Some(command), Some(action), Some(flag), None)
             if command == "schema" && action == "validate" && flag == "--stdin" =>
         {
             validate_schema_stdin()
+        }
+        (Some(command), Some(action), Some(flag), Some(content))
+            if command == "schema" && action == "validate" && flag == "--text" =>
+        {
+            match content.into_string() {
+                Ok(content) => validate_schema_input(&content),
+                Err(_) => schema_error(
+                    "schema_input_error",
+                    "schema text must be valid UTF-8".to_owned(),
+                ),
+            }
         }
         _ => {
             eprintln!(
