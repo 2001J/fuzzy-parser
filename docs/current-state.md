@@ -26,7 +26,7 @@ The workspace currently contains four crates:
 - `parser-formats` reads XLSX workbooks with sheet, row, column, and typed-cell provenance; it reads stored values only and does not execute formulas or macros.
 - `parser-schema` provides serializable generic target-schema models for fields, enum values, aliases, and basic constraints, plus structural schema validation.
 - `parser-formats` exposes configurable default-safe byte and line-length limits for text input.
-- The CLI supports `inspect <path>` for TXT, CSV, and XLSX files, `inspect --stdin`, and `inspect --text <content>`, emitting the canonical raw document as JSON with structured errors and nonzero exit codes.
+- The CLI supports `inspect <path>` for TXT, CSV, and XLSX files, `inspect --stdin`, `inspect --text <content>`, and `schema validate <path>`, emitting canonical JSON with structured errors and nonzero exit codes.
 - GitHub Actions runs formatting, Clippy, tests, and a workspace build on pull requests and pushes to `main`.
 - The repository is licensed under Apache License 2.0.
 - The root README describes the intended workspace boundaries and local validation commands.
@@ -36,7 +36,7 @@ The workspace currently contains four crates:
 The following capabilities are planned but do not exist yet:
 
 - Additional field candidate detection beyond email, integer, decimal, phone-number, boolean, date, currency, and caller-defined enum values.
-- CLI schema loading and caller-provided schema parsing.
+- Schema-driven parsing and assignment integration beyond CLI validation.
 - Header and column context scoring during assignment.
 - Confidence aggregation and explanations.
 - Structured warnings or rejected fragments.

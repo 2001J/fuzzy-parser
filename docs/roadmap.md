@@ -82,7 +82,7 @@ Status: complete.
 
 ## 0.8 — Schema contract
 
-Status: in progress. The reusable schema model and structural validation are implemented; CLI loading and parser integration remain.
+Status: in progress. The reusable schema model, structural validation, and CLI loading are implemented; parser integration remains.
 
 - Versioned target schema JSON.
 - Generic field types.
@@ -90,7 +90,7 @@ Status: in progress. The reusable schema model and structural validation are imp
 - Enum values and aliases.
 - Locale and caller hints.
 - Schema validation.
-- CLI schema loading.
+- CLI schema loading and validation output.
 
 ## 0.9 — Candidate detection
 
