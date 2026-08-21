@@ -86,21 +86,27 @@ fn validate_schema_path(path: PathBuf) -> i32 {
                     println!("{json}");
                     0
                 }
-                Err(error) => {
-                    eprintln!("failed to serialize schema: {error}");
-                    1
-                }
+                Err(error) => schema_error("schema_serialization_error", error.to_string()),
             },
-            Err(error) => {
-                eprintln!("schema validation failed: {error}");
-                1
-            }
+            Err(error) => schema_error("schema_validation_error", error.to_string()),
         },
-        Err(error) => {
-            eprintln!("failed to read schema: {error}");
-            1
-        }
+        Err(error) => schema_error("schema_io_error", format!("{}: {:?}", error, error.kind())),
     }
+}
+
+fn schema_error(code: &str, message: String) -> i32 {
+    let output = serde_json::json!({
+        "error": {
+            "code": code,
+            "message": message,
+        },
+        "message": message,
+    });
+    eprintln!(
+        "{}",
+        serde_json::to_string_pretty(&output).expect("schema error should be serializable")
+    );
+    1
 }
 
 fn inspect_result(result: Result<parser_core::RawDocument, parser_core::ParserError>) -> i32 {
