@@ -1,7 +1,7 @@
 use parser_formats::{
     CsvOptions, InputSource, TextLimits, read_csv_with_options, read_input, read_xlsx,
 };
-use std::{env, io, path::PathBuf, process};
+use std::{env, fs, io, path::PathBuf, process};
 
 fn main() {
     process::exit(run());
@@ -27,8 +27,15 @@ fn run() -> i32 {
         (Some(command), Some(path), None) if command == "inspect" => {
             inspect_path(PathBuf::from(path))
         }
+        (Some(command), Some(action), Some(path))
+            if command == "schema" && action == "validate" =>
+        {
+            validate_schema_path(PathBuf::from(path))
+        }
         _ => {
-            eprintln!("usage: parser-cli inspect <path> | --stdin | --text <content>");
+            eprintln!(
+                "usage: parser-cli inspect <path> | --stdin | --text <content> | schema validate <path>"
+            );
             2
         }
     }
@@ -69,6 +76,31 @@ fn inspect_text(content: &str) -> i32 {
         InputSource::Text(content),
         TextLimits::default(),
     ))
+}
+
+fn validate_schema_path(path: PathBuf) -> i32 {
+    match fs::read_to_string(path) {
+        Ok(input) => match parser_schema::TargetSchema::from_json(&input) {
+            Ok(schema) => match schema.to_json() {
+                Ok(json) => {
+                    println!("{json}");
+                    0
+                }
+                Err(error) => {
+                    eprintln!("failed to serialize schema: {error}");
+                    1
+                }
+            },
+            Err(error) => {
+                eprintln!("schema validation failed: {error}");
+                1
+            }
+        },
+        Err(error) => {
+            eprintln!("failed to read schema: {error}");
+            1
+        }
+    }
 }
 
 fn inspect_result(result: Result<parser_core::RawDocument, parser_core::ParserError>) -> i32 {
