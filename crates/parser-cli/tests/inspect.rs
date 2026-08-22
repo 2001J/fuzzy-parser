@@ -146,6 +146,31 @@ fn inspect_requires_command_and_input() {
 }
 
 #[test]
+fn help_lists_schema_validation_modes() {
+    let output = Command::new(env!("CARGO_BIN_EXE_parser-cli"))
+        .arg("--help")
+        .output()
+        .expect("CLI should run");
+
+    assert!(output.status.success());
+    let help = String::from_utf8_lossy(&output.stdout);
+    assert!(help.contains("schema validate <path>"));
+    assert!(help.contains("schema validate --stdin"));
+    assert!(help.contains("schema validate --text <content>"));
+}
+
+#[test]
+fn schema_help_is_available_from_the_subcommand() {
+    let output = Command::new(env!("CARGO_BIN_EXE_parser-cli"))
+        .args(["schema", "validate", "--help"])
+        .output()
+        .expect("CLI should run");
+
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("schema validate"));
+}
+
+#[test]
 fn schema_validate_reports_missing_file_as_json_error() {
     let output = Command::new(env!("CARGO_BIN_EXE_parser-cli"))
         .args(["schema", "validate", "fixtures/schema/does-not-exist.json"])
@@ -176,6 +201,29 @@ fn schema_validate_outputs_validated_schema_json() {
     let schema: Value = serde_json::from_slice(&output.stdout).expect("stdout should be JSON");
     assert_eq!(schema["schema_version"], "0.1");
     assert_eq!(schema["fields"][0]["name"], "email");
+}
+
+#[test]
+fn schema_validate_compact_outputs_one_json_line() {
+    let output = Command::new(env!("CARGO_BIN_EXE_parser-cli"))
+        .args([
+            "schema",
+            "validate",
+            "--compact",
+            schema_fixture_path()
+                .to_str()
+                .expect("schema path is UTF-8"),
+        ])
+        .output()
+        .expect("CLI should run");
+
+    assert!(output.status.success());
+    assert_eq!(
+        output.stdout.iter().filter(|byte| **byte == b'\n').count(),
+        1
+    );
+    let schema: Value = serde_json::from_slice(&output.stdout).expect("stdout should be JSON");
+    assert_eq!(schema["record_name"], "contact");
 }
 
 #[test]
