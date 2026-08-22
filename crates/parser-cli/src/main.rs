@@ -72,6 +72,11 @@ fn run() -> i32 {
                 ),
             }
         }
+        (Some(command), Some(action), Some(flag), Some(path))
+            if command == "schema" && action == "validate" && flag == "--compact" =>
+        {
+            validate_schema_path_compact(PathBuf::from(path))
+        }
         _ => {
             eprintln!(
                 "usage: parser-cli inspect <path> | --stdin | --text <content> | schema validate <path>"
@@ -131,6 +136,13 @@ fn validate_schema_path(path: PathBuf) -> i32 {
     }
 }
 
+fn validate_schema_path_compact(path: PathBuf) -> i32 {
+    match fs::read_to_string(path) {
+        Ok(input) => validate_schema_input_with_format(&input, false),
+        Err(error) => schema_error("schema_io_error", format!("{}: {:?}", error, error.kind())),
+    }
+}
+
 fn validate_schema_stdin() -> i32 {
     let mut input = String::new();
     match io::stdin().read_to_string(&mut input) {
@@ -140,10 +152,21 @@ fn validate_schema_stdin() -> i32 {
 }
 
 fn validate_schema_input(input: &str) -> i32 {
+    validate_schema_input_with_format(input, true)
+}
+
+fn validate_schema_input_with_format(input: &str, pretty: bool) -> i32 {
     match parser_schema::TargetSchema::from_json(input) {
         Ok(schema) => match schema.to_json() {
             Ok(json) => {
-                println!("{json}");
+                if pretty {
+                    println!("{json}");
+                } else {
+                    println!(
+                        "{}",
+                        serde_json::to_string(&schema).expect("validated schema should serialize")
+                    );
+                }
                 0
             }
             Err(error) => schema_error("schema_serialization_error", error.to_string()),
