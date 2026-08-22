@@ -71,10 +71,12 @@ pub enum SchemaValidationError {
     UnsupportedSchemaVersion(String),
     EmptyFieldName,
     DuplicateFieldName(String),
+    DuplicateFieldLabel(String),
     EmptyAlias { field: String },
     EmptyEnumValue { field: String },
     DuplicateEnumValue { field: String, value: String },
     EmptyEnumAlias { field: String, value: String },
+    DuplicateEnumAlias { field: String, alias: String },
     InvalidIntegerRange { field: String },
     InvalidLengthRange { field: String },
 }
@@ -105,6 +107,9 @@ impl fmt::Display for SchemaValidationError {
             }
             Self::EmptyFieldName => write!(formatter, "field name must not be empty"),
             Self::DuplicateFieldName(name) => write!(formatter, "duplicate field name: {name}"),
+            Self::DuplicateFieldLabel(label) => {
+                write!(formatter, "duplicate field label: {label}")
+            }
             Self::EmptyAlias { field } => write!(formatter, "field {field} has an empty alias"),
             Self::EmptyEnumValue { field } => {
                 write!(formatter, "enum field {field} has an empty value")
@@ -117,6 +122,9 @@ impl fmt::Display for SchemaValidationError {
                     formatter,
                     "enum value {value} in field {field} has an empty alias"
                 )
+            }
+            Self::DuplicateEnumAlias { field, alias } => {
+                write!(formatter, "enum field {field} repeats alias: {alias}")
             }
             Self::InvalidIntegerRange { field } => {
                 write!(formatter, "field {field} has an invalid integer range")
@@ -155,6 +163,7 @@ impl TargetSchema {
         }
 
         let mut field_names = Vec::new();
+        let mut field_labels = Vec::new();
         for field in &self.fields {
             if field.name.trim().is_empty() {
                 return Err(SchemaValidationError::EmptyFieldName);
@@ -166,10 +175,25 @@ impl TargetSchema {
             }
             field_names.push(field.name.clone());
 
+            let field_label = field.name.to_ascii_lowercase();
+            if field_labels.iter().any(|label| label == &field_label) {
+                return Err(SchemaValidationError::DuplicateFieldLabel(
+                    field.name.clone(),
+                ));
+            }
+            field_labels.push(field_label);
+
             if field.aliases.iter().any(|alias| alias.trim().is_empty()) {
                 return Err(SchemaValidationError::EmptyAlias {
                     field: field.name.clone(),
                 });
+            }
+            for alias in &field.aliases {
+                let label = alias.to_ascii_lowercase();
+                if field_labels.iter().any(|existing| existing == &label) {
+                    return Err(SchemaValidationError::DuplicateFieldLabel(alias.clone()));
+                }
+                field_labels.push(label);
             }
             validate_constraints(field)?;
             if let FieldType::Enum { values } = &field.field_type {
@@ -231,6 +255,7 @@ fn validate_constraints(field: &FieldDefinition) -> Result<(), SchemaValidationE
 
 fn validate_enum_values(field: &str, values: &[EnumValue]) -> Result<(), SchemaValidationError> {
     let mut seen_values = Vec::new();
+    let mut seen_aliases = Vec::new();
     for enum_value in values {
         if enum_value.value.trim().is_empty() {
             return Err(SchemaValidationError::EmptyEnumValue {
@@ -253,6 +278,20 @@ fn validate_enum_values(field: &str, values: &[EnumValue]) -> Result<(), SchemaV
                 field: field.to_owned(),
                 value: enum_value.value.clone(),
             });
+        }
+        for alias in &enum_value.aliases {
+            let normalized_alias = alias.to_ascii_lowercase();
+            if seen_aliases.iter().any(|value| value == &normalized_alias)
+                || seen_values
+                    .iter()
+                    .any(|value| value.to_ascii_lowercase() == normalized_alias)
+            {
+                return Err(SchemaValidationError::DuplicateEnumAlias {
+                    field: field.to_owned(),
+                    alias: alias.clone(),
+                });
+            }
+            seen_aliases.push(normalized_alias);
         }
     }
     Ok(())
@@ -355,6 +394,70 @@ mod tests {
             Err(SchemaValidationError::UnsupportedSchemaVersion(
                 "9.9".to_owned()
             ))
+        );
+    }
+
+    #[test]
+    fn field_alias_collisions_are_rejected_case_insensitively() {
+        let field = |name: &str, aliases: Vec<&str>| FieldDefinition {
+            name: name.to_owned(),
+            field_type: FieldType::Text,
+            required: false,
+            multiple: false,
+            aliases: aliases.into_iter().map(str::to_owned).collect(),
+            constraints: Vec::new(),
+        };
+        let schema = TargetSchema {
+            schema_version: SCHEMA_VERSION.to_owned(),
+            record_name: None,
+            fields: vec![
+                field("Email", vec!["contact"]),
+                field("status", vec!["CONTACT"]),
+            ],
+            options: SchemaOptions::default(),
+        };
+
+        assert_eq!(
+            schema.validate(),
+            Err(SchemaValidationError::DuplicateFieldLabel(
+                "CONTACT".to_owned()
+            ))
+        );
+    }
+
+    #[test]
+    fn enum_alias_collisions_are_rejected_case_insensitively() {
+        let schema = TargetSchema {
+            schema_version: SCHEMA_VERSION.to_owned(),
+            record_name: None,
+            fields: vec![FieldDefinition {
+                name: "status".to_owned(),
+                field_type: FieldType::Enum {
+                    values: vec![
+                        EnumValue {
+                            value: "active".to_owned(),
+                            aliases: vec!["enabled".to_owned()],
+                        },
+                        EnumValue {
+                            value: "inactive".to_owned(),
+                            aliases: vec!["ENABLED".to_owned()],
+                        },
+                    ],
+                },
+                required: false,
+                multiple: false,
+                aliases: Vec::new(),
+                constraints: Vec::new(),
+            }],
+            options: SchemaOptions::default(),
+        };
+
+        assert_eq!(
+            schema.validate(),
+            Err(SchemaValidationError::DuplicateEnumAlias {
+                field: "status".to_owned(),
+                alias: "ENABLED".to_owned(),
+            })
         );
     }
 
