@@ -68,6 +68,7 @@ pub enum FieldConstraint {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SchemaValidationError {
     EmptySchemaVersion,
+    UnsupportedSchemaVersion(String),
     EmptyFieldName,
     DuplicateFieldName(String),
     EmptyAlias { field: String },
@@ -99,6 +100,9 @@ impl fmt::Display for SchemaValidationError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::EmptySchemaVersion => write!(formatter, "schema version must not be empty"),
+            Self::UnsupportedSchemaVersion(version) => {
+                write!(formatter, "unsupported schema version: {version}")
+            }
             Self::EmptyFieldName => write!(formatter, "field name must not be empty"),
             Self::DuplicateFieldName(name) => write!(formatter, "duplicate field name: {name}"),
             Self::EmptyAlias { field } => write!(formatter, "field {field} has an empty alias"),
@@ -143,6 +147,11 @@ impl TargetSchema {
     pub fn validate(&self) -> Result<(), SchemaValidationError> {
         if self.schema_version.trim().is_empty() {
             return Err(SchemaValidationError::EmptySchemaVersion);
+        }
+        if self.schema_version != SCHEMA_VERSION {
+            return Err(SchemaValidationError::UnsupportedSchemaVersion(
+                self.schema_version.clone(),
+            ));
         }
 
         let mut field_names = Vec::new();
@@ -329,6 +338,23 @@ mod tests {
                 field: "status".to_owned(),
                 value: "active".to_owned(),
             })
+        );
+    }
+
+    #[test]
+    fn unsupported_schema_versions_are_rejected() {
+        let schema = TargetSchema {
+            schema_version: "9.9".to_owned(),
+            record_name: None,
+            fields: Vec::new(),
+            options: SchemaOptions::default(),
+        };
+
+        assert_eq!(
+            schema.validate(),
+            Err(SchemaValidationError::UnsupportedSchemaVersion(
+                "9.9".to_owned()
+            ))
         );
     }
 
