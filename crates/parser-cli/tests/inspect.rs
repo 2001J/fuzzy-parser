@@ -237,3 +237,20 @@ fn schema_validate_reports_invalid_schema_as_json_error() {
             .is_some_and(|message| message.contains("field name"))
     );
 }
+
+#[test]
+fn schema_validate_reports_malformed_json_as_json_error() {
+    let output = Command::new(env!("CARGO_BIN_EXE_parser-cli"))
+        .args(["schema", "validate", "--text", "{malformed"])
+        .output()
+        .expect("CLI should run");
+
+    assert_eq!(output.status.code(), Some(1));
+    let error: Value = serde_json::from_slice(&output.stderr).expect("stderr should be JSON");
+    assert_eq!(error["error"]["code"], "schema_validation_error");
+    assert!(
+        error["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("invalid schema JSON"))
+    );
+}
