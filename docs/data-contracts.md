@@ -162,6 +162,8 @@ Product-specific concepts should be represented as generic fields plus caller-pr
 
 `TargetSchema::from_json` validates a JSON schema before returning it, including the supported schema version and unambiguous field and enum labels. `TargetSchema::to_json` refuses to serialize an invalid schema. Parsing and validation errors remain structured as `SchemaParseError` values.
 
+The CLI preserves this validation contract for file, standard-input, and inline-text sources. Valid output is pretty-printed by default and can be emitted as one compact JSON line for pipeline consumers.
+
 ## Field candidate
 
 ```rust
