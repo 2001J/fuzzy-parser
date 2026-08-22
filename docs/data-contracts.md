@@ -160,7 +160,7 @@ enum
 
 Product-specific concepts should be represented as generic fields plus caller-provided enum values, aliases, and constraints.
 
-`TargetSchema::from_json` validates a JSON schema before returning it, and `TargetSchema::to_json` refuses to serialize an invalid schema. Parsing and validation errors remain structured as `SchemaParseError` values.
+`TargetSchema::from_json` validates a JSON schema before returning it, including the supported schema version and unambiguous field and enum labels. `TargetSchema::to_json` refuses to serialize an invalid schema. Parsing and validation errors remain structured as `SchemaParseError` values.
 
 ## Field candidate
 

@@ -82,7 +82,7 @@ Status: complete.
 
 ## 0.8 — Schema contract
 
-Status: in progress. The reusable schema model, structural validation, and CLI loading are implemented; parser integration remains.
+Status: in progress. The reusable schema model, supported-version and alias validation, and CLI loading are implemented; parser integration remains.
 
 - Versioned target schema JSON.
 - Generic field types.
