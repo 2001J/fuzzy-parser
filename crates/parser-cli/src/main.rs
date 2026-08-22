@@ -22,6 +22,18 @@ fn run() -> i32 {
         arguments.next(),
         arguments.next(),
     ) {
+        (Some(flag), None, None, None) if flag == "--help" || flag == "-h" => {
+            print_help();
+            0
+        }
+        (Some(command), Some(action), Some(flag), None)
+            if command == "schema"
+                && action == "validate"
+                && (flag == "--help" || flag == "-h") =>
+        {
+            print_help();
+            0
+        }
         (Some(command), Some(flag), None, None) if command == "inspect" && flag == "--stdin" => {
             inspect_stdin()
         }
@@ -67,6 +79,12 @@ fn run() -> i32 {
             2
         }
     }
+}
+
+fn print_help() {
+    println!(
+        "usage: parser-cli inspect <path> | --stdin | --text <content> | schema validate <path> | schema validate --stdin | schema validate --text <content>"
+    );
 }
 
 fn inspect_path(path: PathBuf) -> i32 {
