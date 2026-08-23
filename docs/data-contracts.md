@@ -172,6 +172,7 @@ pub struct FieldCandidate {
     pub raw_value: String,
     pub normalized_value: Option<serde_json::Value>,
     pub source_span: TextSpan,
+    pub source_column: Option<usize>,
     pub confidence: Confidence,
     pub reasons: Vec<Reason>,
 }
@@ -190,6 +191,7 @@ pub struct AssignmentField {
     pub multiple: bool,
     pub unique: bool,
     pub constraints: Vec<AssignmentConstraint>,
+    pub expected_column: Option<usize>,
 }
 
 pub struct AssignedField {
@@ -204,7 +206,7 @@ pub struct AssignmentResult {
 }
 ```
 
-`assign_candidates` matches candidate types against caller-provided fields, applies integer and length constraints, uses nearby labels as context, and serializes its result for integration surfaces. A missing value is different from an empty string. Ambiguous assignments and unassigned candidates remain observable.
+`assign_candidates` matches candidate types against caller-provided fields, applies integer and length constraints, uses nearby labels and optional expected-column metadata as context, and serializes its result for integration surfaces. A missing value is different from an empty string. Ambiguous assignments and unassigned candidates remain observable.
 
 ## Parsed record
 
