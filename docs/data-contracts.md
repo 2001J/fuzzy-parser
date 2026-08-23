@@ -208,6 +208,8 @@ pub struct AssignmentResult {
 
 `assign_candidates` matches candidate types against caller-provided fields, applies integer and length constraints, uses nearby labels and optional expected-column metadata as context, and serializes its result for integration surfaces. A missing value is different from an empty string. Ambiguous assignments and unassigned candidates remain observable.
 
+`TextParseResult` contains the candidates produced by `parse_text_with_assignment` and its corresponding `AssignmentResult`, allowing review tools and automated consumers to inspect both the decision and the evidence behind it.
+
 ## Parsed record
 
 ```rust

@@ -110,6 +110,8 @@ Multiple candidates of the same type are valid.
 
 The current assignment slice matches candidate types against caller-provided field definitions and uses nearby canonical or caller-provided labels or source-column metadata as context. Integer and length constraints filter incompatible candidates before selection. Single-value fields prefer a context-matched candidate, then select the highest-confidence match and report ambiguity when multiple matches remain; multiple-value fields retain all compatible matches. Required fields without a compatible candidate and candidates left unassigned are reported without fabricating values.
 
+`parse_text_with_assignment` provides the deterministic composition point for a text record: it runs the built-in detectors, applies caller-defined enum definitions, and returns both the complete candidate evidence and the assignment result. Callers can still invoke each stage independently when they need custom ordering or format-specific provenance.
+
 ## 6. Schema-driven assignment
 
 The caller-provided schema describes the desired fields. Assignment scores compatible candidates against those fields.

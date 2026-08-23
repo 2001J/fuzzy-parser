@@ -231,6 +231,34 @@ pub struct AssignmentResult {
     pub warnings: Vec<ParserWarning>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TextParseResult {
+    pub candidates: Vec<FieldCandidate>,
+    pub assignment: AssignmentResult,
+}
+
+pub fn parse_text_with_assignment(
+    text: &str,
+    fields: &[AssignmentField],
+    enum_definitions: &[(String, Vec<String>)],
+) -> TextParseResult {
+    let mut candidates = Vec::new();
+    candidates.extend(detect_email_candidates(text));
+    candidates.extend(detect_integer_candidates(text));
+    candidates.extend(detect_decimal_candidates(text));
+    candidates.extend(detect_phone_candidates(text));
+    candidates.extend(detect_boolean_candidates(text));
+    candidates.extend(detect_date_candidates(text));
+    candidates.extend(detect_currency_candidates(text));
+    candidates.extend(detect_enum_candidates(text, enum_definitions));
+
+    let assignment = assign_candidates(text, &candidates, fields);
+    TextParseResult {
+        candidates,
+        assignment,
+    }
+}
+
 pub fn assign_candidates(
     text: &str,
     candidates: &[FieldCandidate],
@@ -1834,6 +1862,42 @@ mod tests {
             serde_json::from_str(&json).expect("assignment should deserialize");
 
         assert_eq!(decoded, result);
+    }
+
+    #[test]
+    fn text_pipeline_detects_and_assigns_caller_defined_fields() {
+        let fields = vec![
+            AssignmentField {
+                name: "email".to_owned(),
+                aliases: Vec::new(),
+                candidate_type: CandidateType::Email,
+                required: true,
+                multiple: false,
+                unique: true,
+                constraints: Vec::new(),
+                expected_column: None,
+            },
+            AssignmentField {
+                name: "status".to_owned(),
+                aliases: Vec::new(),
+                candidate_type: CandidateType::Enum,
+                required: true,
+                multiple: false,
+                unique: true,
+                constraints: Vec::new(),
+                expected_column: None,
+            },
+        ];
+        let result = parse_text_with_assignment(
+            "Email: ada@example.test Status: ENABLED",
+            &fields,
+            &[("active".to_owned(), vec!["enabled".to_owned()])],
+        );
+
+        assert_eq!(result.candidates.len(), 2);
+        assert_eq!(result.assignment.fields.len(), 2);
+        assert!(result.assignment.unassigned_candidates.is_empty());
+        assert!(result.assignment.warnings.is_empty());
     }
 
     #[test]
