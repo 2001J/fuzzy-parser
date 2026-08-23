@@ -192,6 +192,8 @@ pub struct FieldCandidate {
     pub raw_value: String,
     pub normalized_value: Option<serde_json::Value>,
     pub source_span: TextSpan,
+    #[serde(default)]
+    pub source_column: Option<usize>,
     pub confidence: Confidence,
     pub reasons: Vec<Reason>,
 }
@@ -205,6 +207,7 @@ pub struct AssignmentField {
     pub multiple: bool,
     pub unique: bool,
     pub constraints: Vec<AssignmentConstraint>,
+    pub expected_column: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -358,14 +361,23 @@ fn select_highest_confidence(
         .expect("assignment requires at least one matching candidate")
 }
 
-fn candidate_score(text: &str, candidate: &FieldCandidate, field: &AssignmentField) -> (bool, f64) {
+fn candidate_score(
+    text: &str,
+    candidate: &FieldCandidate,
+    field: &AssignmentField,
+) -> (bool, bool, f64) {
     let context_start = candidate.source_span.byte_start.saturating_sub(40);
     let context = text[context_start..candidate.source_span.byte_start].to_ascii_lowercase();
     let labels = std::iter::once(&field.name).chain(field.aliases.iter());
     let has_label_context = labels
         .map(|label| format!("{}:", label.to_ascii_lowercase()))
         .any(|label| context.contains(&label));
-    (has_label_context, candidate.confidence)
+    let has_column_context = field.expected_column.is_some_and(|column| {
+        candidate
+            .source_column
+            .is_some_and(|candidate_column| candidate_column == column)
+    });
+    (has_label_context, has_column_context, candidate.confidence)
 }
 
 pub fn detect_email_candidates(text: &str) -> Vec<FieldCandidate> {
@@ -396,6 +408,7 @@ pub fn detect_email_candidates(text: &str) -> Vec<FieldCandidate> {
                     byte_start,
                     byte_end,
                 },
+                source_column: None,
                 confidence: 0.98,
                 reasons: vec![Reason::new(
                     "email_pattern_match",
@@ -442,6 +455,7 @@ pub fn detect_integer_candidates(text: &str) -> Vec<FieldCandidate> {
                     byte_start,
                     byte_end,
                 },
+                source_column: None,
                 confidence: 0.96,
                 reasons: vec![Reason::new(
                     "integer_pattern_match",
@@ -478,6 +492,7 @@ pub fn detect_decimal_candidates(text: &str) -> Vec<FieldCandidate> {
                     byte_start,
                     byte_end,
                 },
+                source_column: None,
                 confidence: 0.94,
                 reasons: vec![Reason::new(
                     "decimal_pattern_match",
@@ -521,6 +536,7 @@ pub fn detect_phone_candidates(text: &str) -> Vec<FieldCandidate> {
                     byte_start,
                     byte_end,
                 },
+                source_column: None,
                 confidence: 0.88,
                 reasons: vec![Reason::new(
                     "phone_pattern_match",
@@ -558,6 +574,7 @@ pub fn detect_boolean_candidates(text: &str) -> Vec<FieldCandidate> {
                     byte_start,
                     byte_end,
                 },
+                source_column: None,
                 confidence: 0.93,
                 reasons: vec![Reason::new(
                     "boolean_alias_match",
@@ -591,6 +608,7 @@ pub fn detect_date_candidates(text: &str) -> Vec<FieldCandidate> {
                     byte_start,
                     byte_end,
                 },
+                source_column: None,
                 confidence: if separator == '-' { 0.96 } else { 0.91 },
                 reasons: vec![Reason::new(
                     "date_pattern_match",
@@ -628,6 +646,7 @@ pub fn detect_currency_candidates(text: &str) -> Vec<FieldCandidate> {
                     byte_start,
                     byte_end,
                 },
+                source_column: None,
                 confidence: 0.92,
                 reasons: vec![Reason::new(
                     "currency_symbol_match",
@@ -669,6 +688,7 @@ pub fn detect_enum_candidates(
                     byte_start,
                     byte_end,
                 },
+                source_column: None,
                 confidence: 0.9,
                 reasons: vec![Reason::new(
                     "enum_alias_match",
@@ -1641,6 +1661,7 @@ mod tests {
                 multiple: false,
                 unique: true,
                 constraints: Vec::new(),
+                expected_column: None,
             }],
         );
 
@@ -1666,6 +1687,32 @@ mod tests {
                 multiple: false,
                 unique: true,
                 constraints: Vec::new(),
+                expected_column: None,
+            }],
+        );
+
+        assert_eq!(result.fields[0].candidates[0].raw_value, "b@example.test");
+    }
+
+    #[test]
+    fn assignment_prefers_expected_column_context_over_confidence_alone() {
+        let text = "first a@example.test second b@example.test";
+        let mut candidates = detect_email_candidates(text);
+        candidates[0].source_column = Some(1);
+        candidates[1].source_column = Some(2);
+        candidates[1].confidence = 0.8;
+        let result = assign_candidates(
+            text,
+            &candidates,
+            &[AssignmentField {
+                name: "email".to_owned(),
+                aliases: Vec::new(),
+                candidate_type: CandidateType::Email,
+                required: true,
+                multiple: false,
+                unique: true,
+                constraints: Vec::new(),
+                expected_column: Some(2),
             }],
         );
 
@@ -1686,6 +1733,7 @@ mod tests {
                 multiple: false,
                 unique: true,
                 constraints: Vec::new(),
+                expected_column: None,
             }],
         );
 
@@ -1708,6 +1756,7 @@ mod tests {
                 multiple: true,
                 unique: false,
                 constraints: Vec::new(),
+                expected_column: None,
             }],
         );
 
@@ -1731,6 +1780,7 @@ mod tests {
                 multiple: false,
                 unique: true,
                 constraints: vec![AssignmentConstraint::MinimumInteger(10)],
+                expected_column: None,
             }],
         );
 
@@ -1753,6 +1803,7 @@ mod tests {
                 multiple: false,
                 unique: true,
                 constraints: vec![AssignmentConstraint::MinimumInteger(10)],
+                expected_column: None,
             }],
         );
 
@@ -1771,6 +1822,7 @@ mod tests {
             multiple: false,
             unique: true,
             constraints: vec![AssignmentConstraint::MinimumInteger(1)],
+            expected_column: None,
         };
         let result = assign_candidates(
             "quantity: 4",
