@@ -295,7 +295,7 @@ fn schema_validate_reports_malformed_json_as_json_error() {
 
     assert_eq!(output.status.code(), Some(1));
     let error: Value = serde_json::from_slice(&output.stderr).expect("stderr should be JSON");
-    assert_eq!(error["error"]["code"], "schema_validation_error");
+    assert_eq!(error["error"]["code"], "schema_parse_error");
     assert!(
         error["message"]
             .as_str()

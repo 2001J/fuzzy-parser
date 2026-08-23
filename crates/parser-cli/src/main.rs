@@ -171,7 +171,13 @@ fn validate_schema_input_with_format(input: &str, pretty: bool) -> i32 {
             }
             Err(error) => schema_error("schema_serialization_error", error.to_string()),
         },
-        Err(error) => schema_error("schema_validation_error", error.to_string()),
+        Err(error) => {
+            let code = match error {
+                parser_schema::SchemaParseError::InvalidJson(_) => "schema_parse_error",
+                parser_schema::SchemaParseError::InvalidSchema(_) => "schema_validation_error",
+            };
+            schema_error(code, error.to_string())
+        }
     }
 }
 
