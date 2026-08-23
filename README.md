@@ -1,54 +1,28 @@
 # Fuzzy Parser
 
-A domain-independent parsing engine written in Rust.
+Fuzzy Parser turns messy text and tabular data into reviewable, traceable
+records. It is a domain-neutral Rust engine: callers provide the fields,
+aliases, enum values, and constraints; the parser provides extraction,
+normalization, provenance, confidence, and uncertainty.
 
-The project is structured as a Rust workspace containing the reusable parser core, input-format adapters, schema definitions, a command-line interface, and future TypeScript bindings.
+The usable surface today is the `parser-cli` command. It reads TXT, CSV, and
+XLSX input, validates caller-provided schemas, and emits JSON for scripts and
+review tools.
 
-## Project status
-
-The project is currently under active development.
-
-Initial work focuses on:
-
-- Defining the canonical document model
-- Reading plain-text input
-- Providing structured errors
-- Exposing functionality through a CLI
-- Building a reliable automated test suite
-
-Fuzzy field extraction, CSV support, spreadsheet support, and TypeScript bindings will be added incrementally.
-
-See [Current State](docs/current-state.md) for the exact implemented behavior and [Roadmap](docs/roadmap.md) for planned releases.
-
-## Requirements
-
-Install the latest stable Rust toolchain using `rustup`.
-
-Verify the installation:
+## Quick Start
 
 ```bash
-rustc --version
-cargo --version
+cargo run -p parser-cli -- inspect fixtures/text/simple.txt
+cargo run -p parser-cli -- inspect fixtures/csv/comma.csv
+cargo run -p parser-cli -- schema validate fixtures/schema/contact.json
 ```
 
-## Workspace structure
-
-```text
-fuzzy-parser/
-├── Cargo.toml
-├── AGENTS.md
-├── crates/
-│   ├── parser-core/
-│   ├── parser-formats/
-│   ├── parser-schema/
-│   └── parser-cli/
-├── docs/
-├── fixtures/
-├── examples/
-└── README.md
-```
+Inspection preserves source locations and raw values. Valid output goes to
+stdout; failures are structured JSON on stderr with a nonzero exit code.
 
 ## Documentation
+
+Start with the [documentation guide](docs/README.md). It routes you by task:
 
 - [Documentation index](docs/README.md)
 - [Current state](docs/current-state.md)
@@ -64,58 +38,9 @@ fuzzy-parser/
 - [Architecture decisions](docs/decisions/README.md)
 - [Agent working rules](AGENTS.md)
 
-## Build
+## CLI Workflows
 
-Build the entire workspace:
-
-```bash
-cargo build --workspace
-```
-
-## Test
-
-Run all workspace tests:
-
-```bash
-cargo test --workspace
-```
-
-## Formatting
-
-Check formatting:
-
-```bash
-cargo fmt --check
-```
-
-Automatically format the codebase:
-
-```bash
-cargo fmt
-```
-
-## Linting
-
-Run Clippy and treat warnings as errors:
-
-```bash
-cargo clippy --workspace --all-targets -- -D warnings
-```
-
-## Local checks
-
-Run the following commands before opening a pull request:
-
-```bash
-cargo fmt --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-cargo build --workspace
-```
-
-## Running the CLI
-
-The CLI currently supports raw text inspection from a TXT or CSV path, XLSX workbook, standard input, or a pasted argument:
+Inspect text or tables from a path, standard input, or inline content:
 
 ```bash
 cargo run -p parser-cli -- inspect fixtures/text/simple.txt
@@ -129,16 +54,34 @@ cargo run -p parser-cli -- schema validate --text '{"schema_version":"0.1","reco
 cargo run -p parser-cli -- schema validate --compact fixtures/schema/contact.json
 ```
 
-Use `parser-cli --help` for the available command modes. Inspection commands emit the canonical raw document as JSON. The schema validation command accepts a path, standard input, or inline text, emits pretty JSON by default or one compact JSON line with `--compact`, and reports failures as structured JSON on stderr. The planned broader contract is documented in [Integration Strategy](docs/integration-strategy.md).
+Use `parser-cli --help` for all command modes. The schema validator accepts a path, standard input, or inline text. It emits pretty JSON by default, one compact JSON line with `--compact`, and structured errors on stderr.
 
-## Design principles
+## Container deployment
 
-- The parser core must remain independent of any specific business domain.
-- Consuming applications provide schemas and domain-specific rules.
-- Original input must never be silently discarded or overwritten.
-- Parsing errors and warnings must be structured and machine-readable.
-- Every extracted value should remain traceable to its source.
-- New functionality must include tests.
+CI builds and smoke-tests the CLI image on every change and publishes `ghcr.io/<owner>/<repository>:latest` after pushes to `main`. Run it as a non-root batch container:
+
+```bash
+docker pull ghcr.io/<owner>/<repository>:latest
+docker run --rm -v "$PWD:/workspace:ro" ghcr.io/<owner>/<repository>:latest inspect /workspace/fixtures/text/simple.txt
+docker run --rm -i ghcr.io/<owner>/<repository>:latest schema validate --stdin < fixtures/schema/contact.json
+```
+
+This is a CLI deployment, not an HTTP service. Input files are mounted read-only and results are emitted as JSON on stdout or stderr.
+
+## Development
+
+Requires a stable Rust toolchain with edition 2024 support. The standard local
+verification is:
+
+```bash
+cargo fmt --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo build --workspace
+```
+
+GitHub Actions runs these checks and builds the CLI container. Container
+publication is guarded to pushes on `main`.
 
 ## License
 

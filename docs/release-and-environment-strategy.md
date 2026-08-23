@@ -134,12 +134,12 @@ Potential artifacts are released independently when ready:
 
 ### Container image
 
-Only needed for an HTTP service or hosted standalone backend.
-
 - Use a minimal runtime image.
 - Run as a non-root user where possible.
 - Expose no implicit persistence.
 - Pin parser version in the image tag.
+
+The current `parser-cli` image is a batch deployment artifact rather than an HTTP service. CI builds and smoke-tests it on pull requests and publishes `ghcr.io/<owner>/<repository>:latest` from `main`. Production consumers should use an immutable release tag when one is available.
 
 ## Publication rules
 

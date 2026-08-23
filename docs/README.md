@@ -1,20 +1,23 @@
 # Fuzzy Parser Documentation
 
-This directory contains the project documentation that is too detailed or too changeable for the root README.
+This is the project map. Start with the question you need answered.
 
-## Start here
+## Find Your Way
 
-- [Current state](current-state.md) — what exists in the repository today.
-- [Product direction](product-direction.md) — what problem the project solves and what it intentionally does not own.
-- [Architecture](architecture.md) — crate responsibilities, dependency direction, and deployment shapes.
-- [Parsing pipeline](parsing-pipeline.md) — the stage-by-stage processing model and invariants.
-- [Data contracts](data-contracts.md) — canonical input, schema, candidate, and output models.
-- [Error and confidence model](error-and-confidence-model.md) — fatal failures, warnings, ambiguity, provenance, and confidence.
-- [Testing strategy](testing-strategy.md) — unit, integration, fixture, regression, fuzz, and benchmark expectations.
-- [Roadmap](roadmap.md) — the intended order of incremental releases.
-- [Release and environment strategy](release-and-environment-strategy.md) — branch, environment, packaging, and publication rules.
-- [Integration strategy](integration-strategy.md) — CLI-first development and future TypeScript/WebAssembly/service integration.
-- [Architecture decisions](decisions/README.md) — durable records of important technical choices.
+| Question | Document |
+| --- | --- |
+| What can I use today? | [Current state](current-state.md) |
+| How do I run or deploy it? | [README](../README.md) and [release strategy](release-and-environment-strategy.md) |
+| What problem does it solve? | [Product direction](product-direction.md) |
+| How does input become structured output? | [Parsing pipeline](parsing-pipeline.md) |
+| What models and JSON contracts exist? | [Data contracts](data-contracts.md) |
+| How are errors and uncertainty represented? | [Error and confidence model](error-and-confidence-model.md) |
+| Which crate owns a behavior? | [Architecture](architecture.md) |
+| How should changes be tested? | [Testing strategy](testing-strategy.md) |
+| What is planned next? | [Roadmap](roadmap.md) |
+| How are releases and containers handled? | [Release and environment strategy](release-and-environment-strategy.md) |
+| How will other runtimes integrate? | [Integration strategy](integration-strategy.md) |
+| Why was a design decision made? | [Architecture decisions](decisions/README.md) |
 
 ## Documentation rules
 

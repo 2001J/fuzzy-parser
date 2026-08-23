@@ -1,6 +1,6 @@
 # Current State
 
-Last reviewed: 2026-07-31.
+Last reviewed: 2026-08-23.
 
 This document records only what is implemented in the repository now. It must not describe planned behavior as complete.
 
@@ -21,13 +21,15 @@ The workspace currently contains four crates:
 - `parser-core` provides serializable canonical raw-document models, source locations, raw values, warnings, structured parser errors, configurable derived text normalization, and deterministic record segmentation strategies including repeated-identifier splitting and heading-aware boundaries.
 - `parser-core` detects conservative email, integer, decimal, phone-number, boolean, date, currency, and caller-defined enum field candidates with raw values, normalized values, confidence, reason codes, and byte-accurate source spans.
 - `parser-core` assigns compatible candidates to caller-provided fields, uses nearby canonical or caller-provided labels and optional source-column metadata as assignment context, applies caller-provided integer and length constraints, selects the highest-confidence candidate when context is equal, preserves multiple values when requested, and reports missing required fields, ambiguity, and unassigned candidates.
+- `parser-core` exposes a deterministic text pipeline that composes all built-in detectors, caller-defined enum detection, and schema-compatible assignment while returning both raw candidate evidence and assignment results.
 - `parser-formats` reads UTF-8 TXT files, pasted text, standard input, and CSV files into canonical raw blocks while preserving content and source locations.
 - CSV extraction scores comma, semicolon, tab, and pipe delimiters, supports explicit overrides, quoted/multiline cells, empty cells, and row/column provenance.
 - `parser-formats` reads XLSX workbooks with sheet, row, column, and typed-cell provenance; it reads stored values only and does not execute formulas or macros.
 - `parser-schema` provides serializable generic target-schema models for fields, enum values, aliases, and basic constraints, plus structural validation for supported versions and ambiguous labels.
 - `parser-formats` exposes configurable default-safe byte and line-length limits for text input.
 - The CLI supports help output, `inspect <path>` for TXT, CSV, and XLSX files, `inspect --stdin`, `inspect --text <content>`, and schema validation from a path, standard input, or inline text with optional compact output, emitting canonical JSON with structured errors and nonzero exit codes.
-- GitHub Actions runs formatting, Clippy, tests, and a workspace build on pull requests and pushes to `main`.
+- GitHub Actions runs formatting, Clippy, tests, and a workspace build on pull requests and pushes to `main`, and builds/smoke-tests the CLI container on every change.
+- The CLI container is the current deployable batch artifact; pushes to `main` publish its `latest` image to GHCR.
 - The repository is licensed under Apache License 2.0.
 - The root README describes the intended workspace boundaries and local validation commands.
 
@@ -57,4 +59,4 @@ cargo build --workspace
 
 ## Immediate next slice
 
-The next implementation slice should add header context extraction from structured inputs.
+The next implementation slice should add header context extraction from structured inputs and connect the pipeline to parsed format blocks.
