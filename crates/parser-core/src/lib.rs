@@ -242,6 +242,18 @@ pub fn parse_text_with_assignment(
     fields: &[AssignmentField],
     enum_definitions: &[(String, Vec<String>)],
 ) -> TextParseResult {
+    let candidates = collect_field_candidates(text, enum_definitions);
+    let assignment = assign_candidates(text, &candidates, fields);
+    TextParseResult {
+        candidates,
+        assignment,
+    }
+}
+
+fn collect_field_candidates(
+    text: &str,
+    enum_definitions: &[(String, Vec<String>)],
+) -> Vec<FieldCandidate> {
     let mut candidates = Vec::new();
     candidates.extend(detect_email_candidates(text));
     candidates.extend(detect_integer_candidates(text));
@@ -251,11 +263,295 @@ pub fn parse_text_with_assignment(
     candidates.extend(detect_date_candidates(text));
     candidates.extend(detect_currency_candidates(text));
     candidates.extend(detect_enum_candidates(text, enum_definitions));
+    candidates
+}
 
-    let assignment = assign_candidates(text, &candidates, fields);
-    TextParseResult {
-        candidates,
-        assignment,
+/// One source cell inside a tabular row group.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TableCell {
+    /// One-based column number matching `SourceLocation.column`.
+    pub source_column: usize,
+    pub value: RawValue,
+    pub source_block_id: String,
+}
+
+/// All cells of one sheet row, ordered by column.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TableRowGroup {
+    pub sheet: Option<String>,
+    pub source_row: usize,
+    pub cells: Vec<TableCell>,
+    pub source_block_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DocumentRows {
+    pub rows: Vec<TableRowGroup>,
+    pub warnings: Vec<ParserWarning>,
+}
+
+/// Groups blocks that carry row provenance into per-row cell groups.
+///
+/// Blocks without row metadata are never dropped: they are reported as
+/// structured warnings so callers can see what the grouping excluded.
+pub fn group_document_rows(document: &RawDocument) -> DocumentRows {
+    let mut rows: Vec<TableRowGroup> = Vec::new();
+    let mut warnings = Vec::new();
+
+    for block in &document.blocks {
+        let Some(source_row) = block.location.row else {
+            warnings.push(ParserWarning {
+                code: "row_provenance_missing".to_owned(),
+                message: format!(
+                    "block {} has no row metadata, so it was excluded from tabular grouping",
+                    block.id
+                ),
+                location: Some(block.location.clone()),
+            });
+            continue;
+        };
+
+        if let Some(group) = rows
+            .iter_mut()
+            .find(|group| group.sheet == block.location.sheet && group.source_row == source_row)
+        {
+            group.cells.push(TableCell {
+                source_column: block.location.column.unwrap_or(0),
+                value: block.value.clone(),
+                source_block_id: block.id.clone(),
+            });
+            group.source_block_ids.push(block.id.clone());
+        } else {
+            rows.push(TableRowGroup {
+                sheet: block.location.sheet.clone(),
+                source_row,
+                cells: vec![TableCell {
+                    source_column: block.location.column.unwrap_or(0),
+                    value: block.value.clone(),
+                    source_block_id: block.id.clone(),
+                }],
+                source_block_ids: vec![block.id.clone()],
+            });
+        }
+    }
+
+    for group in &mut rows {
+        group.cells.sort_by_key(|cell| cell.source_column);
+    }
+    rows.sort_by(|left, right| {
+        left.sheet
+            .cmp(&right.sheet)
+            .then(left.source_row.cmp(&right.source_row))
+    });
+
+    DocumentRows { rows, warnings }
+}
+
+/// Header labels for one sheet: `(one-based column number, label)` pairs.
+///
+/// Labels are derived (trimmed) text; the raw values stay in the document.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TableHeaderContext {
+    pub sheet: Option<String>,
+    pub source_row: usize,
+    pub labels: Vec<(usize, String)>,
+    pub source_block_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum HeaderExtraction {
+    Detected { headers: Box<TableHeaderContext> },
+    NotDetected { code: String, message: String },
+}
+
+impl HeaderExtraction {
+    fn not_detected(code: &'static str, message: &'static str) -> Self {
+        Self::NotDetected {
+            code: code.to_owned(),
+            message: message.to_owned(),
+        }
+    }
+
+    pub fn context(&self) -> Option<&TableHeaderContext> {
+        match self {
+            Self::Detected { headers } => Some(headers),
+            Self::NotDetected { .. } => None,
+        }
+    }
+}
+
+/// Conservatively decides whether the first row of a sheet is a header row.
+///
+/// A row is only treated as a header when the sheet has at least two rows and
+/// every cell of the first row is non-empty plain text without strongly typed
+/// values. Anything else is reported as not detected with a reason.
+pub fn detect_table_headers(rows: &[TableRowGroup]) -> HeaderExtraction {
+    let Some(header_row) = rows.first() else {
+        return HeaderExtraction::not_detected(
+            "header_not_detected_no_rows",
+            "there were no rows available to inspect for a header",
+        );
+    };
+    if rows.len() < 2 {
+        return HeaderExtraction::not_detected(
+            "header_not_detected_single_row",
+            "a single row cannot be safely distinguished from a header row",
+        );
+    }
+
+    let mut labels = Vec::new();
+    for cell in &header_row.cells {
+        let RawValue::Text(value) = &cell.value else {
+            return HeaderExtraction::not_detected(
+                "header_not_detected_typed_cell",
+                "the first row contains a typed cell, so it was not treated as a header",
+            );
+        };
+        let label = collapse_whitespace(value.trim());
+        if label.is_empty() {
+            return HeaderExtraction::not_detected(
+                "header_not_detected_empty_cell",
+                "the first row contains an empty cell, so it was not treated as a header",
+            );
+        }
+        labels.push((cell.source_column, label));
+    }
+
+    if labels.len() < 2 {
+        return HeaderExtraction::not_detected(
+            "header_not_detected_too_few_cells",
+            "the first row has fewer than two labeled cells, so it was not treated as a header",
+        );
+    }
+
+    let header_text = labels
+        .iter()
+        .map(|(_, label)| label.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    if !collect_field_candidates(&header_text, &[]).is_empty() {
+        return HeaderExtraction::not_detected(
+            "header_not_detected_strong_values",
+            "the first row contains strongly typed values, so it was not treated as a header",
+        );
+    }
+
+    HeaderExtraction::Detected {
+        headers: Box::new(TableHeaderContext {
+            sheet: header_row.sheet.clone(),
+            source_row: header_row.source_row,
+            labels,
+            source_block_ids: header_row.source_block_ids.clone(),
+        }),
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TableRowParseResult {
+    pub source_row: usize,
+    pub source_block_ids: Vec<String>,
+    pub parse: TextParseResult,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SheetTableResult {
+    pub sheet: Option<String>,
+    pub header: HeaderExtraction,
+    pub records: Vec<TableRowParseResult>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TableParseResult {
+    pub sheets: Vec<SheetTableResult>,
+    pub warnings: Vec<ParserWarning>,
+}
+
+/// Parses a tabular document row by row using header-derived assignment context.
+///
+/// The pipeline composes existing stages: canonical blocks are grouped into
+/// rows, each sheet's first row is conservatively evaluated as a header, and
+/// every remaining row is parsed with candidate detection plus schema-compatible
+/// assignment where header labels act as column-level evidence. Raw values stay
+/// in the document; unassigned candidates remain observable.
+pub fn parse_document_rows_with_assignment(
+    document: &RawDocument,
+    fields: &[AssignmentField],
+    enum_definitions: &[(String, Vec<String>)],
+) -> TableParseResult {
+    let grouped = group_document_rows(document);
+
+    let mut buckets: Vec<(Option<String>, Vec<TableRowGroup>)> = Vec::new();
+    for row in grouped.rows {
+        match buckets.iter_mut().find(|(sheet, _)| *sheet == row.sheet) {
+            Some((_, bucket)) => bucket.push(row),
+            None => buckets.push((row.sheet.clone(), vec![row])),
+        }
+    }
+
+    let sheets = buckets
+        .into_iter()
+        .map(|(sheet, rows)| {
+            let header = detect_table_headers(&rows);
+            let data_rows = rows.iter().filter(|row| {
+                header
+                    .context()
+                    .is_none_or(|headers| row.source_row != headers.source_row)
+            });
+            let records = data_rows
+                .map(|row| parse_row_group(row, header.context(), fields, enum_definitions))
+                .collect();
+            SheetTableResult {
+                sheet,
+                header,
+                records,
+            }
+        })
+        .collect();
+
+    TableParseResult {
+        sheets,
+        warnings: grouped.warnings,
+    }
+}
+
+fn parse_row_group(
+    row: &TableRowGroup,
+    header: Option<&TableHeaderContext>,
+    fields: &[AssignmentField],
+    enum_definitions: &[(String, Vec<String>)],
+) -> TableRowParseResult {
+    let mut row_text = String::new();
+    let mut candidates = Vec::new();
+
+    for cell in &row.cells {
+        let cell_text = cell.value.to_text();
+        let trimmed = cell_text.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if !row_text.is_empty() {
+            row_text.push(' ');
+        }
+        let offset = row_text.len();
+        row_text.push_str(trimmed);
+
+        for mut candidate in collect_field_candidates(trimmed, enum_definitions) {
+            candidate.source_column = Some(cell.source_column);
+            candidate.source_span.byte_start += offset;
+            candidate.source_span.byte_end += offset;
+            candidates.push(candidate);
+        }
+    }
+
+    let assignment = assign_candidates_inner(&row_text, &candidates, fields, header);
+    TableRowParseResult {
+        source_row: row.source_row,
+        source_block_ids: row.source_block_ids.clone(),
+        parse: TextParseResult {
+            candidates,
+            assignment,
+        },
     }
 }
 
@@ -263,6 +559,24 @@ pub fn assign_candidates(
     text: &str,
     candidates: &[FieldCandidate],
     fields: &[AssignmentField],
+) -> AssignmentResult {
+    assign_candidates_inner(text, candidates, fields, None)
+}
+
+pub fn assign_candidates_with_header_context(
+    text: &str,
+    candidates: &[FieldCandidate],
+    fields: &[AssignmentField],
+    header: Option<&TableHeaderContext>,
+) -> AssignmentResult {
+    assign_candidates_inner(text, candidates, fields, header)
+}
+
+fn assign_candidates_inner(
+    text: &str,
+    candidates: &[FieldCandidate],
+    fields: &[AssignmentField],
+    header: Option<&TableHeaderContext>,
 ) -> AssignmentResult {
     let mut assigned = vec![false; candidates.len()];
     let mut result_fields = Vec::new();
@@ -291,10 +605,15 @@ pub fn assign_candidates(
             continue;
         }
 
+        // When a header context is available, prefer candidates whose column
+        // carries a matching header label over equally type-compatible ones.
+        let eligible_indices =
+            narrow_by_header_context(&matching_indices, candidates, field, header);
+
         let selected_indices = if field.multiple {
-            matching_indices
+            eligible_indices
         } else {
-            if matching_indices.len() > 1 {
+            if eligible_indices.len() > 1 {
                 warnings.push(ParserWarning {
                     code: "multiple_candidates_ambiguous".to_owned(),
                     message: format!(
@@ -307,8 +626,9 @@ pub fn assign_candidates(
             vec![select_highest_confidence(
                 text,
                 candidates,
-                &matching_indices,
+                &eligible_indices,
                 field,
+                header,
             )]
         };
 
@@ -316,7 +636,14 @@ pub fn assign_candidates(
             .into_iter()
             .map(|index| {
                 assigned[index] = true;
-                candidates[index].clone()
+                let mut candidate = candidates[index].clone();
+                if candidate_matches_field_header(&candidate, field, header) {
+                    candidate.reasons.push(Reason::new(
+                        "header_label_match",
+                        "the candidate's source column had a header label matching the field",
+                    ));
+                }
+                candidate
             })
             .collect();
         if field.unique && selected.len() > 1 {
@@ -371,18 +698,67 @@ fn candidate_satisfies_constraints(candidate: &FieldCandidate, field: &Assignmen
     })
 }
 
+fn narrow_by_header_context(
+    matching_indices: &[usize],
+    candidates: &[FieldCandidate],
+    field: &AssignmentField,
+    header: Option<&TableHeaderContext>,
+) -> Vec<usize> {
+    let Some(header) = header else {
+        return matching_indices.to_vec();
+    };
+    let matched = matching_indices
+        .iter()
+        .copied()
+        .filter(|index| candidate_matches_field_header(&candidates[*index], field, Some(header)))
+        .collect::<Vec<_>>();
+    if matched.is_empty() || matched.len() == matching_indices.len() {
+        matching_indices.to_vec()
+    } else {
+        matched
+    }
+}
+
+fn header_label_for_column(
+    header: Option<&TableHeaderContext>,
+    column: Option<usize>,
+) -> Option<&str> {
+    let header = header?;
+    let column = column?;
+    header
+        .labels
+        .iter()
+        .find(|(label_column, _)| *label_column == column)
+        .map(|(_, label)| label.as_str())
+}
+
+fn candidate_matches_field_header(
+    candidate: &FieldCandidate,
+    field: &AssignmentField,
+    header: Option<&TableHeaderContext>,
+) -> bool {
+    let Some(label) = header_label_for_column(header, candidate.source_column) else {
+        return false;
+    };
+    let label = label.to_ascii_lowercase();
+    std::iter::once(field.name.as_str())
+        .chain(field.aliases.iter().map(String::as_str))
+        .any(|name| name.to_ascii_lowercase() == label)
+}
+
 fn select_highest_confidence(
     text: &str,
     candidates: &[FieldCandidate],
     indices: &[usize],
     field: &AssignmentField,
+    header: Option<&TableHeaderContext>,
 ) -> usize {
     indices
         .iter()
         .copied()
         .max_by(|left, right| {
-            candidate_score(text, &candidates[*left], field)
-                .partial_cmp(&candidate_score(text, &candidates[*right], field))
+            candidate_score(text, &candidates[*left], field, header)
+                .partial_cmp(&candidate_score(text, &candidates[*right], field, header))
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then_with(|| right.cmp(left))
         })
@@ -393,10 +769,13 @@ fn candidate_score(
     text: &str,
     candidate: &FieldCandidate,
     field: &AssignmentField,
-) -> (bool, bool, f64) {
+    header: Option<&TableHeaderContext>,
+) -> (bool, bool, bool, f64) {
+    let has_header_context = candidate_matches_field_header(candidate, field, header);
     let context_start = candidate.source_span.byte_start.saturating_sub(40);
     let context = text[context_start..candidate.source_span.byte_start].to_ascii_lowercase();
-    let labels = std::iter::once(&field.name).chain(field.aliases.iter());
+    let labels =
+        std::iter::once(field.name.as_str()).chain(field.aliases.iter().map(String::as_str));
     let has_label_context = labels
         .map(|label| format!("{}:", label.to_ascii_lowercase()))
         .any(|label| context.contains(&label));
@@ -405,7 +784,12 @@ fn candidate_score(
             .source_column
             .is_some_and(|candidate_column| candidate_column == column)
     });
-    (has_label_context, has_column_context, candidate.confidence)
+    (
+        has_header_context,
+        has_label_context,
+        has_column_context,
+        candidate.confidence,
+    )
 }
 
 pub fn detect_email_candidates(text: &str) -> Vec<FieldCandidate> {
@@ -2395,5 +2779,292 @@ mod tests {
     #[test]
     fn empty_core_test() {
         assert!(core_ready());
+    }
+
+    fn table_block(sheet: Option<&str>, row: usize, column: usize, value: RawValue) -> RawBlock {
+        RawBlock {
+            id: format!("block-{row}-{column}"),
+            value,
+            location: SourceLocation {
+                row: Some(row),
+                column: Some(column),
+                sheet: sheet.map(str::to_owned),
+                ..SourceLocation::default()
+            },
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn field_of(
+        name: &str,
+        aliases: &[&str],
+        candidate_type: CandidateType,
+        required: bool,
+        multiple: bool,
+    ) -> AssignmentField {
+        AssignmentField {
+            name: name.to_owned(),
+            aliases: aliases.iter().map(|alias| alias.to_string()).collect(),
+            candidate_type,
+            required,
+            multiple,
+            unique: false,
+            constraints: Vec::new(),
+            expected_column: None,
+        }
+    }
+
+    fn table_document(blocks: Vec<RawBlock>) -> RawDocument {
+        RawDocument::new(
+            "table-document",
+            SourceMetadata {
+                source_type: SourceType::Csv,
+                file_name: Some("table.csv".to_owned()),
+                mime_type: Some("text/csv".to_owned()),
+                size_bytes: None,
+                delimiter: Some(",".to_owned()),
+            },
+            blocks,
+        )
+    }
+
+    #[test]
+    fn table_headers_are_detected_and_drive_row_assignment() {
+        let document = table_document(vec![
+            table_block(None, 1, 1, RawValue::text("Email")),
+            table_block(None, 1, 2, RawValue::text("Age")),
+            table_block(None, 2, 1, RawValue::text("ada@example.test")),
+            table_block(None, 2, 2, RawValue::Integer(30)),
+        ]);
+        let fields = [
+            field_of("email", &[], CandidateType::Email, true, false),
+            field_of("age", &[], CandidateType::Integer, false, false),
+        ];
+
+        let result = parse_document_rows_with_assignment(&document, &fields, &[]);
+
+        assert_eq!(result.sheets.len(), 1);
+        let sheet = &result.sheets[0];
+        let HeaderExtraction::Detected { headers } = &sheet.header else {
+            panic!("expected a detected header");
+        };
+        assert_eq!(headers.source_row, 1);
+        assert_eq!(
+            headers.labels,
+            vec![(1, "Email".to_owned()), (2, "Age".to_owned())]
+        );
+        assert_eq!(sheet.records.len(), 1);
+        let record = &sheet.records[0];
+        assert_eq!(record.source_row, 2);
+        assert_eq!(record.parse.assignment.fields.len(), 2);
+        assert_eq!(
+            record.parse.assignment.fields[0].candidates[0].raw_value,
+            "ada@example.test"
+        );
+        assert_eq!(
+            record.parse.assignment.fields[0].candidates[0].source_column,
+            Some(1)
+        );
+        assert_eq!(
+            record.parse.assignment.fields[1].candidates[0].normalized_value,
+            Some(serde_json::json!(30))
+        );
+    }
+
+    #[test]
+    fn typed_first_rows_are_not_headers_and_stay_records() {
+        let document = table_document(vec![
+            table_block(None, 1, 1, RawValue::text("2024-01-15")),
+            table_block(None, 1, 2, RawValue::text("Note")),
+            table_block(None, 2, 1, RawValue::text("Contact")),
+            table_block(None, 2, 2, RawValue::text("ada@example.test")),
+        ]);
+        let fields = [field_of("email", &[], CandidateType::Email, false, false)];
+
+        let result = parse_document_rows_with_assignment(&document, &fields, &[]);
+
+        let sheet = &result.sheets[0];
+        let HeaderExtraction::NotDetected { code, .. } = &sheet.header else {
+            panic!("expected header detection to be rejected");
+        };
+        assert_eq!(code, "header_not_detected_strong_values");
+        assert_eq!(sheet.records.len(), 2);
+        // Without a header the email still assigns by type compatibility.
+        assert_eq!(
+            sheet.records[1].parse.assignment.fields[0].candidates[0].raw_value,
+            "ada@example.test"
+        );
+    }
+
+    #[test]
+    fn single_row_documents_do_not_invent_a_header() {
+        let document = table_document(vec![
+            table_block(None, 1, 1, RawValue::text("Email")),
+            table_block(None, 1, 2, RawValue::text("Age")),
+        ]);
+
+        let result = parse_document_rows_with_assignment(&document, &[], &[]);
+
+        let sheet = &result.sheets[0];
+        let HeaderExtraction::NotDetected { code, message } = &sheet.header else {
+            panic!("expected header detection to be rejected");
+        };
+        assert_eq!(code, "header_not_detected_single_row");
+        assert!(!message.is_empty());
+        assert_eq!(sheet.records.len(), 1);
+    }
+
+    #[test]
+    fn header_labels_resolve_ambiguous_integer_columns() {
+        let document = table_document(vec![
+            table_block(None, 1, 1, RawValue::text("Quantity")),
+            table_block(None, 1, 2, RawValue::text("Age")),
+            table_block(None, 2, 1, RawValue::Integer(30)),
+            table_block(None, 2, 2, RawValue::Integer(7)),
+        ]);
+        let fields = [field_of("age", &[], CandidateType::Integer, true, false)];
+
+        let result = parse_document_rows_with_assignment(&document, &fields, &[]);
+
+        let record = &result.sheets[0].records[0];
+        let assignment = &record.parse.assignment;
+        // Both integers are type-compatible; only the "Age" column matches.
+        assert_eq!(assignment.warnings.len(), 0);
+        assert_eq!(assignment.fields[0].candidates.len(), 1);
+        let selected = &assignment.fields[0].candidates[0];
+        assert_eq!(selected.source_column, Some(2));
+        assert_eq!(selected.normalized_value, Some(serde_json::json!(7)));
+        assert!(
+            selected
+                .reasons
+                .iter()
+                .any(|reason| reason.code == "header_label_match")
+        );
+        assert_eq!(assignment.unassigned_candidates.len(), 1);
+    }
+
+    #[test]
+    fn multiple_fields_prefer_header_matching_columns() {
+        let document = table_document(vec![
+            table_block(None, 1, 1, RawValue::text("Phone")),
+            table_block(None, 1, 2, RawValue::text("Fax")),
+            table_block(None, 2, 1, RawValue::text("+15550101")),
+            table_block(None, 2, 2, RawValue::text("+15550102")),
+        ]);
+        let fields = [field_of(
+            "phone",
+            &[],
+            CandidateType::PhoneNumber,
+            false,
+            true,
+        )];
+
+        let result = parse_document_rows_with_assignment(&document, &fields, &[]);
+
+        let assignment = &result.sheets[0].records[0].parse.assignment;
+        assert_eq!(assignment.fields[0].candidates.len(), 1);
+        assert_eq!(assignment.fields[0].candidates[0].raw_value, "+15550101");
+        // Each phone-like token also surfaces an integer candidate (evidence,
+        // not assignments); together with the unmatched "Fax" phone they stay
+        // observable as unassigned.
+        let unassigned_phones = assignment
+            .unassigned_candidates
+            .iter()
+            .filter(|candidate| candidate.candidate_type == CandidateType::PhoneNumber)
+            .count();
+        assert_eq!(assignment.unassigned_candidates.len(), 3);
+        assert_eq!(unassigned_phones, 1);
+        assert_eq!(assignment.unassigned_candidates[0].source_column, Some(1));
+    }
+
+    #[test]
+    fn blocks_without_row_provenance_are_reported_not_dropped() {
+        let document = table_document(vec![
+            table_block(None, 1, 1, RawValue::text("Email")),
+            table_block(None, 1, 2, RawValue::text("Age")),
+            table_block(None, 2, 1, RawValue::text("ada@example.test")),
+            table_block(None, 2, 2, RawValue::Integer(30)),
+            RawBlock {
+                id: "loose-block".to_owned(),
+                value: RawValue::text("stray note"),
+                location: SourceLocation::default(),
+            },
+        ]);
+
+        let grouped = group_document_rows(&document);
+
+        assert_eq!(grouped.rows.len(), 2);
+        assert_eq!(grouped.warnings.len(), 1);
+        assert_eq!(grouped.warnings[0].code, "row_provenance_missing");
+        assert_eq!(
+            grouped.warnings[0].location.as_ref().and_then(|l| l.row),
+            None
+        );
+    }
+
+    #[test]
+    fn sheets_get_independent_header_contexts() {
+        let document = table_document(vec![
+            table_block(Some("A"), 1, 1, RawValue::text("Email")),
+            table_block(Some("A"), 1, 2, RawValue::text("Age")),
+            table_block(Some("A"), 2, 1, RawValue::text("ada@example.test")),
+            table_block(Some("A"), 2, 2, RawValue::Integer(30)),
+            table_block(Some("B"), 1, 1, RawValue::text("Phone")),
+            table_block(Some("B"), 1, 2, RawValue::text("Fax")),
+            table_block(Some("B"), 2, 1, RawValue::text("+15550101")),
+            table_block(Some("B"), 2, 2, RawValue::text("+15550102")),
+        ]);
+        let fields = [
+            field_of("email", &[], CandidateType::Email, false, false),
+            field_of("phone", &[], CandidateType::PhoneNumber, false, false),
+        ];
+
+        let result = parse_document_rows_with_assignment(&document, &fields, &[]);
+
+        assert_eq!(result.sheets.len(), 2);
+        assert_eq!(result.sheets[0].sheet.as_deref(), Some("A"));
+        assert_eq!(result.sheets[1].sheet.as_deref(), Some("B"));
+        for sheet in &result.sheets {
+            assert!(sheet.header.context().is_some());
+            assert_eq!(sheet.records.len(), 1);
+        }
+        let assigned_value = |sheet: &SheetTableResult, name: &str| {
+            sheet.records[0]
+                .parse
+                .assignment
+                .fields
+                .iter()
+                .find(|field| field.name == name)
+                .map(|field| field.candidates[0].raw_value.clone())
+        };
+        // Sheets only report fields that found a compatible candidate.
+        assert_eq!(
+            assigned_value(&result.sheets[0], "email").as_deref(),
+            Some("ada@example.test")
+        );
+        assert_eq!(assigned_value(&result.sheets[0], "phone"), None);
+        assert_eq!(
+            assigned_value(&result.sheets[1], "phone").as_deref(),
+            Some("+15550101")
+        );
+        assert_eq!(assigned_value(&result.sheets[1], "email"), None);
+    }
+
+    #[test]
+    fn table_parse_result_round_trips_as_json() {
+        let document = table_document(vec![
+            table_block(None, 1, 1, RawValue::text("Email")),
+            table_block(None, 1, 2, RawValue::text("Age")),
+            table_block(None, 2, 1, RawValue::text("ada@example.test")),
+            table_block(None, 2, 2, RawValue::Integer(30)),
+        ]);
+        let fields = [field_of("email", &[], CandidateType::Email, true, false)];
+
+        let result = parse_document_rows_with_assignment(&document, &fields, &[]);
+        let json = serde_json::to_string(&result).expect("table result should serialize");
+        let decoded: TableParseResult =
+            serde_json::from_str(&json).expect("table result should deserialize");
+
+        assert_eq!(decoded, result);
     }
 }

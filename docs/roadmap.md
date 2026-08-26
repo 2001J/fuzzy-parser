@@ -94,6 +94,8 @@ Status: in progress. The reusable schema model, supported-version and alias vali
 
 ## 0.9 — Candidate detection
 
+Status: in progress. Detection for email, integer, decimal, phone, boolean, date, currency, and caller-defined enum values is implemented in `parser-core` with source spans and confidence reasons. Residual text and conservative person-name detectors remain.
+
 - Phone.
 - Email.
 - Integer and decimal.
@@ -101,18 +103,20 @@ Status: in progress. The reusable schema model, supported-version and alias vali
 - Date and datetime.
 - Boolean.
 - Enum alias.
-- Residual text and conservative person-name candidates.
-- Source spans and candidate confidence.
+- Residual text and conservative person-name candidates (not yet implemented).
+- Source spans and candidate confidence (implemented).
 
 ## 0.10 — Assignment and validation
 
-- Type-compatible assignment.
-- Label and header context scoring.
-- Position and uniqueness scoring.
-- Required-field warnings.
-- Multiple-candidate ambiguity.
-- Unassigned candidate reporting.
-- Caller-provided validation constraints.
+Status: in progress. Type-compatible assignment with nearby-label, source-column, and detected-header context, required-field warnings, multiple-candidate ambiguity, unassigned-candidate reporting, and caller validation constraints are implemented in `parser-core`. Position/uniqueness scoring and CLI exposure of the pipeline remain.
+
+- Type-compatible assignment (implemented).
+- Label and header context scoring (implemented; CLI exposure remains).
+- Position and uniqueness scoring (not yet implemented).
+- Required-field warnings (implemented).
+- Multiple-candidate ambiguity (implemented).
+- Unassigned candidate reporting (implemented).
+- Caller-provided validation constraints (implemented).
 
 ## 0.11 — Explainable parse result
 

@@ -769,6 +769,55 @@ mod tests {
     }
 
     #[test]
+    fn csv_document_parses_with_header_driven_assignment() {
+        let bytes = b"Email,Age\nada@example.test,30\ngrace@example.test,45\n";
+        let document = read_csv_bytes(
+            Some("people.csv"),
+            bytes,
+            "people.csv",
+            CsvOptions::default(),
+        )
+        .expect("csv should parse");
+        let fields = [parser_core::AssignmentField {
+            name: "email".to_owned(),
+            aliases: vec!["contact".to_owned()],
+            candidate_type: parser_core::CandidateType::Email,
+            required: true,
+            multiple: false,
+            unique: false,
+            constraints: Vec::new(),
+            expected_column: None,
+        }];
+
+        let result = parser_core::parse_document_rows_with_assignment(&document, &fields, &[]);
+
+        assert_eq!(result.warnings.len(), 0);
+        assert_eq!(result.sheets.len(), 1);
+        let sheet = &result.sheets[0];
+        assert!(sheet.header.context().is_some());
+        assert_eq!(
+            sheet.header.context().unwrap().labels,
+            vec![(1, "Email".to_owned()), (2, "Age".to_owned())]
+        );
+        assert_eq!(sheet.records.len(), 2);
+        for record in &sheet.records {
+            let email = &record.parse.assignment.fields[0].candidates[0];
+            assert_eq!(email.candidate_type, parser_core::CandidateType::Email);
+            assert_eq!(email.source_column, Some(1));
+            assert!(
+                email
+                    .reasons
+                    .iter()
+                    .any(|reason| reason.code == "header_label_match")
+            );
+        }
+        assert_eq!(
+            sheet.records[1].parse.assignment.fields[0].candidates[0].raw_value,
+            "grace@example.test"
+        );
+    }
+
+    #[test]
     fn empty_formats_test() {
         assert!(formats_ready());
     }

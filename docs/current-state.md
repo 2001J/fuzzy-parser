@@ -1,6 +1,6 @@
 # Current State
 
-Last reviewed: 2026-08-23.
+Last reviewed: 2026-08-26.
 
 This document records only what is implemented in the repository now. It must not describe planned behavior as complete.
 
@@ -20,7 +20,8 @@ The workspace currently contains four crates:
 - The workspace compiles as a multi-crate Rust project.
 - `parser-core` provides serializable canonical raw-document models, source locations, raw values, warnings, structured parser errors, configurable derived text normalization, and deterministic record segmentation strategies including repeated-identifier splitting and heading-aware boundaries.
 - `parser-core` detects conservative email, integer, decimal, phone-number, boolean, date, currency, and caller-defined enum field candidates with raw values, normalized values, confidence, reason codes, and byte-accurate source spans.
-- `parser-core` assigns compatible candidates to caller-provided fields, uses nearby canonical or caller-provided labels and optional source-column metadata as assignment context, applies caller-provided integer and length constraints, selects the highest-confidence candidate when context is equal, preserves multiple values when requested, and reports missing required fields, ambiguity, and unassigned candidates.
+- `parser-core` assigns compatible candidates to caller-provided fields, uses nearby canonical or caller-provided labels, optional source-column metadata, or detected table-header labels as assignment context, applies caller-provided integer and length constraints, selects the highest-confidence candidate when context is equal, preserves multiple values when requested preferring header-matching columns, and reports missing required fields, ambiguity, and unassigned candidates.
+- `parser-core` groups blocks with row provenance into sheet rows, conservatively detects textual first-row headers per sheet (rejecting typed, empty, single-row, or strong-value cases with reason codes), and exposes a deterministic tabular pipeline (`parse_document_rows_with_assignment`) that parses each data row with header-driven assignment; blocks without row provenance are reported as warnings rather than dropped.
 - `parser-core` exposes a deterministic text pipeline that composes all built-in detectors, caller-defined enum detection, and schema-compatible assignment while returning both raw candidate evidence and assignment results.
 - `parser-formats` reads UTF-8 TXT files, pasted text, standard input, and CSV files into canonical raw blocks while preserving content and source locations.
 - CSV extraction scores comma, semicolon, tab, and pipe delimiters, supports explicit overrides, quoted/multiline cells, empty cells, and row/column provenance.
@@ -39,7 +40,7 @@ The following capabilities are planned but do not exist yet:
 
 - Additional field candidate detection beyond email, integer, decimal, phone-number, boolean, date, currency, and caller-defined enum values.
 - Schema-driven parsing and assignment integration beyond CLI validation.
-- Header context scoring during assignment.
+- CLI exposure of the tabular header-driven pipeline (currently library-only).
 - Confidence aggregation and explanations.
 - Structured warnings or rejected fragments.
 - General parse request/response contracts beyond raw-document inspection.
@@ -59,4 +60,4 @@ cargo build --workspace
 
 ## Immediate next slice
 
-The next implementation slice should add header context extraction from structured inputs and connect the pipeline to parsed format blocks.
+The next implementation slice should expose schema-driven parsing end to end through the CLI: load a caller schema, run the tabular header-driven pipeline (or the text pipeline for unstructured input), and emit a versioned parse result instead of raw inspection only.

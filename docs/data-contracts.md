@@ -210,6 +210,48 @@ pub struct AssignmentResult {
 
 `TextParseResult` contains the candidates produced by `parse_text_with_assignment` and its corresponding `AssignmentResult`, allowing review tools and automated consumers to inspect both the decision and the evidence behind it.
 
+## Tabular header context and row assignment
+
+```rust
+pub struct TableCell {
+    pub source_column: usize,
+    pub value: RawValue,
+    pub source_block_id: String,
+}
+
+pub struct TableRowGroup {
+    pub sheet: Option<String>,
+    pub source_row: usize,
+    pub cells: Vec<TableCell>,
+    pub source_block_ids: Vec<String>,
+}
+
+pub struct TableHeaderContext {
+    pub sheet: Option<String>,
+    pub source_row: usize,
+    pub labels: Vec<(usize, String)>,
+    pub source_block_ids: Vec<String>,
+}
+
+pub struct TableParseResult {
+    pub sheets: Vec<SheetTableResult>,
+    pub warnings: Vec<ParserWarning>,
+}
+
+pub struct SheetTableResult {
+    pub sheet: Option<String>,
+    pub header: HeaderExtraction,
+    pub records: Vec<TableRowParseResult>,
+}
+
+pub enum HeaderExtraction {
+    Detected { headers: Box<TableHeaderContext> },
+    NotDetected { code: String, message: String },
+}
+```
+
+`group_document_rows` groups blocks carrying row provenance (CSV row/column or XLSX sheet/row/column) into per-sheet `TableRowGroup` values, ordered by column; blocks without row metadata are reported as warnings, never dropped. `detect_table_headers` conservatively treats a sheet's first row as a header only when the sheet has at least two rows and every first-row cell is non-empty plain text without strongly typed values; every rejection carries a stable `header_not_detected_*` reason code. `parse_document_rows_with_assignment` parses each data row by composing candidate detection with header-driven assignment, recording a `header_label_match` reason on candidates whose column matches a field name or alias, and selecting header-matching columns over equally type-compatible ones. Every result is serializable for integration surfaces.
+
 ## Parsed record
 
 ```rust
