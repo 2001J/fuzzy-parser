@@ -141,7 +141,7 @@ fn inspect_requires_command_and_input() {
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(
         String::from_utf8_lossy(&output.stderr),
-        "usage: parser-cli inspect <path> | --stdin | --text <content> | schema validate <path>\n"
+        "usage: parser-cli inspect <path> | --stdin | --text <content> | schema validate <path> | parse <path> --schema <path>\n"
     );
 }
 

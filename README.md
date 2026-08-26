@@ -54,7 +54,14 @@ cargo run -p parser-cli -- schema validate --text '{"schema_version":"0.1","reco
 cargo run -p parser-cli -- schema validate --compact fixtures/schema/contact.json
 ```
 
-Use `parser-cli --help` for all command modes. The schema validator accepts a path, standard input, or inline text. It emits pretty JSON by default, one compact JSON line with `--compact`, and structured errors on stderr.
+Parse a CSV or text input against a caller schema, emitting a versioned parse result:
+
+```bash
+cargo run -p parser-cli -- parse fixtures/csv/comma.csv --schema fixtures/schema/contact.json
+printf 'Ada Lovelace,ada@example.test\n' | cargo run -p parser-cli -- parse --stdin --schema fixtures/schema/contact.json
+```
+
+Use `parser-cli --help` for all command modes. The schema validator accepts a path, standard input, or inline text. It emits pretty JSON by default, one compact JSON line with `--compact`, and structured errors on stderr. The `parse` command accepts a caller schema and returns a versioned JSON result with per-record assignments; schemas using field types the engine does not detect yet (`text`, `person_name`, `datetime`) are rejected with a structured error rather than silently dropped.
 
 ## Container deployment
 

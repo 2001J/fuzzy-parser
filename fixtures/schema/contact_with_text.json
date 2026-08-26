@@ -1,0 +1,17 @@
+{
+  "schema_version": "0.1",
+  "record_name": "contact",
+  "fields": [
+    {
+      "name": "name",
+      "field_type": "text",
+      "required": false,
+      "multiple": false,
+      "aliases": [],
+      "constraints": []
+    }
+  ],
+  "options": {
+    "allow_unknown_fields": true
+  }
+}

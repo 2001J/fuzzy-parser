@@ -555,6 +555,79 @@ fn parse_row_group(
     }
 }
 
+/// One parsed record for unstructured text mode.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TextRecordParseResult {
+    pub source_block_id: String,
+    pub parse: TextParseResult,
+}
+
+/// Mode-specific parse content for a versioned `ParseResponse`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum ParseContent {
+    Table { sheets: Vec<SheetTableResult> },
+    Text { records: Vec<TextRecordParseResult> },
+}
+
+/// Versioned, serializable result of a schema-driven parse.
+///
+/// The envelope carries the contract and parser versions plus source
+/// provenance, while the mode-specific content keeps every raw value,
+/// candidate, ambiguity, and unassigned candidate observable.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ParseResponse {
+    pub contract_version: String,
+    pub parser_version: String,
+    pub record_name: Option<String>,
+    pub source_type: SourceType,
+    pub content: ParseContent,
+    pub warnings: Vec<ParserWarning>,
+}
+
+/// Parses any canonical document with caller-provided fields.
+///
+/// Chooses the tabular header-driven pipeline when the document carries row
+/// provenance and a per-block text pipeline otherwise, so multi-line text and
+/// tables both flow through one versioned result contract. Raw values stay in
+/// the document; unassigned candidates remain observable.
+pub fn parse_document_with_assignment(
+    document: &RawDocument,
+    fields: &[AssignmentField],
+    enum_definitions: &[(String, Vec<String>)],
+    record_name: Option<String>,
+) -> ParseResponse {
+    let grouped = group_document_rows(document);
+    let (content, warnings) = if grouped.rows.is_empty() {
+        let records = document
+            .blocks
+            .iter()
+            .map(|block| TextRecordParseResult {
+                source_block_id: block.id.clone(),
+                parse: parse_text_with_assignment(&block.value.to_text(), fields, enum_definitions),
+            })
+            .collect();
+        (ParseContent::Text { records }, Vec::new())
+    } else {
+        let table = parse_document_rows_with_assignment(document, fields, enum_definitions);
+        (
+            ParseContent::Table {
+                sheets: table.sheets,
+            },
+            table.warnings,
+        )
+    };
+
+    ParseResponse {
+        contract_version: CONTRACT_VERSION.to_owned(),
+        parser_version: env!("CARGO_PKG_VERSION").to_owned(),
+        record_name,
+        source_type: document.source.source_type.clone(),
+        content,
+        warnings,
+    }
+}
+
 pub fn assign_candidates(
     text: &str,
     candidates: &[FieldCandidate],
@@ -3066,5 +3139,87 @@ mod tests {
             serde_json::from_str(&json).expect("table result should deserialize");
 
         assert_eq!(decoded, result);
+    }
+
+    #[test]
+    fn parse_document_dispatches_to_table_for_row_provenance() {
+        let document = table_document(vec![
+            table_block(None, 1, 1, RawValue::text("Email")),
+            table_block(None, 1, 2, RawValue::text("Age")),
+            table_block(None, 2, 1, RawValue::text("ada@example.test")),
+            table_block(None, 2, 2, RawValue::Integer(30)),
+        ]);
+        let fields = [field_of("email", &[], CandidateType::Email, true, false)];
+
+        let response =
+            parse_document_with_assignment(&document, &fields, &[], Some("contact".to_owned()));
+
+        assert_eq!(response.contract_version, CONTRACT_VERSION);
+        assert_eq!(response.parser_version, env!("CARGO_PKG_VERSION"));
+        assert_eq!(response.record_name.as_deref(), Some("contact"));
+        assert_eq!(response.source_type, SourceType::Csv);
+        let ParseContent::Table { sheets } = &response.content else {
+            panic!("expected table content");
+        };
+        assert_eq!(sheets.len(), 1);
+        assert_eq!(sheets[0].records.len(), 1);
+        assert_eq!(
+            sheets[0].records[0].parse.assignment.fields[0].candidates[0].raw_value,
+            "ada@example.test"
+        );
+    }
+
+    #[test]
+    fn parse_document_dispatches_to_text_without_row_provenance() {
+        let document = test_document(vec![
+            RawBlock {
+                id: "b1".to_owned(),
+                value: RawValue::text("ada@example.test"),
+                location: SourceLocation::default(),
+            },
+            RawBlock {
+                id: "b2".to_owned(),
+                value: RawValue::text("grace@example.test"),
+                location: SourceLocation::default(),
+            },
+        ]);
+        let fields = [field_of("email", &[], CandidateType::Email, true, false)];
+
+        let response = parse_document_with_assignment(&document, &fields, &[], None);
+
+        assert_eq!(response.source_type, SourceType::Text);
+        assert!(response.warnings.is_empty());
+        let ParseContent::Text { records } = &response.content else {
+            panic!("expected text content");
+        };
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].source_block_id, "b1");
+        assert_eq!(
+            records[0].parse.assignment.fields[0].candidates[0].raw_value,
+            "ada@example.test"
+        );
+        assert_eq!(
+            records[1].parse.assignment.fields[0].candidates[0].raw_value,
+            "grace@example.test"
+        );
+    }
+
+    #[test]
+    fn parse_response_round_trips_as_json() {
+        let document = table_document(vec![
+            table_block(None, 1, 1, RawValue::text("Email")),
+            table_block(None, 1, 2, RawValue::text("Age")),
+            table_block(None, 2, 1, RawValue::text("ada@example.test")),
+            table_block(None, 2, 2, RawValue::Integer(30)),
+        ]);
+        let fields = [field_of("email", &[], CandidateType::Email, true, false)];
+
+        let response =
+            parse_document_with_assignment(&document, &fields, &[], Some("contact".to_owned()));
+        let json = serde_json::to_string(&response).expect("response should serialize");
+        let decoded: ParseResponse =
+            serde_json::from_str(&json).expect("response should deserialize");
+
+        assert_eq!(decoded, response);
     }
 }

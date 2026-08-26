@@ -82,7 +82,7 @@ Status: complete.
 
 ## 0.8 — Schema contract
 
-Status: in progress. The reusable schema model, supported-version and alias validation, and CLI loading are implemented; parser integration remains.
+Status: in progress. The reusable schema model, supported-version and alias validation, and CLI loading/validation are implemented. A CLI `parse <path> --schema <path>` command now runs the schema-driven pipeline end to end for supported field types; the remainder is converting unsupported field types as their detectors land.
 
 - Versioned target schema JSON.
 - Generic field types.
@@ -108,10 +108,10 @@ Status: in progress. Detection for email, integer, decimal, phone, boolean, date
 
 ## 0.10 — Assignment and validation
 
-Status: in progress. Type-compatible assignment with nearby-label, source-column, and detected-header context, required-field warnings, multiple-candidate ambiguity, unassigned-candidate reporting, and caller validation constraints are implemented in `parser-core`. Position/uniqueness scoring and CLI exposure of the pipeline remain.
+Status: in progress. Type-compatible assignment with nearby-label, source-column, and detected-header context, required-field warnings, multiple-candidate ambiguity, unassigned-candidate reporting, and caller validation constraints are implemented in `parser-core` and exposed through the CLI `parse` command. Position/uniqueness scoring remains.
 
 - Type-compatible assignment (implemented).
-- Label and header context scoring (implemented; CLI exposure remains).
+- Label and header context scoring (implemented; exposed through the CLI `parse` command).
 - Position and uniqueness scoring (not yet implemented).
 - Required-field warnings (implemented).
 - Multiple-candidate ambiguity (implemented).

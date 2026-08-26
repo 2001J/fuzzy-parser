@@ -23,12 +23,14 @@ The workspace currently contains four crates:
 - `parser-core` assigns compatible candidates to caller-provided fields, uses nearby canonical or caller-provided labels, optional source-column metadata, or detected table-header labels as assignment context, applies caller-provided integer and length constraints, selects the highest-confidence candidate when context is equal, preserves multiple values when requested preferring header-matching columns, and reports missing required fields, ambiguity, and unassigned candidates.
 - `parser-core` groups blocks with row provenance into sheet rows, conservatively detects textual first-row headers per sheet (rejecting typed, empty, single-row, or strong-value cases with reason codes), and exposes a deterministic tabular pipeline (`parse_document_rows_with_assignment`) that parses each data row with header-driven assignment; blocks without row provenance are reported as warnings rather than dropped.
 - `parser-core` exposes a deterministic text pipeline that composes all built-in detectors, caller-defined enum detection, and schema-compatible assignment while returning both raw candidate evidence and assignment results.
+- `parser-core` exposes a document-level orchestrator (`parse_document_with_assignment`) that chooses the tabular header-driven pipeline when the document has row provenance and a per-block text pipeline otherwise, returning a versioned `ParseResponse` with contract and parser versions, source provenance, and every candidate, ambiguity, and unassigned value observable.
 - `parser-formats` reads UTF-8 TXT files, pasted text, standard input, and CSV files into canonical raw blocks while preserving content and source locations.
 - CSV extraction scores comma, semicolon, tab, and pipe delimiters, supports explicit overrides, quoted/multiline cells, empty cells, and row/column provenance.
 - `parser-formats` reads XLSX workbooks with sheet, row, column, and typed-cell provenance; it reads stored values only and does not execute formulas or macros.
 - `parser-schema` provides serializable generic target-schema models for fields, enum values, aliases, and basic constraints, plus structural validation for supported versions and ambiguous labels.
 - `parser-formats` exposes configurable default-safe byte and line-length limits for text input.
-- The CLI supports help output, `inspect <path>` for TXT, CSV, and XLSX files, `inspect --stdin`, `inspect --text <content>`, and schema validation from a path, standard input, or inline text with optional compact output, emitting canonical JSON with structured errors and nonzero exit codes.
+- The CLI supports help output, `inspect <path>` for TXT, CSV, and XLSX files, `inspect --stdin`, `inspect --text <content>`, schema validation from a path, standard input, or inline text with optional compact output, and `parse <path> --schema <schema-path>` / `parse --stdin --schema <schema-path>`, emitting canonical JSON with structured errors and nonzero exit codes.
+- The CLI `parse` command loads a validated caller schema, converts supported field types into assignment instructions, and runs the versioned `ParseResponse` pipeline; schemas that reference not-yet-supported field types (`text`, `person_name`, `datetime`) are rejected with a structured `schema_field_type_unsupported` error instead of silently dropping fields.
 - GitHub Actions runs formatting, Clippy, tests, and a workspace build on pull requests and pushes to `main`, and builds/smoke-tests the CLI container on every change.
 - The CLI container is the current deployable batch artifact; pushes to `main` publish its `latest` image to GHCR.
 - The repository is licensed under Apache License 2.0.
@@ -38,11 +40,10 @@ The workspace currently contains four crates:
 
 The following capabilities are planned but do not exist yet:
 
-- Additional field candidate detection beyond email, integer, decimal, phone-number, boolean, date, currency, and caller-defined enum values.
-- Schema-driven parsing and assignment integration beyond CLI validation.
-- CLI exposure of the tabular header-driven pipeline (currently library-only).
+- Additional field candidate detection beyond email, integer, decimal, phone-number, boolean, date, currency, and caller-defined enum values, including residual text and person-name fields.
+- Parse request/response surfaces beyond the CLI `parse` command (review UI, TypeScript/WebAssembly, native, service), and record statuses, aggregated confidence, rejected fragments, and statistics as documented for the future explainable parse result contract.
 - Confidence aggregation and explanations.
-- Structured warnings or rejected fragments.
+- Structured warnings or rejected fragments at the record level (per-parse warnings exist; rejected fragments and record statuses do not).
 - General parse request/response contracts beyond raw-document inspection.
 - TypeScript, WebAssembly, native Node, or HTTP integration.
 - A standalone graphical interface.
@@ -60,4 +61,4 @@ cargo build --workspace
 
 ## Immediate next slice
 
-The next implementation slice should expose schema-driven parsing end to end through the CLI: load a caller schema, run the tabular header-driven pipeline (or the text pipeline for unstructured input), and emit a versioned parse result instead of raw inspection only.
+- The next slice completes the generic field detection set by adding conservative residual-text and person-name candidates, which unblocks `text` and `person_name` schema fields (currently rejected as unsupported).

@@ -252,6 +252,34 @@ pub enum HeaderExtraction {
 
 `group_document_rows` groups blocks carrying row provenance (CSV row/column or XLSX sheet/row/column) into per-sheet `TableRowGroup` values, ordered by column; blocks without row metadata are reported as warnings, never dropped. `detect_table_headers` conservatively treats a sheet's first row as a header only when the sheet has at least two rows and every first-row cell is non-empty plain text without strongly typed values; every rejection carries a stable `header_not_detected_*` reason code. `parse_document_rows_with_assignment` parses each data row by composing candidate detection with header-driven assignment, recording a `header_label_match` reason on candidates whose column matches a field name or alias, and selecting header-matching columns over equally type-compatible ones. Every result is serializable for integration surfaces.
 
+## Versioned parse result
+
+The document-level entry point returns one versioned envelope that covers both tabular and unstructured inputs.
+
+```rust
+pub struct ParseResponse {
+    pub contract_version: String,
+    pub parser_version: String,
+    pub record_name: Option<String>,
+    pub source_type: SourceType,
+    pub content: ParseContent,
+    pub warnings: Vec<ParserWarning>,
+}
+
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum ParseContent {
+    Table { sheets: Vec<SheetTableResult> },
+    Text { records: Vec<TextRecordParseResult> },
+}
+
+pub struct TextRecordParseResult {
+    pub source_block_id: String,
+    pub parse: TextParseResult,
+}
+```
+
+`parse_document_with_assignment` chooses the tabular header-driven pipeline when the document carries row provenance and a per-block text pipeline otherwise, so multi-line text and tables flow through one serializable, versioned contract. Raw values stay in the document; candidate evidence, ambiguity, and unassigned candidates remain observable at the record level. The CLI `parse` command is the first integration surface for this contract.
+
 ## Parsed record
 
 ```rust
