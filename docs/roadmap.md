@@ -22,8 +22,12 @@ independently verified; [data contracts](data-contracts.md) describes the
 canonical source-review extension. The focused fix for
 [#21 — Prevent Unicode label-context slicing from crashing assignment](https://github.com/2001J/fuzzy-parser/issues/21),
 a pre-existing bug found during that review, is also independently verified.
-Next, evaluate one reusable runtime boundary in
-[#11](https://github.com/2001J/fuzzy-parser/issues/11). These individual
+The bounded [#11](https://github.com/2001J/fuzzy-parser/issues/11) evaluation
+proposes a library caller interface in [ADR 0006](decisions/0006-library-interface-runtime-evaluation.md).
+Node/CLI evidence is independently reviewed; backend selection awaits the
+bounded WASM gate. Next implement [#22's generic XLSX byte input](https://github.com/2001J/fuzzy-parser/issues/22);
+#2 also remains ready to unblock shared schema compilation in #12. No queue or
+separate service is part of this initial direction. These individual
 steps do not establish complete engine readiness or authorize publication.
 
 ## Milestone: Reviewable import engine
@@ -39,7 +43,8 @@ selected independently.
 | --- | --- |
 | [#10 Source-complete result and review reasons](https://github.com/2001J/fuzzy-parser/issues/10) | Implemented and independently verified; includes retained raw-model compatibility tests |
 | [#21 Unicode-safe assignment context](https://github.com/2001J/fuzzy-parser/issues/21) | Implemented and independently verified with permanent core/CLI regressions |
-| [#11 Select one reusable runtime boundary](https://github.com/2001J/fuzzy-parser/issues/11) | Next evaluation; prove the chosen target, not all alternatives |
+| [#11 Select one reusable runtime boundary](https://github.com/2001J/fuzzy-parser/issues/11) | Bounded evidence reviewed; backend decision waits for #12, #22 and a separately scoped JS/WASM comparison |
+| [#22 Filesystem-free XLSX byte input](https://github.com/2001J/fuzzy-parser/issues/22) | Ready next; preserve the existing path reader and canonical document while removing the filesystem requirement for byte callers |
 | [#2 Finish safe structured errors](https://github.com/2001J/fuzzy-parser/issues/2) | Ready; path redaction and error coverage remain |
 | [#4 Permanent TXT adapter edge-case fixtures](https://github.com/2001J/fuzzy-parser/issues/4) | Ready; adapter exists, durable acceptance coverage is incomplete |
 | [#5 Reusable file validation and empty policy](https://github.com/2001J/fuzzy-parser/issues/5) | #2 |
@@ -51,7 +56,7 @@ selected independently.
 | [#15 Delimiter-adjacent email regression](https://github.com/2001J/fuzzy-parser/issues/15) | Ready; preserve original byte offsets |
 | [#16 Explicit table headers/selection/provenance](https://github.com/2001J/fuzzy-parser/issues/16) | #10, #12; coordinate bounds with #17 |
 | [#17 Bound CSV/XLSX/schema/result resource use](https://github.com/2001J/fuzzy-parser/issues/17) | #2, #5, #12 |
-| [#18 Implement the selected runtime adapter](https://github.com/2001J/fuzzy-parser/issues/18) | #10, #11, #12, #17; final parity includes #13–#16 |
+| [#18 Implement the selected runtime adapter](https://github.com/2001J/fuzzy-parser/issues/18) | Reviewed single-backend #11 decision, #10, #12, #17 and installation/packaging/lifecycle gates; final parity includes #13–#16 |
 | [#19 Cross-profile conformance and independence](https://github.com/2001J/fuzzy-parser/issues/19) | All preceding engine-readiness work |
 
 The milestone ends with a tested independent engine and reusable boundary.
@@ -109,7 +114,7 @@ acceptance gate**. Its unfinished criteria survive in #2 and #4–#7.
 | 0.8 Schema | Model/validation exist; shared executable capabilities remain #12/#13 |
 | 0.9 Detection / 0.10 Assignment | Partial implementation; gaps go to #12–#16 and later coverage |
 | 0.11 Explainable result | Canonical source/review extension implemented and independently verified in #10; broader engine-readiness gates remain open |
-| 0.12 Standalone / 0.13 WASM | Later possibilities; #11 selects the reusable boundary |
+| 0.12 Standalone / 0.13 WASM | Standalone tooling remains later; WASM is a candidate in #11's open backend decision, not a separate version or mandatory second adapter |
 | 0.14 Reliability | Required safety/regressions move into readiness tickets; broad fuzzing/benchmarks follow |
 
 [The dated acceptance audit](audits/2026-08-27-backlog.md) records the code,

@@ -33,6 +33,7 @@ The workspace currently contains four crates:
 - Text input has library-configurable byte and line-length limits; the CLI uses the fixed defaults of 1 MiB total and 64 KiB per line. Empty text is accepted. CSV, XLSX, and schema loading do not have equivalent configurable resource limits.
 - The CLI supports help output, `inspect <path>` for TXT, CSV, and XLSX files, `inspect --stdin`, `inspect --text <content>`, schema validation from a path, standard input, or inline text with optional compact output, and `parse <path> --schema <schema-path>` / `parse --stdin --schema <schema-path>`, emitting canonical JSON with structured errors and nonzero exit codes.
 - The CLI `parse` command loads a validated caller schema, converts supported field types into assignment instructions, and runs the versioned `ParseResponse` pipeline; schemas that reference not-yet-supported field types (`text`, `person_name`, `datetime`) are rejected with a structured `schema_field_type_unsupported` error instead of silently dropping fields.
+- Independently reviewed [#11 evaluation tooling](evaluations/2026-08-28-node-cli.md) invokes the existing CLI from Node with two supported fixture profiles; the three libraries also pass a WASM compilation check. Neither is a production adapter, public TypeScript API, WASM execution proof, Vercel deployment proof or completion of #19. Backend selection remains open.
 - GitHub Actions runs formatting, Clippy, tests, a workspace build, and CLI-container build/smoke checks on pull requests and pushes to `main`.
 - The CLI container is the current deployable batch artifact; pushes to `main` publish its `latest` image to GHCR.
 - The repository is licensed under Apache License 2.0.
@@ -56,7 +57,7 @@ The following capabilities are planned but do not exist yet:
 - Additional field candidate detection beyond email, integer, decimal, phone-number, boolean, date, currency, and caller-defined enum values, including residual text and person-name fields.
 - A reusable schema-to-engine entry point outside the CLI and a unified serialized parse request.
 - Aggregate record confidence and statistics. Current draft/review statuses expose generic evidence gaps only; heuristic scores are not calibrated accuracy probabilities. Business rejection/approval remains host-owned, not a planned engine capability.
-- TypeScript, WebAssembly, native Node, or HTTP integration.
+- A production TypeScript/Node adapter, WebAssembly binding, native Node binding, or HTTP interface. The isolated Node/CLI evaluation above is test tooling only.
 - A standalone graphical interface.
 - The cross-profile, no-QualEvents independence gate described in [testing strategy](testing-strategy.md#cross-profile-conformance-and-independence--planned).
 - Parser-owned export to CSV, XLSX, or clipboard templates (QualEvents has its own export behavior).

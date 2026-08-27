@@ -74,26 +74,56 @@ responses without evidence. This does not establish complete integration
 readiness: schema compilation still lives in the CLI ([#12](https://github.com/2001J/fuzzy-parser/issues/12)),
 several field types are unsupported, and runtime/independence gates remain open.
 
-## Select one reusable deployment-compatible boundary
+## Proposed library caller experience
+
+The intended integration is an independently reusable library with a small
+generic call. No message queue or separately operated parser service is needed
+or authorized for the initial integration. A bundled executable behind a JS
+wrapper would still run locally with the caller, but the package must handle
+native binaries, process lifecycle and temporary files. A WASM module could
+avoid that plumbing; its actual byte-input and runtime gates remain open.
+
+**Proposal only — not an existing npm API or executable example.** Exact types
+depend on #12/#18 and must reuse [data contracts](data-contracts.md), not create
+a second schema model:
+
+```typescript
+const draft = await parser.parse({
+  input: { format: "csv", bytes: uploadedBytes },
+  schema: callerSchema,
+  options: callerOptions,
+});
+```
+
+The caller supplies the input and its own schema/options, then receives
+source-backed draft records, warnings and unresolved content. It owns mapping,
+review/correction, export and confirmed persistence; core fixes belong here.
+The interface must also work with unrelated supported profiles and no QualEvents.
+
+## Runtime evaluation — backend decision still open
 
 [ADR 0005](decisions/0005-independent-engine-consumer-validation.md) retains CLI-first but
 supersedes the unconditional process-next sequence in ADR 0004.
-[#11](https://github.com/2001J/fuzzy-parser/issues/11) must select one reusable
-boundary; [#18](https://github.com/2001J/fuzzy-parser/issues/18) implements only
-that choice. No transport is selected or proven deployment-compatible yet.
+The bounded [#11](https://github.com/2001J/fuzzy-parser/issues/11) evaluation
+retains a successful Node/CLI prototype and a WASM compilation/source check.
+[ADR 0006](decisions/0006-library-interface-runtime-evaluation.md) owns the
+comparison, proposed library boundary and outstanding backend gate. The bounded
+evidence has passed independent review. [Dated evidence](evaluations/2026-08-28-node-cli.md) owns reproducible
+commands and measured results. No production adapter or Vercel deployment is
+claimed. [#18](https://github.com/2001J/fuzzy-parser/issues/18) implements only
+the reviewed choice after its engine prerequisites.
 
-| Candidate | Evidence required before selection |
-| --- | --- |
-| Packaged CLI child process | Target permits the binary/process, compatible OS/architecture, bounded stdin/files/output, startup/timeout behavior |
-| WebAssembly in browser or Node | Real adapter/build compatibility for text and CSV/XLSX, memory/bundle budgets, cancellation and exact source/typed-value parity |
-| Native Node binding | Runtime/ABI/package compatibility, platform build support, measurable reason for its packaging cost |
-| Rust service | Deployment ownership, authenticated transport, upload limits, retention/redaction, latency and rollback |
-
-The first consumer's inspected import route declares Node.js; its repository
-configuration targets Next.js/Vercel. That establishes a target to evaluate, not proof that
-an arbitrary binary, WASM build, or service is ready there. Evaluate the most
-credible candidate first using synthetic text and both table formats. Record
-failed gates before trying another; do not build all four options.
+The prototype invokes the current CLI without copying schema conversion.
+Its two fixture profiles demonstrate only supported integer/boolean subsets,
+not the full #19 independence gate. WASM is a credible candidate, not rejected
+because today's CLI was easier to exercise. After shared schema compilation
+and [#22's XLSX byte-reader gap](https://github.com/2001J/fuzzy-parser/issues/22) are addressed, #11 needs a separately
+authorized bounded JS/WASM comparison before selecting one backend for #18.
+No second adapter is built in this slice. Native bindings are deferred; queues
+and a separate service are outside the initial direction.
+The first consumer's Node.js/Next.js configuration informs
+the evaluation; its deployed version, architecture and compute settings remain
+unverified. Host installation/migration does not gate generic engine readiness.
 
 The current container is a batch CLI, not an HTTP API. If the chosen boundary
 needs a separately authorized nonproduction deployment test, keep that gate open.
@@ -127,6 +157,8 @@ The existing host issues [#57](https://github.com/2001J/digital-invitation/issue
 [#19](https://github.com/2001J/digital-invitation/issues/19) document Event and
 lifecycle guarantees to preserve. They are not Fuzzy Parser integration tickets.
 This pass does not modify the host repository or tracker.
+The [2026-08-28 runtime evaluation](evaluations/2026-08-28-node-cli.md#read-only-consumer-evidence)
+revalidates route/runtime configuration at the same commit without running the host.
 
 ## Future QualEvents work: separately owned
 

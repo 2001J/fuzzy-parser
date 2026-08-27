@@ -59,6 +59,17 @@ Execute the built CLI and verify:
 
 The CLI should be tested as a user experiences it, not only by calling internal functions.
 
+### Isolated runtime evaluations
+
+Keep exploratory transport harnesses outside production crates/packages.
+The [#11 Node/CLI harness and dated evidence](evaluations/2026-08-28-node-cli.md)
+exercise the existing executable with built-in Node assertions and synthetic
+profiles under `fixtures/runtime/`. Run these checks separately from Cargo;
+they add no Rust test target or implementation API. Two supported profiles in
+this experiment do not complete the broader [#19 gate](#cross-profile-conformance-and-independence--planned).
+Record OS/architecture, runtime versions and the exact isolation tested;
+local/container execution never substitutes for deployment evidence.
+
 ### Fixture tests
 
 Store synthetic source files under `fixtures/`.

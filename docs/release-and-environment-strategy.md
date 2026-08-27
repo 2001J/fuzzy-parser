@@ -89,9 +89,11 @@ CI must:
 
 ### Preview or integration environment
 
-The selected reusable boundary or later standalone UI/service may need a
-separately authorized preview environment. The boundary is not yet chosen;
-[integration strategy](integration-strategy.md) owns that evaluation.
+A future library package or later standalone tooling may need a
+separately authorized preview environment. [Integration strategy](integration-strategy.md)
+links the #11 evaluation and its open backend/deployment gates; no production
+adapter or deployment is established by local testing. The initial integration
+does not require a separately operated service or message queue.
 
 Preview environments must:
 
@@ -103,9 +105,9 @@ Preview environments must:
 
 ### Production service environment
 
-A production parser service is optional. It is only relevant if the boundary
-evaluation selects it or a later consumer requires it; it is not a prerequisite
-for engine readiness.
+A production parser service is only a later possibility if separately requested
+for another need. It is outside the initial #11 library integration direction
+and is not a prerequisite for engine readiness.
 
 Before it exists, define:
 

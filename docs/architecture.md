@@ -166,11 +166,13 @@ A consuming application may:
 The implemented CLI and batch container provide an independent executable
 surface. No WebAssembly, native Node, or HTTP interface exists yet.
 
-One reusable runtime boundary will be selected using actual deployment
-constraints, including those of the first consumer, following
-[ADR 0005](decisions/0005-independent-engine-consumer-validation.md).
-The [integration strategy](integration-strategy.md) owns the alternatives and
-selection gates; they are not prerequisites to build together. The adapter may
+Following [ADR 0005](decisions/0005-independent-engine-consumer-validation.md),
+[ADR 0006](decisions/0006-library-interface-runtime-evaluation.md) proposes a
+library caller interface without queues or a separate service. Node/CLI
+evaluation tooling and a WASM compilation check exist; backend selection,
+production packaging and deployment verification remain open. The bounded evidence
+has passed independent review. The [integration strategy](integration-strategy.md) links it
+and remaining gates; other transports are not prerequisites. The adapter may
 target a runtime without depending on the consumer. It must invoke the same
 engine/schema APIs and work with unrelated caller profiles with QualEvents absent.
 
