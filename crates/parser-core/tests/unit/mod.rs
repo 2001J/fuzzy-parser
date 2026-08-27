@@ -756,6 +756,241 @@ fn assignment_prefers_nearby_field_label_over_confidence_alone() {
     assert_eq!(result.fields[0].candidates[0].raw_value, "b@example.test");
 }
 
+fn assert_context_assignment_evidence(prefix: &str, multiple_candidates: bool) {
+    let suffix = if multiple_candidates {
+        " ada@example.test grace@example.test"
+    } else {
+        " ada@example.test"
+    };
+    let text = format!("{prefix}{suffix}");
+    let document = test_document(vec![RawBlock {
+        id: "unicode-context".to_owned(),
+        value: RawValue::text(&text),
+        location: SourceLocation::default(),
+    }]);
+    let fields = [field_of("email", &[], CandidateType::Email, true, false)];
+    let response = parse_document_with_assignment(&document, &fields, &[], None);
+    assert_eq!(
+        response.source_evidence.as_ref().unwrap().document,
+        document
+    );
+    assert_eq!(response.warnings, document.warnings);
+    assert_complete_source_evidence(&response);
+    let parses = response_parses(&response);
+    assert_eq!(parses.len(), 1);
+    let parse = parses[0];
+    assert_eq!(
+        parse.candidates.len(),
+        if multiple_candidates { 2 } else { 1 }
+    );
+    assert_eq!(
+        parse.assignment.fields[0].candidates,
+        vec![parse.candidates[0].clone()]
+    );
+    assert_eq!(
+        parse.assignment.fields[0].candidates[0].raw_value,
+        "ada@example.test"
+    );
+    assert_eq!(
+        parse.assignment.unassigned_candidates,
+        parse.candidates[1..]
+    );
+    for candidate in &parse.candidates {
+        let start = text.find(&candidate.raw_value).unwrap();
+        let expected_span = TextSpan {
+            byte_start: start,
+            byte_end: start + candidate.raw_value.len(),
+        };
+        assert_eq!(candidate.source_span, expected_span);
+        assert_eq!(
+            candidate.normalized_value,
+            Some(serde_json::json!(candidate.raw_value))
+        );
+        assert_eq!(
+            candidate.source_reference,
+            Some(SourceReference {
+                block_index: 0,
+                coordinate_space: SourceCoordinateSpace::RawTextUtf8,
+                span: expected_span,
+            })
+        );
+    }
+    let warning_codes: Vec<_> = parse
+        .assignment
+        .warnings
+        .iter()
+        .map(|warning| warning.code.as_str())
+        .collect();
+    assert_eq!(
+        warning_codes,
+        if multiple_candidates {
+            vec!["multiple_candidates_ambiguous"]
+        } else {
+            vec![]
+        }
+    );
+    let review = parse.review.as_ref().unwrap();
+    assert_eq!(review.status, RecordReviewStatus::NeedsReview);
+    let reason_codes: Vec<_> = review
+        .reasons
+        .iter()
+        .map(|reason| reason.code.as_str())
+        .collect();
+    assert_eq!(
+        reason_codes,
+        if multiple_candidates {
+            vec![
+                "assignment_warnings",
+                "unassigned_candidates",
+                "unrecognized_content",
+            ]
+        } else {
+            vec!["unrecognized_content"]
+        }
+    );
+    assert_eq!(
+        serde_json::to_string(&response).unwrap(),
+        serde_json::to_string(&parse_document_with_assignment(
+            &document,
+            &fields,
+            &[],
+            None
+        ))
+        .unwrap()
+    );
+}
+
+#[test]
+fn assignment_context_two_byte_prefix_preserves_evidence() {
+    // First email starts at byte 43; the 40-byte window starts inside é at byte 3.
+    assert_context_assignment_evidence(&"é".repeat(21), true);
+}
+
+#[test]
+fn assignment_context_three_byte_prefix_preserves_evidence() {
+    assert_context_assignment_evidence(&"東京".repeat(15), true);
+}
+
+#[test]
+fn assignment_context_four_byte_prefix_preserves_evidence() {
+    assert_context_assignment_evidence(&"😀".repeat(11), true);
+}
+
+#[test]
+fn assignment_context_ascii_and_single_candidate_controls() {
+    assert_context_assignment_evidence(&"x".repeat(42), true);
+    for prefix in ["é".repeat(21), "東京".repeat(15), "😀".repeat(11)] {
+        // max_by does not score a lone candidate, so these passed before #21.
+        assert_context_assignment_evidence(&prefix, false);
+    }
+}
+
+#[test]
+fn assignment_context_window_keeps_only_complete_labels_within_40_bytes() {
+    for label in ["EMAIL", "é", "東", "😀"] {
+        let field = field_of("email", &[label], CandidateType::Email, true, false);
+        // At extra=0 the complete label is exactly inside the window. Moving
+        // it out by 1..=len bytes covers every boundary inside a UTF-8 scalar.
+        for extra in 0..=label.len() {
+            let padding = " ".repeat(40 - label.len() - 1 + extra);
+            let text = format!("backup ada@example.test {label}:{padding}grace@example.test");
+            let mut candidates = detect_email_candidates(&text);
+            assert_eq!(candidates.len(), 2);
+            candidates[1].confidence = 0.8;
+            assert_eq!(
+                candidate_score(&text, &candidates[1], &field, None).1,
+                extra == 0
+            );
+            let result = assign_candidates(&text, &candidates, std::slice::from_ref(&field));
+            let selected = if extra == 0 { 1 } else { 0 };
+            assert_eq!(
+                result.fields[0].candidates,
+                vec![candidates[selected].clone()]
+            );
+            assert_eq!(
+                result.unassigned_candidates,
+                vec![candidates[1 - selected].clone()]
+            );
+            assert_eq!(result.warnings[0].code, "multiple_candidates_ambiguous");
+            assert_eq!(
+                result,
+                assign_candidates(&text, &candidates, std::slice::from_ref(&field))
+            );
+        }
+    }
+}
+
+#[test]
+fn table_assignment_context_preserves_unicode_and_cell_references() {
+    for prefix in ["é".repeat(21), "東京".repeat(15), "😀".repeat(11)] {
+        let document = table_document(vec![
+            table_block(None, 1, 1, RawValue::text(format!("  {prefix}  "))),
+            table_block(None, 1, 2, RawValue::text(" ada@example.test ")),
+            table_block(None, 1, 3, RawValue::text(" grace@example.test ")),
+        ]);
+        let fields = [field_of("email", &[], CandidateType::Email, true, false)];
+        let response = parse_document_with_assignment(&document, &fields, &[], None);
+        assert_eq!(
+            response.source_evidence.as_ref().unwrap().document,
+            document
+        );
+        assert_complete_source_evidence(&response);
+        let ParseContent::Table { sheets } = &response.content else {
+            panic!("row provenance must use table assignment");
+        };
+        assert_eq!(sheets[0].records.len(), 1);
+        let parse = &sheets[0].records[0].parse;
+        assert_eq!(parse.candidates.len(), 2);
+        assert_eq!(
+            parse.assignment.fields[0].candidates,
+            vec![parse.candidates[0].clone()]
+        );
+        assert_eq!(
+            parse.assignment.fields[0].candidates[0].raw_value,
+            "ada@example.test"
+        );
+        assert_eq!(
+            parse.assignment.unassigned_candidates,
+            vec![parse.candidates[1].clone()]
+        );
+        assert_eq!(
+            parse.assignment.warnings[0].code,
+            "multiple_candidates_ambiguous"
+        );
+        assert_eq!(
+            parse.review.as_ref().unwrap().status,
+            RecordReviewStatus::NeedsReview
+        );
+        let row_text = format!("{prefix} ada@example.test grace@example.test");
+        for (index, candidate) in parse.candidates.iter().enumerate() {
+            let start = row_text.find(&candidate.raw_value).unwrap();
+            assert_eq!(
+                candidate.source_span,
+                TextSpan {
+                    byte_start: start,
+                    byte_end: start + candidate.raw_value.len()
+                }
+            );
+            assert_eq!(candidate.source_column, Some(index + 2));
+            assert_eq!(
+                candidate.source_reference,
+                Some(SourceReference {
+                    block_index: index + 1,
+                    coordinate_space: SourceCoordinateSpace::RawTextUtf8,
+                    span: TextSpan {
+                        byte_start: 1,
+                        byte_end: 1 + candidate.raw_value.len()
+                    },
+                })
+            );
+        }
+        assert_eq!(
+            response,
+            parse_document_with_assignment(&document, &fields, &[], None)
+        );
+    }
+}
+
 #[test]
 fn assignment_prefers_expected_column_context_over_confidence_alone() {
     let text = "first a@example.test second b@example.test";

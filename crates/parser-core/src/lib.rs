@@ -1123,7 +1123,12 @@ fn candidate_score(
     header: Option<&TableHeaderContext>,
 ) -> (bool, bool, bool, f64) {
     let has_header_context = candidate_matches_field_header(candidate, field, header);
-    let context_start = candidate.source_span.byte_start.saturating_sub(40);
+    let mut context_start = candidate.source_span.byte_start.saturating_sub(40);
+    // Advance to a UTF-8 boundary without widening the 40-byte context window.
+    while context_start < candidate.source_span.byte_start && !text.is_char_boundary(context_start)
+    {
+        context_start += 1;
+    }
     let context = text[context_start..candidate.source_span.byte_start].to_ascii_lowercase();
     let labels =
         std::iter::once(field.name.as_str()).chain(field.aliases.iter().map(String::as_str));

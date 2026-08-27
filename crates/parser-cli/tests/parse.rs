@@ -104,6 +104,149 @@ fn parse_unicode_without_candidates_matches_source_review_golden() {
     );
 }
 
+fn assert_context_stdin_output(prefix: &str, multiple_candidates: bool) {
+    let suffix = if multiple_candidates {
+        " ada@example.test grace@example.test"
+    } else {
+        " ada@example.test"
+    };
+    let content = format!("{prefix}{suffix}");
+    let output = parse_stdin_content(&content);
+    assert_eq!(output.stdout, parse_stdin_content(&content).stdout);
+    let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_candidate_sources(&response);
+    assert_eq!(
+        response["source_evidence"]["document"]["blocks"][0]["value"]["value"],
+        content
+    );
+    let parse = &response["content"]["records"][0]["parse"];
+    let candidates = parse["candidates"].as_array().unwrap();
+    assert_eq!(candidates.len(), if multiple_candidates { 2 } else { 1 });
+    assert_eq!(
+        parse["assignment"]["fields"][0]["candidates"],
+        serde_json::json!([candidates[0]])
+    );
+    assert_eq!(candidates[0]["raw_value"], "ada@example.test");
+    assert_eq!(
+        parse["assignment"]["unassigned_candidates"],
+        serde_json::json!(candidates[1..])
+    );
+    for candidate in candidates {
+        let raw = candidate["raw_value"].as_str().unwrap();
+        let start = content.find(raw).unwrap();
+        let span = serde_json::json!({"byte_start": start, "byte_end": start + raw.len()});
+        assert_eq!(candidate["source_span"], span);
+        assert_eq!(
+            candidate["source_reference"],
+            serde_json::json!({"block_index": 0, "coordinate_space": "raw_text_utf8", "span": span})
+        );
+    }
+    let codes: Vec<_> = parse["assignment"]["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|warning| warning["code"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        codes,
+        if multiple_candidates {
+            vec!["multiple_candidates_ambiguous"]
+        } else {
+            vec![]
+        }
+    );
+    assert_eq!(parse["review"]["status"], "needs_review");
+}
+
+#[test]
+fn parse_assignment_context_two_byte_prefix() {
+    assert_context_stdin_output(&"é".repeat(21), true);
+}
+
+#[test]
+fn parse_assignment_context_three_byte_prefix() {
+    assert_context_stdin_output(&"東京".repeat(15), true);
+}
+
+#[test]
+fn parse_assignment_context_four_byte_prefix() {
+    assert_context_stdin_output(&"😀".repeat(11), true);
+}
+
+#[test]
+fn parse_assignment_context_ascii_and_single_candidate_controls() {
+    assert_context_stdin_output(&"x".repeat(42), true);
+    for prefix in ["é".repeat(21), "東京".repeat(15), "😀".repeat(11)] {
+        assert_context_stdin_output(&prefix, false);
+    }
+}
+
+#[test]
+fn parse_assignment_context_csv_preserves_unicode_cells() {
+    let path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/csv/unicode-assignment.csv");
+    let schema_path = schema_fixture_path();
+    let args = [
+        path.to_str().unwrap(),
+        "--schema",
+        schema_path.to_str().unwrap(),
+    ];
+    let output = run_parse(&args);
+    assert_eq!(output.status.code(), Some(0), "{:?}", output.stderr);
+    assert!(output.stderr.is_empty());
+    let repeated = run_parse(&args);
+    assert_eq!(repeated.status.code(), Some(0));
+    assert!(repeated.stderr.is_empty());
+    assert_eq!(output.stdout, repeated.stdout);
+    let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_candidate_sources(&response);
+    let sheet = &response["content"]["sheets"][0];
+    assert_eq!(sheet["header"]["status"], "detected");
+    assert_eq!(sheet["records"].as_array().unwrap().len(), 3);
+    for (index, prefix) in ["é".repeat(21), "東京".repeat(15), "😀".repeat(11)]
+        .iter()
+        .enumerate()
+    {
+        let block_index = 3 * (index + 1);
+        let blocks = &response["source_evidence"]["document"]["blocks"];
+        assert_eq!(
+            blocks[block_index]["value"]["value"],
+            format!("  {prefix}  ")
+        );
+        let parse = &sheet["records"][index]["parse"];
+        assert_eq!(parse["candidates"].as_array().unwrap().len(), 2);
+        let assignment = &parse["assignment"];
+        assert_eq!(
+            assignment["fields"][0]["candidates"][0],
+            parse["candidates"][0]
+        );
+        assert_eq!(
+            assignment["unassigned_candidates"][0],
+            parse["candidates"][1]
+        );
+        assert_eq!(
+            assignment["warnings"][0]["code"],
+            "multiple_candidates_ambiguous"
+        );
+        assert_eq!(parse["review"]["status"], "needs_review");
+        for (column, raw) in ["ada@example.test", "grace@example.test"]
+            .iter()
+            .enumerate()
+        {
+            let candidate = &parse["candidates"][column];
+            assert_eq!(candidate["raw_value"], *raw);
+            assert_eq!(
+                blocks[block_index + column + 1]["value"]["value"],
+                format!(" {raw} ")
+            );
+            assert_eq!(
+                candidate["source_reference"],
+                serde_json::json!({"block_index": block_index + column + 1, "coordinate_space": "raw_text_utf8", "span": {"byte_start": 1, "byte_end": 1 + raw.len()}})
+            );
+        }
+    }
+}
+
 #[test]
 fn additive_source_extension_preserves_every_legacy_golden_field() {
     let output = parse_stdin_content("ada@example.test 42");

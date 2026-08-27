@@ -1,6 +1,7 @@
 # Current State
 
-Last reviewed: 2026-08-28, including the #10 source-evidence extension.
+Last reviewed: 2026-08-28, including the #10 source-evidence extension and the
+independently verified [#21 Unicode context fix](https://github.com/2001J/fuzzy-parser/issues/21).
 The [dated audit](audits/2026-08-27-backlog.md) records the earlier implementation baseline.
 
 This document records only what is implemented in the repository now. It must not describe planned behavior as complete.
@@ -21,7 +22,7 @@ The workspace currently contains four crates:
 - The workspace compiles as a multi-crate Rust project.
 - `parser-core` provides serializable canonical raw-document models, source locations, raw values, warnings, structured parser errors, configurable derived text normalization, and deterministic record segmentation strategies including repeated-identifier splitting and heading-aware boundaries.
 - `parser-core` detects conservative email, integer, decimal, phone-number, boolean, date, currency, and caller-defined enum field candidates with raw values, normalized values, heuristic confidence, reason codes, and byte spans in the detector's input text.
-- `parser-core` assigns compatible candidates to caller-provided fields, uses nearby canonical or caller-provided labels, optional source-column metadata, or detected table-header labels as assignment context, applies caller-provided integer and length constraints, selects the highest-confidence candidate when context is equal, preserves multiple values when requested preferring header-matching columns, and reports missing required fields, ambiguity, and unassigned candidates.
+- `parser-core` assigns compatible candidates to caller-provided fields, uses canonical or caller-provided labels within a UTF-8-safe window of at most 40 preceding bytes, optional source-column metadata, or detected table-header labels as assignment context, applies caller-provided integer and length constraints, selects the highest-confidence candidate when context is equal, preserves multiple values when requested preferring header-matching columns, and reports missing required fields, ambiguity, and unassigned candidates.
 - `parser-core` groups blocks with row provenance into sheet rows, detects first-row headers using a heuristic, and exposes `parse_document_rows_with_assignment` for header-driven row assignment. Blocks without row provenance are excluded with warnings; the document-level response retains their values and an explicit exclusion reason.
 - `parser-core` exposes `parse_text_with_assignment`, which composes the implemented detectors and assignment for one supplied text record. Normalization and segmentation are separate library APIs, not stages used by this function.
 - `parse_document_with_assignment` chooses table rows when row provenance exists and otherwise parses each raw block separately. `ParseResponse` embeds the unchanged canonical document, source metadata, coverage of parsed/header/excluded blocks, and unused spans. Candidate references resolve in every detected/assigned/unassigned copy. Input warnings are forwarded, and records carry deterministic draft/review reasons; see [data contracts](data-contracts.md).
@@ -43,7 +44,6 @@ The workspace currently contains four crates:
 - Error JSON and messages can expose supplied absolute paths. Schema errors use a separate CLI envelope; not all errors are covered by exact serialization tests.
 - `parse` does not invoke normalization or record segmentation. Indented continuation lines still become separate records.
 - Plain-text detectors use conservative token matching; comma-adjacent email can be missed. `--stdin` is text, not a tabular auto-detection mode.
-- Label-context scoring can panic on valid Unicode when comparing multiple candidates: its 40-byte window can start inside a UTF-8 character. This pre-existing assignment bug is tracked separately in [#21](https://github.com/2001J/fuzzy-parser/issues/21); the source-evidence extension does not fix it.
 - The table header heuristic can mistake an all-text first data row for a header. There are no public CLI options for header/row/sheet selection.
 - Legacy candidate spans in a table still refer to concatenated, trimmed row text. New source references index stored strings or explicitly rendered typed values in the embedded canonical document, not original CSV/XLSX file bytes. Extraction still omits original quoting, blank CSV physical lines, TXT line terminators and some workbook metadata; exact-file retention remains the caller's responsibility.
 - CLI schema conversion pools enum definitions across fields and ignores `allow_unknown_fields`. Locale/country hints and expected-column settings are not part of the current executable schema interface. Library `unique` behavior is not a database duplicate policy.
