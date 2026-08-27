@@ -1,10 +1,25 @@
 # Data Contracts
 
-This document describes the intended public models. Exact Rust field names may evolve before implementation, but semantic changes must be deliberate and reflected here.
+This document owns public model shapes. Sections marked **proposed** are design
+sketches, not available APIs. Other models reflect the Rust sources in
+[`parser-core`](../crates/parser-core/src/lib.rs) and
+[`parser-schema`](../crates/parser-schema/src/lib.rs). Serialized meanings must
+change deliberately and with compatibility tests; Rust-looking sketches alone
+are not proof that a feature exists.
+
+Public contracts belong to the independent engine: raw input, caller-owned
+schema/options, generic values, evidence and uncertainty. They must not introduce
+QualEvents domain types or require that application to compile or run. Synthetic
+consumer profiles are isolated test inputs; the planned cross-profile gate is
+defined in [testing strategy](testing-strategy.md).
 
 ## Contract versioning
 
-Serialized requests and responses should include a contract version once external integrations exist.
+The implemented `ParseResponse.contract_version` is `0.1`; schema JSON uses
+`schema_version: "0.1"`; the workspace/package and response `parser_version` are
+`0.1.0`. Raw inspection and current error envelopes have no version field.
+A unified serialized parse request is still proposed. Planning milestone names
+are not any of these versions; see [release strategy](release-and-environment-strategy.md).
 
 ```json
 {
@@ -14,7 +29,11 @@ Serialized requests and responses should include a contract version once externa
 
 Parser implementation version and schema contract version are separate concerns.
 
-## Parser input
+## Parser input — proposed
+
+The following `ParserInput` does not exist. Current `parser-formats::InputSource`
+supports borrowed text, a stdin reader, or a TXT path; CSV and XLSX have separate
+reader functions. The CLI dispatches among those readers.
 
 ```rust
 pub enum ParserInput {
@@ -62,6 +81,21 @@ pub struct SourceLocation {
 
 `RawValue` must preserve source meaning. A numeric spreadsheet cell should not be silently converted into an irreversible string if the source type is known. Implemented raw value variants include text, integer, decimal, boolean, date-time serial/text, duration, error, and null.
 
+JSON `RawValue` is tagged with `kind` and `value`, for example
+`{"kind":"Text","value":"Ada"}`; variant names retain Rust casing.
+`SourceType` uses `text`, `stdin`, `txt`, `csv`, and `xlsx`. Optional metadata
+serializes as `null`. A document ID/block ID is local to that document, not a
+globally unique import identifier.
+
+TXT lines and table row/column coordinates are one-based. TXT block byte ranges
+are zero-based, end-exclusive and exclude line terminators; blank lines are
+blocks, a final terminator adds no extra block, and an empty file has zero blocks.
+CSV coordinates describe parsed records/cells, not original file byte offsets;
+CSV blank physical lines are not represented. XLSX uses worksheet coordinates
+within extracted ranges, with stored typed values, not a complete display/style
+model. Canonical extracted values do not preserve every byte of the original
+CSV/XLSX file. Callers needing exact original files must retain them safely.
+
 ## Normalized block
 
 ```rust
@@ -102,7 +136,8 @@ pub struct RecordCandidate {
 
 A record may originate from one source block or several joined blocks.
 
-The initial segmentation API uses a bounded `Confidence` score and stable reason metadata:
+The segmentation API emits heuristic `Confidence` values and reason metadata.
+`Confidence` is a type alias, not a type enforcing bounds during deserialization:
 
 ```rust
 type Confidence = f64;
@@ -162,6 +197,15 @@ Product-specific concepts should be represented as generic fields plus caller-pr
 
 `TargetSchema::from_json` validates a JSON schema before returning it, including the supported schema version and unambiguous field and enum labels. `TargetSchema::to_json` refuses to serialize an invalid schema. Parsing and validation errors remain structured as `SchemaParseError` values.
 
+Validation accepts the field vocabulary above; CLI execution rejects `text`,
+`person_name`, and `datetime`. Enum JSON uses an externally tagged object such as
+`{"enum":{"values":[{"value":"active","aliases":["enabled"]}]}}`.
+Constraints are tagged with `kind`/`value`; see the source for exact variants.
+`SchemaOptions` currently contains only `allow_unknown_fields`, which the CLI
+parse path does not enforce. Locale/country hints, runtime options, and explicit
+column mapping are not supported schema fields. The CLI pools enum values
+across fields; shared capability/field-scope enforcement is [#12](https://github.com/2001J/fuzzy-parser/issues/12).
+
 The CLI preserves this validation contract for file, standard-input, and inline-text sources. Valid output is pretty-printed by default and can be emitted as one compact JSON line for pipeline consumers.
 
 ## Field candidate
@@ -179,6 +223,11 @@ pub struct FieldCandidate {
 ```
 
 Candidates are evidence. They are not automatically assignments.
+`source_span` is a zero-based, end-exclusive byte range in the detector's input
+text. In table mode, that input is the concatenation of trimmed non-empty cells
+with spaces; it is not returned as a source map. `source_column` identifies the
+cell column, but exact original-cell offsets still need
+[#10](https://github.com/2001J/fuzzy-parser/issues/10).
 
 ## Field assignment
 
@@ -250,7 +299,11 @@ pub enum HeaderExtraction {
 }
 ```
 
-`group_document_rows` groups blocks carrying row provenance (CSV row/column or XLSX sheet/row/column) into per-sheet `TableRowGroup` values, ordered by column; blocks without row metadata are reported as warnings, never dropped. `detect_table_headers` conservatively treats a sheet's first row as a header only when the sheet has at least two rows and every first-row cell is non-empty plain text without strongly typed values; every rejection carries a stable `header_not_detected_*` reason code. `parse_document_rows_with_assignment` parses each data row by composing candidate detection with header-driven assignment, recording a `header_label_match` reason on candidates whose column matches a field name or alias, and selecting header-matching columns over equally type-compatible ones. Every result is serializable for integration surfaces.
+`TableRowParseResult` carries `source_row`, `source_block_ids`, and `parse`.
+`HeaderExtraction` serializes with a snake-case `status` tag: `detected` or
+`not_detected`. The [pipeline](parsing-pipeline.md) owns header-detection and
+assignment behavior. Excluded blocks are warned about but their raw values are
+not embedded in the table result.
 
 ## Versioned parse result
 
@@ -278,9 +331,20 @@ pub struct TextRecordParseResult {
 }
 ```
 
-`parse_document_with_assignment` chooses the tabular header-driven pipeline when the document carries row provenance and a per-block text pipeline otherwise, so multi-line text and tables flow through one serializable, versioned contract. Raw values stay in the document; candidate evidence, ambiguity, and unassigned candidates remain observable at the record level. The CLI `parse` command is the first integration surface for this contract.
+`parse_document_with_assignment` chooses table mode when any blocks have row
+provenance, otherwise one text record per raw block. It does not run the separate
+normalization/segmentation APIs. The CLI emits this envelope directly.
 
-## Parsed record
+The envelope contains no `RawDocument`, source filename, complete location
+index, or noncandidate text. Original values remain in the caller's input
+document, not in CLI parse output. Assignment warnings exist within each
+record's `parse.assignment.warnings`; top-level warnings cover row grouping.
+Input document warnings are not propagated. Rejected-fragment accounting,
+record statuses and statistics below are proposed, not fields of version `0.1`.
+[#10](https://github.com/2001J/fuzzy-parser/issues/10) must add review evidence
+with an explicit compatibility/migration contract.
+
+## Parsed record — proposed
 
 ```rust
 pub struct ParsedRecord {
@@ -305,7 +369,7 @@ rejected
 
 The consuming application decides whether a status blocks import.
 
-## Parse request
+## Parse request — proposed
 
 ```rust
 pub struct ParseRequest {
@@ -327,7 +391,7 @@ Options may include:
 
 Defaults must be safe and documented.
 
-## Parse result
+## Parse result — proposed
 
 ```rust
 pub struct ParseResult {
@@ -353,7 +417,11 @@ Suggested statistics:
 
 Duration is diagnostic metadata and must not affect deterministic output comparisons.
 
-## Serialization rules
+## Serialization requirements
+
+These are evolution requirements, not a claim that every current input or
+output validates them. In particular, safe diagnostic redaction and complete
+source maps remain open work.
 
 - Use explicit enums rather than magic strings internally.
 - JSON field names must remain stable once external integrations depend on them.

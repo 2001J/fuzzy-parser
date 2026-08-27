@@ -28,7 +28,11 @@ The result is a draft for review, not an unquestionable truth.
 
 ## Independent product and embedded engine
 
-The project has two valid product shapes that must share one parser core:
+The project has two valid product shapes that must share one parser core.
+The first delivery priority is a **reviewable, independently usable import
+engine**, validated through its first real consumer, QualEvents. That consumer
+does not define the engine's identity, domain model, public contract, or
+dependencies. Standalone review tooling is later; library/CLI use stays supported.
 
 ### Standalone tool
 
@@ -36,22 +40,43 @@ A user pastes text or uploads a supported file, defines or selects an output sch
 
 ### Embedded engine
 
-Another application supplies its own schema and workflow. For example, an event platform may define guest or contribution profiles, but those profiles remain outside the generic parser core.
+Any application supplies uploaded/pasted input and its schema/options. No
+consumer-specific constants, schemas, identifiers, imports, or dependencies
+belong in generic engine behavior. Examples for consumers may exist as isolated
+synthetic fixtures, never as compiled-in profiles or conditional domain rules.
+
+QualEvents intends to use the engine for its supported text and tabular import
+processing, not just optional pasted-text assistance. Its Event/Guest/Contributor
+concepts and profiles remain in the host. Its adoption and cutover are separate
+from completion of generic engine capabilities.
 
 The consuming application owns:
 
 - Business terminology.
+- Permissions, business scope, duplicate policy, and qualification.
 - Domain-specific validation.
 - Review workflow.
+- Corrections, export, and the decision to confirm an import.
 - Persistence.
 - Messaging or downstream side effects.
 - Whether a warning blocks an import.
 
-The parser owns generic extraction, uncertainty, provenance, and schema-driven structuring.
+The parser owns generic extraction, normalization, segmentation, candidate
+detection, assignment, uncertainty, and provenance. The
+[integration strategy](integration-strategy.md) defines the reusable boundary
+and the separate first-consumer handoff.
+
+### Planned independence gate
+
+Independence must be demonstrated across unrelated caller profiles with the
+first consumer absent. The authoritative [planned acceptance gate](testing-strategy.md#cross-profile-conformance-and-independence--planned)
+is tracked in [#19](https://github.com/2001J/fuzzy-parser/issues/19); it is not a
+verified result today.
 
 ## Initial target inputs
 
-The first supported sources should be:
+The initial target sources are listed below. Adapters exist today, but complete
+review/integration readiness is not implied; see [current state](current-state.md).
 
 - Pasted multiline text.
 - Standard input.
@@ -130,3 +155,6 @@ The parser may eventually be distributed as:
 - A standalone review application.
 
 All surfaces should converge on the same versioned request and response contracts.
+They are alternatives to evaluate, not a sequence of prerequisites. The
+[roadmap](roadmap.md) schedules one reusable boundary and retains
+broader consumers, standalone tooling, and PDF/OCR as later work.

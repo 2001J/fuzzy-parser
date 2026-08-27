@@ -1,6 +1,6 @@
 # Current State
 
-Last reviewed: 2026-08-26.
+Last reviewed: 2026-08-27 against `8f878a45d7801ab0ca0a7d10a1b8aca353c7c192`.
 
 This document records only what is implemented in the repository now. It must not describe planned behavior as complete.
 
@@ -19,35 +19,45 @@ The workspace currently contains four crates:
 
 - The workspace compiles as a multi-crate Rust project.
 - `parser-core` provides serializable canonical raw-document models, source locations, raw values, warnings, structured parser errors, configurable derived text normalization, and deterministic record segmentation strategies including repeated-identifier splitting and heading-aware boundaries.
-- `parser-core` detects conservative email, integer, decimal, phone-number, boolean, date, currency, and caller-defined enum field candidates with raw values, normalized values, confidence, reason codes, and byte-accurate source spans.
+- `parser-core` detects conservative email, integer, decimal, phone-number, boolean, date, currency, and caller-defined enum field candidates with raw values, normalized values, heuristic confidence, reason codes, and byte spans in the detector's input text.
 - `parser-core` assigns compatible candidates to caller-provided fields, uses nearby canonical or caller-provided labels, optional source-column metadata, or detected table-header labels as assignment context, applies caller-provided integer and length constraints, selects the highest-confidence candidate when context is equal, preserves multiple values when requested preferring header-matching columns, and reports missing required fields, ambiguity, and unassigned candidates.
-- `parser-core` groups blocks with row provenance into sheet rows, conservatively detects textual first-row headers per sheet (rejecting typed, empty, single-row, or strong-value cases with reason codes), and exposes a deterministic tabular pipeline (`parse_document_rows_with_assignment`) that parses each data row with header-driven assignment; blocks without row provenance are reported as warnings rather than dropped.
-- `parser-core` exposes a deterministic text pipeline that composes all built-in detectors, caller-defined enum detection, and schema-compatible assignment while returning both raw candidate evidence and assignment results.
-- `parser-core` exposes a document-level orchestrator (`parse_document_with_assignment`) that chooses the tabular header-driven pipeline when the document has row provenance and a per-block text pipeline otherwise, returning a versioned `ParseResponse` with contract and parser versions, source provenance, and every candidate, ambiguity, and unassigned value observable.
+- `parser-core` groups blocks with row provenance into sheet rows, detects first-row headers using a heuristic, and exposes `parse_document_rows_with_assignment` for header-driven row assignment. Blocks without row provenance are excluded with warnings; their values remain in the input document, not the parse response.
+- `parser-core` exposes `parse_text_with_assignment`, which composes the implemented detectors and assignment for one supplied text record. Normalization and segmentation are separate library APIs, not stages used by this function.
+- `parse_document_with_assignment` chooses table rows when row provenance exists and otherwise parses each raw block separately. `ParseResponse` includes contract/parser versions, source type, block IDs, candidates, assignments, and warnings; it does not include the raw document, full source metadata, or all unrecognized content.
 - `parser-formats` reads UTF-8 TXT files, pasted text, standard input, and CSV files into canonical raw blocks while preserving content and source locations.
 - CSV extraction scores comma, semicolon, tab, and pipe delimiters, supports explicit overrides, quoted/multiline cells, empty cells, and row/column provenance.
 - `parser-formats` reads XLSX workbooks with sheet, row, column, and typed-cell provenance; it reads stored values only and does not execute formulas or macros.
 - `parser-schema` provides serializable generic target-schema models for fields, enum values, aliases, and basic constraints, plus structural validation for supported versions and ambiguous labels.
-- `parser-formats` exposes configurable default-safe byte and line-length limits for text input.
+- Text input has library-configurable byte and line-length limits; the CLI uses the fixed defaults of 1 MiB total and 64 KiB per line. Empty text is accepted. CSV, XLSX, and schema loading do not have equivalent configurable resource limits.
 - The CLI supports help output, `inspect <path>` for TXT, CSV, and XLSX files, `inspect --stdin`, `inspect --text <content>`, schema validation from a path, standard input, or inline text with optional compact output, and `parse <path> --schema <schema-path>` / `parse --stdin --schema <schema-path>`, emitting canonical JSON with structured errors and nonzero exit codes.
 - The CLI `parse` command loads a validated caller schema, converts supported field types into assignment instructions, and runs the versioned `ParseResponse` pipeline; schemas that reference not-yet-supported field types (`text`, `person_name`, `datetime`) are rejected with a structured `schema_field_type_unsupported` error instead of silently dropping fields.
-- GitHub Actions runs formatting, Clippy, tests, and a workspace build on pull requests and pushes to `main`, and builds/smoke-tests the CLI container on every change.
+- GitHub Actions runs formatting, Clippy, tests, a workspace build, and CLI-container build/smoke checks on pull requests and pushes to `main`.
 - The CLI container is the current deployable batch artifact; pushes to `main` publish its `latest` image to GHCR.
 - The repository is licensed under Apache License 2.0.
-- The root README describes the intended workspace boundaries and local validation commands.
+- Local formatting, Clippy, workspace build, and all 104 tests passed at this review. [The acceptance audit](audits/2026-08-27-backlog.md) distinguishes checked-in tests from additional temporary probes; passing tests do not establish the missing contracts below.
+
+## Known limitations
+
+- Unknown file extensions fall through to the TXT reader; the shared file-validation API, explicit empty-file policy, and strict dispatch are incomplete (#5/#6 in the [roadmap](roadmap.md)).
+- Error JSON and messages can expose supplied absolute paths. Schema errors use a separate CLI envelope; not all errors are covered by exact serialization tests.
+- `parse` does not invoke normalization or record segmentation. Indented continuation lines still become separate records.
+- Plain-text detectors use conservative token matching; comma-adjacent email can be missed. `--stdin` is text, not a tabular auto-detection mode.
+- The table header heuristic can mistake an all-text first data row for a header. There are no public CLI options for header/row/sheet selection.
+- Candidate spans in a table refer to concatenated, trimmed row text, not original file bytes. Raw cell values exist in the separately extracted document, which the parse response omits. Input document warnings are not forwarded by the orchestrator.
+- CLI schema conversion pools enum definitions across fields and ignores `allow_unknown_fields`. Locale/country hints and expected-column settings are not part of the current executable schema interface. Library `unique` behavior is not a database duplicate policy.
+- XLSX reads stored values within worksheet ranges. Date serials, style-based selection, and displayed formatting are not a complete consumer import contract. Legacy `.xls` is unsupported.
 
 ## Not implemented yet
 
 The following capabilities are planned but do not exist yet:
 
 - Additional field candidate detection beyond email, integer, decimal, phone-number, boolean, date, currency, and caller-defined enum values, including residual text and person-name fields.
-- Parse request/response surfaces beyond the CLI `parse` command (review UI, TypeScript/WebAssembly, native, service), and record statuses, aggregated confidence, rejected fragments, and statistics as documented for the future explainable parse result contract.
-- Confidence aggregation and explanations.
-- Structured warnings or rejected fragments at the record level (per-parse warnings exist; rejected fragments and record statuses do not).
-- General parse request/response contracts beyond raw-document inspection.
+- A reusable schema-to-engine entry point outside the CLI, a unified serialized parse request, and a source-complete response for review.
+- Record statuses, aggregate record confidence, rejected-fragment accounting, and statistics. Candidate reason codes and nested assignment warnings already exist; confidence scores are heuristic, not calibrated accuracy probabilities.
 - TypeScript, WebAssembly, native Node, or HTTP integration.
 - A standalone graphical interface.
-- Export to CSV, XLSX, or clipboard templates.
+- The cross-profile, no-QualEvents independence gate described in [testing strategy](testing-strategy.md#cross-profile-conformance-and-independence--planned).
+- Parser-owned export to CSV, XLSX, or clipboard templates (QualEvents has its own export behavior).
 - OCR or PDF support.
 
 ## Current verification commands
@@ -59,6 +69,8 @@ cargo test --workspace
 cargo build --workspace
 ```
 
-## Immediate next slice
+## Planned work
 
-- The next slice completes the generic field detection set by adding conservative residual-text and person-name candidates, which unblocks `text` and `person_name` schema fields (currently rejected as unsupported).
+See the [roadmap](roadmap.md) for the first implementation ticket and dependency
+order, and [integration strategy](integration-strategy.md) for the QualEvents
+handoff. Neither plan is implemented behavior.

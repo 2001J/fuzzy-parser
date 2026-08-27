@@ -1,6 +1,9 @@
 # Testing Strategy
 
 Testing is part of each implementation ticket. The parser deals with ambiguous and malformed input, so examples that only cover happy paths are insufficient.
+This is the required testing approach, not an inventory of tests already
+implemented. See [current state](current-state.md) and the
+[dated acceptance audit](audits/2026-08-27-backlog.md) for verified coverage.
 
 ## Test layers
 
@@ -45,7 +48,9 @@ The CLI should be tested as a user experiences it, not only by calling internal 
 
 Store synthetic source files under `fixtures/`.
 
-Suggested structure:
+Current fixtures include `text/simple.txt`, `csv/comma.csv`, `csv/messy.csv`,
+`xlsx/sample.xlsx`, and schemas in `schema/`. The tree below illustrates desired
+coverage and includes files not yet present; it is not acceptance evidence:
 
 ```text
 fixtures/
@@ -60,7 +65,7 @@ fixtures/
 │   ├── quoted.csv
 │   └── malformed.csv
 ├── xlsx/
-└── schemas/
+└── schema/
 ```
 
 Fixtures must not contain real private guest, customer, phone, or payment data.
@@ -148,6 +153,15 @@ cargo build --workspace
 - Review the diff.
 - Run `git diff --check` when a local checkout is available.
 - Verify internal links and file names.
+- Check the README, docs index, and authoritative topic documents for conflicting
+  current/planned claims; preserve superseded decisions with an explanation.
+- Run executable examples with synthetic input and assert values, record counts,
+  warnings, source references, stdout/stderr, and exit codes. Exit `0` alone is
+  not successful extraction. Clearly label templates/future commands that cannot
+  be executed in the current environment.
+- Before closing an old issue, compare every acceptance criterion with code and
+  tests. Distinguish checked-in regression tests from temporary verification
+  probes; keep missing durable coverage as explicit work.
 
 ### Model or serialization change
 
@@ -192,3 +206,23 @@ A behavior ticket is complete when:
 - Public behavior is documented.
 - Existing fixtures remain green.
 - No source data is silently discarded.
+
+## Cross-profile conformance and independence — planned
+
+[#19](https://github.com/2001J/fuzzy-parser/issues/19) gates engine readiness with
+synthetic text/TXT/CSV/XLSX fixtures and CLI/selected-boundary parity. The same
+unmodified engine/public interface must process a synthetic QualEvents-shaped
+profile and an unrelated supported-domain profile using caller configuration
+only, with QualEvents not installed or available. Fixture profiles must remain
+isolated from implementation; inspect dependency and runtime assumptions as well
+as results. This gate is planned, not satisfied by today's 104 tests.
+
+Measure semantic output, source evidence and unresolved content; do not infer
+accuracy from rule scores or claim unsupported field types work. Additional
+generic capability coverage belongs in [#20](https://github.com/2001J/fuzzy-parser/issues/20).
+
+Host review, export, auth/Event scope, duplicate policy, confirmed persistence,
+and no-preview-side-effect tests belong to the future QualEvents task described
+in [integration strategy](integration-strategy.md). Passing the Rust suite does
+not establish those host guarantees. Host UI, adoption, migration and cutover
+are not prerequisites for accepting an independently verified engine capability.

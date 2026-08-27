@@ -5,9 +5,16 @@ records. It is a domain-neutral Rust engine: callers provide the fields,
 aliases, enum values, and constraints; the parser provides extraction,
 normalization, provenance, confidence, and uncertainty.
 
-The usable surface today is the `parser-cli` command. It reads TXT, CSV, and
-XLSX input, validates caller-provided schemas, and emits JSON for scripts and
-review tools.
+QualEvents is the first planned consumer and validation case, not an engine
+dependency. Like any caller, it supplies input and its own schema/options; it
+owns business rules, review/correction, export, and confirmed persistence.
+Its adoption goal covers supported text and tabular imports. Independent Rust
+library and CLI use remain part of the product.
+
+The usable surface today is `parser-cli`: inspection of TXT, CSV, and XLSX,
+schema validation, and partial schema-driven parsing. The QualEvents integration
+is not implemented. See [current limitations](docs/current-state.md) and the
+[engine roadmap](docs/roadmap.md).
 
 ## Quick Start
 
@@ -18,7 +25,8 @@ cargo run -p parser-cli -- schema validate fixtures/schema/contact.json
 ```
 
 Inspection preserves source locations and raw values. Valid output goes to
-stdout; failures are structured JSON on stderr with a nonzero exit code.
+stdout; processing failures are structured JSON on stderr with exit code `1`.
+Usage errors are plain text on stderr with exit code `2`.
 
 ## Documentation
 
@@ -58,22 +66,29 @@ Parse a CSV or text input against a caller schema, emitting a versioned parse re
 
 ```bash
 cargo run -p parser-cli -- parse fixtures/csv/comma.csv --schema fixtures/schema/contact.json
-printf 'Ada Lovelace,ada@example.test\n' | cargo run -p parser-cli -- parse --stdin --schema fixtures/schema/contact.json
+printf 'Ada Lovelace ada@example.test\n' | cargo run -p parser-cli -- parse --stdin --schema fixtures/schema/contact.json
 ```
 
-Use `parser-cli --help` for all command modes. The schema validator accepts a path, standard input, or inline text. It emits pretty JSON by default, one compact JSON line with `--compact`, and structured errors on stderr. The `parse` command accepts a caller schema and returns a versioned JSON result with per-record assignments; schemas using field types the engine does not detect yet (`text`, `person_name`, `datetime`) are rejected with a structured error rather than silently dropped.
+These examples assign **email only**: `contact.json` has no name field. The stdin
+mode reads plain text, not CSV. A comma directly between a name and email can
+currently prevent email detection ([regression #15](https://github.com/2001J/fuzzy-parser/issues/15)).
+Exit code `0` means processing succeeded; missing-field and ambiguity warnings
+still require inspection. The parse response does not yet include the complete
+raw document or unused text; use `inspect` to examine extracted source values.
+
+Use `cargo run -p parser-cli -- --help` for command syntax. Schema validation
+accepts a path, stdin, or inline text; `--compact <path>` emits one JSON line.
+Validation accepts more field types than parsing: `text`, `person_name`, and
+`datetime` are rejected by `parse` with `schema_field_type_unsupported`.
+See [integration usage](docs/integration-strategy.md) and
+[the actual JSON contracts](docs/data-contracts.md).
 
 ## Container deployment
 
-CI builds and smoke-tests the CLI image on every change and publishes `ghcr.io/<owner>/<repository>:latest` after pushes to `main`. Run it as a non-root batch container:
-
-```bash
-docker pull ghcr.io/<owner>/<repository>:latest
-docker run --rm -v "$PWD:/workspace:ro" ghcr.io/<owner>/<repository>:latest inspect /workspace/fixtures/text/simple.txt
-docker run --rm -i ghcr.io/<owner>/<repository>:latest schema validate --stdin < fixtures/schema/contact.json
-```
-
-This is a CLI deployment, not an HTTP service. Input files are mounted read-only and results are emitted as JSON on stdout or stderr.
+CI [automated checks after code changes] builds and smoke-tests a non-root batch
+CLI image on pull requests and pushes to `main`; the latter also publishes
+`ghcr.io/2001j/fuzzy-parser:latest`. It is not an HTTP service or a proven
+QualEvents deployment boundary. See [release and publication rules](docs/release-and-environment-strategy.md).
 
 ## Development
 

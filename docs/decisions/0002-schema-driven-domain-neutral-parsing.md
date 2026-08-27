@@ -6,7 +6,7 @@ Accepted.
 
 ## Context
 
-The parser should work as an independent product and also integrate into applications such as Qualevents. Hardcoding guest, pledge, payment, or invitation concepts would make the Rust engine dependent on one product and prevent reuse.
+The parser should work as an independent product and also integrate into applications such as QualEvents. Hardcoding guest, pledge, payment, or invitation concepts would make the Rust engine dependent on one product and prevent reuse.
 
 A completely assumption-free parser cannot know whether an unlabelled number is a capacity, amount, identifier, or line number. The caller must therefore describe the structure it wants.
 

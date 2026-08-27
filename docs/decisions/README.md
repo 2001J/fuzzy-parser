@@ -15,6 +15,12 @@ This directory contains ADRs [architecture decision records] for choices that ar
 - [0002 — Use schema-driven domain-neutral parsing](0002-schema-driven-domain-neutral-parsing.md)
 - [0003 — Preserve raw input and provenance](0003-preserve-raw-input-and-provenance.md)
 - [0004 — Deliver the CLI before language bindings](0004-cli-before-language-bindings.md)
+- [0005 — Validate an independent engine through its first consumer](0005-independent-engine-consumer-validation.md)
+
+ADR 0004 is partially superseded: keep the implemented CLI-first decision, but
+use ADR 0005 for runtime selection and engine/consumer ownership. ADRs 0001–0003
+remain applicable; their architectural requirements are not claims that all
+planned provenance or profile capabilities already exist.
 
 ## ADR template
 

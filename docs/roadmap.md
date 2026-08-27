@@ -1,180 +1,111 @@
 # Roadmap
 
-This roadmap defines implementation order, not guaranteed dates. Each release should produce a working vertical slice before the next layer is added.
+This document owns development order. [Current state](current-state.md) owns
+implemented capabilities; [integration strategy](integration-strategy.md) owns
+the consumer boundary and rollout. Milestones below are plans, not releases.
 
-## 0.1 — Workspace foundation
+## First direction: independently reviewable imports
 
-Status: complete.
+Prioritize generic pasted/TXT and tabular parsing, review evidence, and one
+reusable runtime boundary. QualEvents is the first real consumer and validation
+case, not the owner of the engine contract or a build/runtime dependency.
+Independent Rust library and CLI operation remain supported.
 
-- Rust workspace.
-- Four initial crates.
-- Formatting, Clippy, tests, and build checks in CI.
-- Apache 2.0 license.
-- Project documentation baseline.
+Its eventual adoption should cover all its supported text/tabular imports, not
+just optional pasted-text help. Host review, UI, migration and cutover are
+separate work described in [integration strategy](integration-strategy.md);
+they neither block nor establish generic engine readiness.
 
-## 0.2 — TXT inspection path
+Start implementation with [#10 — Preserve source evidence and unused content in
+the versioned parse response](https://github.com/2001J/fuzzy-parser/issues/10).
+The current response cannot support a complete source review. Stabilize that
+contract before adding further interpretation. Evaluate the runtime boundary
+early in [#11](https://github.com/2001J/fuzzy-parser/issues/11).
 
-Status: complete.
+## Milestone: Reviewable import engine
 
-Goal: prove the first complete source-to-JSON path.
+[GitHub milestone](https://github.com/2001J/fuzzy-parser/milestone/1) ·
+[tracking epic #9](https://github.com/2001J/fuzzy-parser/issues/9)
 
-- Structured errors.
-- Canonical `RawDocument`, `RawBlock`, and source-location models.
-- UTF-8 TXT validation and reading.
-- One raw block per source line.
-- CLI `inspect` command.
-- JSON output.
-- Fixture-backed tests and CLI end-to-end tests.
+Every implementation ticket has explicit tests and dependencies. A dependency
+must be satisfied before the dependent ticket completes; ready work can be
+selected independently.
 
-The parser must still make no fuzzy interpretation in this release.
+| Work | Dependency / gate |
+| --- | --- |
+| [#10 Source-complete result and review reasons](https://github.com/2001J/fuzzy-parser/issues/10) | First implementation; raw model #3 verified |
+| [#11 Select one reusable runtime boundary](https://github.com/2001J/fuzzy-parser/issues/11) | Early evaluation; prove the chosen target, not all alternatives |
+| [#2 Finish safe structured errors](https://github.com/2001J/fuzzy-parser/issues/2) | Ready; path redaction and error coverage remain |
+| [#4 Permanent TXT adapter edge-case fixtures](https://github.com/2001J/fuzzy-parser/issues/4) | Ready; adapter exists, durable acceptance coverage is incomplete |
+| [#5 Reusable file validation and empty policy](https://github.com/2001J/fuzzy-parser/issues/5) | #2 |
+| [#6 Strict CLI dispatch and arguments](https://github.com/2001J/fuzzy-parser/issues/6) | #2, #5 |
+| [#7 Complete TXT subprocess matrix](https://github.com/2001J/fuzzy-parser/issues/7) | #2, #4, #5, #6 |
+| [#12 Shared schema compilation/capability validation](https://github.com/2001J/fuzzy-parser/issues/12) | #2; prevents separate parsing logic per interface |
+| [#13 Caller-directed text and name fields](https://github.com/2001J/fuzzy-parser/issues/13) | #10, #12 |
+| [#14 Compose text normalization/segmentation](https://github.com/2001J/fuzzy-parser/issues/14) | #10, #12 |
+| [#15 Delimiter-adjacent email regression](https://github.com/2001J/fuzzy-parser/issues/15) | Ready; preserve original byte offsets |
+| [#16 Explicit table headers/selection/provenance](https://github.com/2001J/fuzzy-parser/issues/16) | #10, #12; coordinate bounds with #17 |
+| [#17 Bound CSV/XLSX/schema/result resource use](https://github.com/2001J/fuzzy-parser/issues/17) | #2, #5, #12 |
+| [#18 Implement the selected runtime adapter](https://github.com/2001J/fuzzy-parser/issues/18) | #10, #11, #12, #17; final parity includes #13–#16 |
+| [#19 Cross-profile conformance and independence](https://github.com/2001J/fuzzy-parser/issues/19) | All preceding engine-readiness work |
 
-## 0.3 — Pasted text and input dispatch
+The milestone ends with a tested independent engine and reusable boundary.
+It includes the [planned cross-profile independence gate](testing-strategy.md#cross-profile-conformance-and-independence--planned)
+in #19, which has not been verified today. It does **not** assert that any host
+review flow, production deployment, or migration has shipped.
 
-Status: complete.
+## Milestone: Extended format and profile coverage
 
-- Raw text input.
-- Standard input.
-- Unified input dispatcher.
-- Equivalent canonical output for pasted and uploaded text.
-- Resource limits for text size and line length.
+[GitHub milestone](https://github.com/2001J/fuzzy-parser/milestone/2) ·
+[tracking epic #20](https://github.com/2001J/fuzzy-parser/issues/20)
 
-## 0.4 — CSV extraction
+Extend the generic capability matrix: legacy XLS, declared TSV/delimited TXT,
+display/date/number handling, sheet/style metadata, and caller-supplied fields
+and interpretation options. Split concrete implementation children with tests
+before execution. Added capabilities must retain the cross-profile independence
+gate. No Event/Guest/Contributor types or consumer-specific schemas/constants
+belong in the engine.
 
-Status: complete.
+This milestone does not track legacy-path retirement or QualEvents cutover.
+Those remain external host work, informed by the engine capability matrix.
+Working host imports must remain available until their replacement passes
+host-owned parity tests; engine completion alone does not authorize migration.
 
-- CSV adapter.
-- Comma, semicolon, tab, and pipe delimiter scoring.
-- Explicit delimiter override.
-- Quoted and multiline cells.
-- Row and column provenance.
-- Clean and deliberately messy CSV fixtures.
+## Later work
 
-## 0.5 — XLSX extraction
+- Additional consumers and reusable profiles, justified by actual integration needs.
+- Standalone schema editor/review/export tool using the same engine.
+- Other runtime surfaces only when a measured deployment need justifies them.
+- More generic datetime/locale/assignment capabilities outside the readiness slice.
+- Broader property tests, fuzzing, and measured benchmarks; minimum input safety
+  and regressions are engine-readiness requirements, not postponed here.
+- Text-based PDF, then OCR; neither precedes reliable deterministic text/table review.
+- Optional correction-learning research with explicit privacy design.
 
-Status: complete.
+## Version and history reconciliation
 
-- Workbook inspection.
-- Sheet metadata.
-- Cell extraction with row, column, and sheet provenance.
-- Numeric, text, date, blank, formula-result, and merged-cell handling.
-- No macro or formula execution.
+The workspace/package version is `0.1.0`; parse and schema contracts each use
+`0.1`. These are independent version axes, governed by
+[release strategy](release-and-environment-strategy.md). No version bump, tag, or
+release is authorized by a milestone name.
 
-## 0.6 — Normalization
+The old roadmap's `0.1`–`0.14` headings were planning stages, not shipped package
+versions. The old [TXT-only v0.1 epic #8](https://github.com/2001J/fuzzy-parser/issues/8)
+used a conflicting meaning. It is superseded as a plan, **not completed as an
+acceptance gate**. Its unfinished criteria survive in #2 and #4–#7.
 
-Status: complete.
+| Former stage | Reconciled status / destination |
+| --- | --- |
+| 0.1 Workspace foundation | Implemented workspace and automated checks |
+| 0.2 TXT inspection | Working path; validation/privacy/test gaps remain in #2, #4–#7 |
+| 0.3 Pasted text/dispatch | Text/stdin exist; strict file dispatch remains #5/#6 |
+| 0.4 CSV / 0.5 XLSX | Adapters exist; table compatibility and limits remain #16/#17/#20 |
+| 0.6 Normalization / 0.7 Segmentation | Separate library stages exist; document composition remains #14 |
+| 0.8 Schema | Model/validation exist; shared executable capabilities remain #12/#13 |
+| 0.9 Detection / 0.10 Assignment | Partial implementation; gaps go to #12–#16 and later coverage |
+| 0.11 Explainable result | Versioned envelope exists; complete review evidence remains #10 |
+| 0.12 Standalone / 0.13 WASM | Later possibilities; #11 selects the reusable boundary |
+| 0.14 Reliability | Required safety/regressions move into readiness tickets; broad fuzzing/benchmarks follow |
 
-- Normalized block model.
-- Whitespace and punctuation normalization.
-- Recorded transformations.
-- Noise marking for list prefixes, headings, timestamps, and sender prefixes.
-- Raw source preservation.
-
-## 0.7 — Record segmentation
-
-Status: complete.
-
-- Record candidate model.
-- One-line and one-row strategies.
-- Multiline continuation heuristics.
-- Conservative repeated-identifier splits for multiple records per line, using generic defaults or caller-provided markers.
-- Heading-aware boundaries that preserve section markers and warn on ambiguous indented content.
-- Boundary confidence, reasons, and ambiguity warnings.
-
-## 0.8 — Schema contract
-
-Status: in progress. The reusable schema model, supported-version and alias validation, and CLI loading/validation are implemented. A CLI `parse <path> --schema <path>` command now runs the schema-driven pipeline end to end for supported field types; the remainder is converting unsupported field types as their detectors land.
-
-- Versioned target schema JSON.
-- Generic field types.
-- Required and optional fields.
-- Enum values and aliases.
-- Locale and caller hints.
-- Schema validation.
-- CLI schema loading and validation output from paths, standard input, and inline text.
-
-## 0.9 — Candidate detection
-
-Status: in progress. Detection for email, integer, decimal, phone, boolean, date, currency, and caller-defined enum values is implemented in `parser-core` with source spans and confidence reasons. Residual text and conservative person-name detectors remain.
-
-- Phone.
-- Email.
-- Integer and decimal.
-- Currency.
-- Date and datetime.
-- Boolean.
-- Enum alias.
-- Residual text and conservative person-name candidates (not yet implemented).
-- Source spans and candidate confidence (implemented).
-
-## 0.10 — Assignment and validation
-
-Status: in progress. Type-compatible assignment with nearby-label, source-column, and detected-header context, required-field warnings, multiple-candidate ambiguity, unassigned-candidate reporting, and caller validation constraints are implemented in `parser-core` and exposed through the CLI `parse` command. Position/uniqueness scoring remains.
-
-- Type-compatible assignment (implemented).
-- Label and header context scoring (implemented; exposed through the CLI `parse` command).
-- Position and uniqueness scoring (not yet implemented).
-- Required-field warnings (implemented).
-- Multiple-candidate ambiguity (implemented).
-- Unassigned candidate reporting (implemented).
-- Caller-provided validation constraints (implemented).
-
-## 0.11 — Explainable parse result
-
-- Layered confidence.
-- Stable reason codes.
-- Record statuses.
-- Rejected fragments.
-- Statistics.
-- Versioned public parse result contract.
-- Golden JSON tests.
-
-## 0.12 — Standalone review tool
-
-- TypeScript interface.
-- Paste and upload controls.
-- Custom schema editor.
-- Review table.
-- Source evidence.
-- Edit, approve, reject, split, and merge actions.
-- JSON, CSV, and clipboard export.
-
-The first UI integration may use a local service or CLI bridge before WebAssembly.
-
-## 0.13 — TypeScript and WebAssembly
-
-- Stable TypeScript request and response types.
-- WebAssembly build.
-- Browser-side text parsing.
-- Shared fixtures proving CLI and WebAssembly parity.
-- npm package preparation.
-
-## 0.14 — Reliability and performance
-
-- Property-based tests.
-- Fuzz targets.
-- Resource-limit coverage.
-- Benchmarks by stage and input size.
-- Memory profiling for large tables.
-
-## Later candidates
-
-- XLSX export.
-- Duplicate candidate detection.
-- Saved parser profiles.
-- Text-based PDF extraction.
-- OCR adapter.
-- Native Node binding.
-- HTTP service.
-- Optional correction-learning system.
-
-These should not interrupt the deterministic text/table path unless a concrete user requirement changes priorities.
-
-## Milestone rule
-
-Do not begin the next release merely because code for the current one exists. The current release must have:
-
-- Passing tests.
-- Documented public behavior.
-- Structured failure behavior.
-- A usable end-to-end demonstration.
-- No known silent data loss.
+[The dated acceptance audit](audits/2026-08-27-backlog.md) records the code,
+tests, manual probes, and issue dispositions used for this reconciliation.

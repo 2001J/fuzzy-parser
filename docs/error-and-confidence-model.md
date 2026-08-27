@@ -1,12 +1,31 @@
 # Error And Confidence Model
 
 The parser must separate unrecoverable failures from recoverable uncertainty.
+This document owns diagnostic and confidence semantics. The requirements below
+include planned behavior; use [data contracts](data-contracts.md) for actual
+serialized shapes and [current state](current-state.md) for implementation gaps.
+
+## Implemented boundary
+
+- `parser-core::ParserError` has `io_error`, `invalid_utf8`, `unsupported_input`,
+  `input_too_large`, `line_too_long`, `invalid_csv`, and `invalid_xlsx` variants.
+  Missing files use `io_error` with `kind: "not_found"`.
+- The CLI maps separate schema errors to codes including `schema_parse_error`,
+  `schema_validation_error`, and `schema_field_type_unsupported`. There is not
+  yet one shared serializable error contract across all libraries/interfaces.
+- Normal processing failures use JSON stderr and exit `1`. Usage failures use
+  plain stderr and exit `2`. Errors can expose supplied absolute paths, and some
+  messages use debug formatting. Redaction and exact-code coverage remain [#2](https://github.com/2001J/fuzzy-parser/issues/2).
+- Assignment warnings include `required_field_missing` and
+  `multiple_candidates_ambiguous`; separate segmentation APIs have boundary
+  warnings. Record statuses, rejected fragments and aggregate confidence are
+  proposed. The document orchestrator does not forward input-document warnings.
 
 ## Fatal errors
 
 A fatal error prevents the requested parse operation from producing a trustworthy result.
 
-Examples:
+Required categories (some remain unimplemented at the shared boundary):
 
 - Unsupported input format.
 - File not found or unreadable.
@@ -16,7 +35,7 @@ Examples:
 - Invalid schema.
 - Internal invariant failure.
 
-Fatal errors should include:
+The target fatal-error contract should include:
 
 - Stable machine-readable code.
 - Human-readable message.
@@ -30,7 +49,7 @@ The CLI should return a non-zero exit code for fatal errors.
 
 Warnings describe recoverable problems in the document, record, or field.
 
-Examples:
+Examples of intended warning categories (not an implemented-code inventory):
 
 - Ambiguous delimiter.
 - Missing required field.
@@ -46,7 +65,10 @@ Warnings must not be represented only as prose. Use stable codes and structured 
 
 ## Rejected fragments
 
-A rejected fragment is source content that could not be incorporated into a record or assignment.
+A rejected fragment is the proposed representation for source content that
+could not be incorporated into a record or assignment. No such complete
+accounting exists in `ParseResponse` yet; unassigned *detected candidates* alone
+do not cover text that no detector recognized.
 
 It should preserve:
 
@@ -59,7 +81,9 @@ Rejected content must not disappear silently.
 
 ## Confidence layers
 
-Confidence is represented at several levels:
+The target model distinguishes the levels below. Today field candidates and
+separate segmentation results have scores/reasons; layered extraction,
+assignment, and record aggregation are not implemented.
 
 ### Extraction confidence
 
@@ -111,36 +135,43 @@ A summary of the record's overall reliability. It should consider the weaker sta
 
 ## Confidence scale
 
-All confidence scores use the inclusive range `0.0` to `1.0`.
+Current rules emit scores in the inclusive range `0.0` to `1.0`, but `Confidence`
+is an `f64` alias and does not itself validate deserialized bounds. Scores are
+heuristic evidence weights, **not calibrated accuracy probabilities**. For
+example, `0.88` does not establish that 88% of those suggestions are correct.
 
-Suggested interpretation:
+Illustrative review bands for future evaluation, not shipped approval policy:
 
 - `0.90–1.00`: strong evidence.
 - `0.75–0.89`: likely correct but review may still be useful.
 - `0.50–0.74`: ambiguous and should normally be reviewed.
 - Below `0.50`: weak suggestion or unresolved result.
 
-These bands are product guidance, not universal truth. Consuming applications may choose their own review thresholds.
+These bands have not been calibrated against an evaluation corpus. Consumers
+must consider missing fields, ambiguity, source evidence, and business rules;
+they may choose thresholds only with suitable validation. A high score never
+authorizes persistence or messaging.
 
 ## Explainability
 
 Every non-trivial score should include stable reason codes.
 
-Example:
+Example of current candidate evidence (excerpt, not a complete result):
 
 ```json
 {
-  "field": "phone",
-  "confidence": 0.98,
+  "candidate_type": "phone_number",
+  "confidence": 0.88,
   "reasons": [
-    { "code": "PHONE_PATTERN_MATCH" },
-    { "code": "ONLY_COMPATIBLE_CANDIDATE" },
-    { "code": "CALLER_COUNTRY_HINT_APPLIED" }
+    {
+      "code": "phone_pattern_match",
+      "message": "the value contains a plausible number of phone digits and valid separators"
+    }
   ]
 }
 ```
 
-Negative evidence should also be recorded:
+Additional negative-evidence categories are proposed, not current code names:
 
 ```text
 MULTIPLE_COMPATIBLE_CANDIDATES
@@ -162,7 +193,7 @@ Processing duration, generated identifiers, or unordered map traversal must not 
 
 ## No fabricated certainty
 
-The parser must prefer:
+The intended contract must prefer:
 
 - `null` over invented data.
 - Ambiguity over arbitrary tie-breaking.
@@ -170,3 +201,6 @@ The parser must prefer:
 - Multiple candidates over a false single answer.
 
 A consuming application may provide stricter rules, but the generic core must remain honest about evidence.
+Current single-value assignment can select a candidate even when alternatives
+exist, while returning an ambiguity warning. Consumers must not treat that
+selection as resolved certainty or assume the engine abstains in every tie.

@@ -18,6 +18,7 @@ This is the project map. Start with the question you need answered.
 | How are releases and containers handled? | [Release and environment strategy](release-and-environment-strategy.md) |
 | How will other runtimes integrate? | [Integration strategy](integration-strategy.md) |
 | Why was a design decision made? | [Architecture decisions](decisions/README.md) |
+| Why did the old backlog statuses change? | [2026-08-27 acceptance audit](audits/2026-08-27-backlog.md) |
 
 ## Documentation rules
 
@@ -27,8 +28,18 @@ Each document has one primary responsibility:
 - `product-direction.md` explains user value and project boundaries, not implementation detail.
 - `architecture.md` owns component and crate boundaries.
 - `parsing-pipeline.md` owns stage behavior and invariants.
-- `data-contracts.md` owns public model shapes and serialization expectations.
+- `data-contracts.md` owns current serialized shapes and clearly marked proposed models.
 - `roadmap.md` may change frequently and must not be treated as implemented behavior.
+- `integration-strategy.md` owns the reusable boundary and separately owned
+  first-consumer handoff; it does not certify deployment or host adoption.
+- `error-and-confidence-model.md` owns diagnostics and heuristic-score semantics;
+  `testing-strategy.md` owns verification requirements.
+- `release-and-environment-strategy.md` owns versioning and publication rules.
+  Planning milestones are not package or contract versions.
+- Dated audits record historical evidence, not a competing current-state contract.
 - Architecture decisions should be captured as ADRs [architecture decision records] when reversing the decision later would be expensive or confusing.
 
 When behavior changes, update the narrowest authoritative document instead of copying the same explanation into several files.
+Use **QualEvents** consistently for the first consumer, **Fuzzy Parser** for the
+engine, and **schema/profile** for caller-owned structure and policy. Distinguish
+implemented behavior, the approved integration plan, and later possibilities.

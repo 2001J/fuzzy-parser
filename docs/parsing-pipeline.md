@@ -1,6 +1,20 @@
 # Parsing Pipeline
 
 This document defines the responsibilities and invariants of each parser stage.
+It describes the intended complete pipeline. The current paths are narrower:
+
+| Entry point | Stages used today |
+| --- | --- |
+| CLI `inspect` | Format extraction → canonical `RawDocument` JSON |
+| `normalize_document` / `segment_document` | Separately callable normalization and segmentation APIs |
+| `parse_text_with_assignment` | Detectors → assignment for one supplied text record |
+| CLI `parse` / `parse_document_with_assignment` | Table grouping/header detection/row assignment, or independent raw-block text assignment |
+
+`parse` does not currently compose normalization or record segmentation.
+[#14](https://github.com/2001J/fuzzy-parser/issues/14) owns that connection;
+[#10](https://github.com/2001J/fuzzy-parser/issues/10) owns source-complete result
+construction. Public shapes and coordinate conventions belong in
+[data contracts](data-contracts.md), not this stage description.
 
 ## 1. Input acquisition
 
@@ -25,7 +39,8 @@ A source-specific adapter converts the input into a canonical raw document.
 Examples:
 
 - TXT: preserve lines and line numbers.
-- CSV: preserve rows, columns, delimiter choice, quoted values, and header candidates.
+- CSV: preserve extracted cell values, row/column coordinates, and delimiter choice;
+  header interpretation belongs to the core, not the adapter.
 - XLSX: preserve workbook, sheet, row, column, cell type, and stored/displayed values where safely available.
 
 Output requirements:
@@ -95,7 +110,7 @@ Initial detector types may include:
 - Residual text.
 - Person-name candidate.
 
-Email, integer, decimal, phone-number, boolean, date, currency, and caller-defined enum detection are currently implemented with conservative whole-token matching. These detectors preserve raw values, provide normalized values where safe, and report byte-accurate source spans.
+Email, integer, decimal, phone-number, boolean, date, currency, and caller-defined enum detection are currently implemented with conservative whole-token matching. These detectors preserve raw values, provide normalized values where safe, and report byte spans in the text passed to the detector. For table parsing that text is a derived row string, not original file bytes.
 
 Each candidate records:
 
@@ -110,7 +125,7 @@ Multiple candidates of the same type are valid.
 
 The current assignment slice matches candidate types against caller-provided field definitions and uses nearby canonical or caller-provided labels, source-column metadata, or detected table-header labels as context. Integer and length constraints filter incompatible candidates before selection. Single-value fields prefer a context-matched candidate, then select the highest-confidence match and report ambiguity when multiple matches remain; multiple-value fields retain all compatible matches, narrowed to header-matching columns when a header context exists and at least one column matches. Required fields without a compatible candidate and candidates left unassigned are reported without fabricating values.
 
-For tabular documents, `group_document_rows` groups blocks carrying row provenance into per-sheet rows and reports blocks without row metadata as warnings instead of dropping them. `detect_table_headers` conservatively treats a sheet's first row as a header only when the sheet has at least two rows and every first-row cell is non-empty plain text without strongly typed values; every rejection carries a stable reason code (`header_not_detected_*`). `parse_document_rows_with_assignment` composes the stages end to end: row grouping, per-sheet header detection, per-row candidate detection with one-based source columns, and header-driven assignment that records a `header_label_match` reason on selected candidates.
+For tabular documents, `group_document_rows` groups blocks carrying row provenance into per-sheet rows. Blocks without row metadata are excluded from grouping with a warning; their raw values remain only in the input document. `detect_table_headers` requires at least two rows and at least two non-empty text cells in the first row without strongly typed values. Rejections carry `header_not_detected_*` codes, but an all-text data row can still be mistaken for a header. `parse_document_rows_with_assignment` composes grouping, header detection, per-row detection with one-based source columns, and assignment that records `header_label_match`. Explicit header/selection control is planned in [#16](https://github.com/2001J/fuzzy-parser/issues/16).
 
 `parse_text_with_assignment` provides the deterministic composition point for a text record: it runs the built-in detectors, applies caller-defined enum definitions, and returns both the complete candidate evidence and the assignment result. Callers can still invoke each stage independently when they need custom ordering or format-specific provenance.
 
@@ -150,11 +165,14 @@ Examples:
 - Cross-field caller constraint failure.
 - Normalization failure.
 
-Validation produces structured warnings or record errors. It does not trigger product side effects.
+Validation is intended to produce structured warnings or record errors. Today
+assignment checks required fields and integer/length constraints and reports
+ambiguity; arbitrary cross-field constraints and the proposed record status
+model are not implemented. It does not trigger product side effects.
 
 ## 8. Confidence and explanation
 
-Confidence is layered rather than represented as one unexplained number:
+The intended confidence model distinguishes these layers:
 
 - Extraction confidence.
 - Segmentation confidence.
@@ -162,11 +180,14 @@ Confidence is layered rather than represented as one unexplained number:
 - Assignment confidence.
 - Record confidence.
 
-Every score should be reproducible from documented factors. Explanations should use stable reason codes plus readable text.
+Today candidates and separate segmentation results carry heuristic scores and
+reason codes; aggregate record confidence is not implemented. These scores are
+not calibrated accuracy probabilities. The authoritative semantics and current
+limitations are in [error and confidence model](error-and-confidence-model.md).
 
 ## 9. Result construction
 
-The final parse result includes:
+The intended complete result includes:
 
 - Parsed record candidates.
 - Assigned and unassigned field candidates.
@@ -178,6 +199,9 @@ The final parse result includes:
 - Parser and schema contract versions.
 
 No fragment should disappear merely because the parser did not understand it.
+Current `ParseResponse` is only a partial envelope: it omits the source document,
+noncandidate fragments, record statuses, statistics, and input-document warnings.
+See [the implemented result contract](data-contracts.md#versioned-parse-result).
 
 ## 10. Review and confirmation
 

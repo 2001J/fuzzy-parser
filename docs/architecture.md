@@ -3,6 +3,12 @@
 ## Overview
 
 Fuzzy Parser is organized as a reusable Rust engine with thin integration surfaces around it.
+The diagram and responsibilities below describe the target architecture, not a
+claim that every stage is composed today. The [pipeline](parsing-pipeline.md)
+identifies currently reachable paths; [current state](current-state.md) lists gaps.
+QualEvents is the first validation consumer, not a dependency or source of core
+domain types. Consumer ownership is defined in
+[integration strategy](integration-strategy.md).
 
 ```text
 Input source
@@ -44,7 +50,8 @@ Owns generic parsing behavior and shared runtime models:
 - Confidence components and explanations.
 - Warnings, rejected fragments, and parse statistics.
 
-It must not depend on the CLI or a product-specific profile.
+It must not depend on the CLI or a product-specific profile. Consumer names,
+identifiers, schemas and domain constants must not select special engine behavior.
 
 ### `parser-formats`
 
@@ -87,13 +94,13 @@ The CLI should call library APIs rather than reproduce parsing logic.
 
 ## Dependency direction
 
-The intended direction is:
+The current local-crate dependencies, verified from the manifests, are:
 
 ```text
-parser-cli ───────┐
-                  ├──> parser-core
-parser-formats ───┤
-                  └──> parser-schema where required
+parser-cli → parser-formats → parser-core
+parser-cli → parser-core
+parser-cli → parser-schema
+parser-schema → no other workspace crate
 ```
 
 Exact dependencies may evolve, but these constraints remain:
@@ -104,6 +111,10 @@ Exact dependencies may evolve, but these constraints remain:
 - Circular crate dependencies are not allowed.
 
 If shared request or response models are needed by several crates, place them at the lowest stable layer rather than introducing a broad utility crate prematurely.
+Today `assignment_spec` in the CLI converts schema fields into core assignment
+instructions. [#12](https://github.com/2001J/fuzzy-parser/issues/12) moves that
+interpretation into a shared library boundary; the diagram must be updated if
+the dependency direction changes.
 
 ## Processing boundaries
 
@@ -152,23 +163,21 @@ A consuming application may:
 
 ## Deployment shapes
 
-### CLI-first
+The implemented CLI and batch container provide an independent executable
+surface. No WebAssembly, native Node, or HTTP interface exists yet.
 
-The first complete surface is a CLI because it gives the Rust project an independent executable contract and supports fixture-driven end-to-end tests.
-
-### WebAssembly
-
-A future WebAssembly package can run parsing in a browser. This is attractive for low latency and privacy because input can remain local until a user confirms results.
-
-### Native binding
-
-A native Node binding may be introduced for server-side TypeScript applications when benchmarks justify the packaging complexity.
-
-### HTTP service
-
-A service can make the parser language-independent and centrally versioned, but adds deployment, authentication, observability, and data-transfer concerns. It should not be the first integration.
+One reusable runtime boundary will be selected using actual deployment
+constraints, including those of the first consumer, following
+[ADR 0005](decisions/0005-independent-engine-consumer-validation.md).
+The [integration strategy](integration-strategy.md) owns the alternatives and
+selection gates; they are not prerequisites to build together. The adapter may
+target a runtime without depending on the consumer. It must invoke the same
+engine/schema APIs and work with unrelated caller profiles with QualEvents absent.
 
 ## Architectural invariants
+
+These are requirements. In particular, source-complete parse responses and
+uniform resource limits are not yet implemented; see [current state](current-state.md).
 
 - Original input remains traceable.
 - All public outputs are serializable.

@@ -30,6 +30,12 @@ If a maintenance branch is later required, document its support window and merge
 
 ## Versioning
 
+The current workspace/package version is `0.1.0`; the parse response contract and
+schema contract each use `0.1`. Planning milestones are named outcomes
+(`Reviewable import engine`, `Extended format and profile coverage`), not software versions.
+The historical roadmap `0.1`–`0.14` sequence and TXT-only `v0.1` epic are
+reconciled in [roadmap](roadmap.md); they do not establish published releases.
+
 The project starts at `0.x` and follows semantic versioning in spirit:
 
 - Patch: compatible bug fix or documentation improvement.
@@ -64,7 +70,7 @@ The core Rust workspace should remain buildable and testable offline after depen
 
 ### CI
 
-CI currently runs on Ubuntu and performs:
+CI [automated checks after code changes] currently runs on Ubuntu and performs:
 
 ```bash
 cargo fmt --check
@@ -83,7 +89,9 @@ CI must:
 
 ### Preview or integration environment
 
-A future standalone UI or parser service may use a preview environment.
+The selected reusable boundary or later standalone UI/service may need a
+separately authorized preview environment. The boundary is not yet chosen;
+[integration strategy](integration-strategy.md) owns that evaluation.
 
 Preview environments must:
 
@@ -95,7 +103,9 @@ Preview environments must:
 
 ### Production service environment
 
-A production parser service is optional and later-stage.
+A production parser service is optional. It is only relevant if the boundary
+evaluation selects it or a later consumer requires it; it is not a prerequisite
+for engine readiness.
 
 Before it exists, define:
 
@@ -139,7 +149,12 @@ Potential artifacts are released independently when ready:
 - Expose no implicit persistence.
 - Pin parser version in the image tag.
 
-The current `parser-cli` image is a batch deployment artifact rather than an HTTP service. CI builds and smoke-tests it on pull requests and publishes `ghcr.io/<owner>/<repository>:latest` from `main`. Production consumers should use an immutable release tag when one is available.
+The current `parser-cli` image is a batch artifact, not an HTTP service. The
+[workflow](../.github/workflows/ci.yml) builds and smoke-tests it on pull requests
+and pushes to `main`; pushes to `main` also publish
+`ghcr.io/2001j/fuzzy-parser:latest`. Current publication does not provide an
+immutable release tag. Consumers should pin a verified digest or future immutable
+release tag; do not assume `latest` is a tested QualEvents deployment.
 
 ## Publication rules
 
@@ -148,6 +163,12 @@ The current `parser-cli` image is a batch deployment artifact rather than an HTT
 - Publication credentials must never be committed.
 - Release automation must not run on ordinary pull requests.
 - Prefer dry runs before irreversible publication.
+
+The existing main-push workflow publishes automatically, while the policy above
+requires explicit publication authorization. Treat a push/merge to `main` as a
+publication action requiring that authorization; a local planning change does
+not provide it. This reconciliation documents the workflow/policy mismatch but
+changes neither the workflow nor its triggers.
 
 ## Compatibility and rollback
 
