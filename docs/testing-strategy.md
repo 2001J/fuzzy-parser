@@ -21,6 +21,21 @@ Use unit tests for isolated deterministic behavior:
 
 Unit tests should be small and explain one rule.
 
+Keep unit-test bodies in each crate's `tests/unit/mod.rs`. The implementation
+file includes that module with `#[cfg(test)]` and
+`#[path = "../tests/unit/mod.rs"] mod tests;`, preserving private access through
+`use super::*` without exposing implementation details as public API. Do not
+create `tests/unit.rs` or `tests/unit/main.rs`: Cargo would discover an unwanted
+standalone integration target. Existing CLI integration tests stay in
+`tests/inspect.rs` and `tests/parse.rs`; synthetic fixtures stay in the repository
+`fixtures/` directory. Anchor compile-time fixture includes with
+`env!("CARGO_MANIFEST_DIR")` so module moves do not change their meaning.
+
+For test-only relocations, compare `cargo test --workspace -- --list` per-target
+names/counts and `cargo metadata --no-deps --format-version 1` targets before and
+after the move. Preserve every test and assertion; account for feature-test
+additions separately.
+
 ### Integration tests
 
 Use integration tests for crate boundaries and complete library paths:
@@ -215,7 +230,8 @@ unmodified engine/public interface must process a synthetic QualEvents-shaped
 profile and an unrelated supported-domain profile using caller configuration
 only, with QualEvents not installed or available. Fixture profiles must remain
 isolated from implementation; inspect dependency and runtime assumptions as well
-as results. This gate is planned, not satisfied by today's 104 tests.
+as results. This gate is planned, not satisfied by the existing suite or #10's
+source-evidence regression tests.
 
 Measure semantic output, source evidence and unresolved content; do not infer
 accuracy from rule scores or claim unsupported field types work. Additional

@@ -29,6 +29,199 @@ fn run_parse(args: &[&str]) -> std::process::Output {
         .expect("CLI should run")
 }
 
+fn parse_stdin_content(content: &str) -> std::process::Output {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_parser-cli"))
+        .args([
+            "parse",
+            "--stdin",
+            "--schema",
+            schema_fixture_path().to_str().unwrap(),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(content.as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(output.status.code(), Some(0), "{:?}", output.stderr);
+    assert!(output.stderr.is_empty());
+    output
+}
+
+fn assert_candidate_sources(response: &Value) {
+    let typed: parser_core::ParseResponse = serde_json::from_value(response.clone()).unwrap();
+    let document = &typed.source_evidence.as_ref().unwrap().document;
+    fn visit(value: &Value, document: &parser_core::RawDocument) -> usize {
+        match value {
+            Value::Object(object) => {
+                if object.contains_key("candidate_type") {
+                    let reference: parser_core::SourceReference =
+                        serde_json::from_value(object["source_reference"].clone()).unwrap();
+                    assert_eq!(
+                        reference.resolve(document).as_deref(),
+                        object["raw_value"].as_str()
+                    );
+                    return 1;
+                }
+                object.values().map(|value| visit(value, document)).sum()
+            }
+            Value::Array(values) => values.iter().map(|value| visit(value, document)).sum(),
+            _ => 0,
+        }
+    }
+    assert!(
+        visit(response, document) > 0,
+        "exercise candidate copies in serialized output"
+    );
+}
+
+#[test]
+fn parse_unicode_without_candidates_matches_source_review_golden() {
+    let content = "  Zoë — 東京  ";
+    let first = parse_stdin_content(content);
+    let second = parse_stdin_content(content);
+    assert_eq!(first.stdout, second.stdout);
+    let response: Value = serde_json::from_slice(&first.stdout).unwrap();
+    let golden: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/contracts/parse-source-review.json"
+    )))
+    .unwrap();
+    assert_eq!(response, golden);
+    assert_eq!(
+        response["source_evidence"]["document"]["blocks"][0]["value"]["value"],
+        content
+    );
+    assert_eq!(
+        response["source_evidence"]["blocks"][0]["unused_spans"][0]["byte_end"],
+        content.len()
+    );
+}
+
+#[test]
+fn additive_source_extension_preserves_every_legacy_golden_field() {
+    let output = parse_stdin_content("ada@example.test 42");
+    let mut response: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_candidate_sources(&response);
+    fn remove_additions(value: &mut Value) {
+        match value {
+            Value::Object(object) => {
+                for key in ["source_evidence", "source_reference", "review"] {
+                    object.remove(key);
+                }
+                for value in object.values_mut() {
+                    remove_additions(value);
+                }
+            }
+            Value::Array(values) => {
+                for value in values {
+                    remove_additions(value);
+                }
+            }
+            _ => {}
+        }
+    }
+    remove_additions(&mut response);
+    let old: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/contracts/parse-0.1.json"
+    )))
+    .unwrap();
+    assert_eq!(response, old);
+}
+
+#[test]
+fn parse_embeds_exact_inspect_values_for_text_csv_and_typed_xlsx() {
+    for relative in [
+        "text/simple.txt",
+        "csv/source-review.csv",
+        "xlsx/sample.xlsx",
+    ] {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures")
+            .join(relative);
+        let inspect = Command::new(env!("CARGO_BIN_EXE_parser-cli"))
+            .args(["inspect", path.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(inspect.status.success());
+        assert!(inspect.stderr.is_empty());
+        let original: Value = serde_json::from_slice(&inspect.stdout).unwrap();
+        let output = run_parse(&[
+            path.to_str().unwrap(),
+            "--schema",
+            schema_fixture_path().to_str().unwrap(),
+        ]);
+        assert_eq!(output.status.code(), Some(0));
+        assert!(output.stderr.is_empty());
+        let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(response["source_evidence"]["document"], original);
+        assert_eq!(
+            response["source_evidence"]["blocks"]
+                .as_array()
+                .unwrap()
+                .len(),
+            original["blocks"].as_array().unwrap().len()
+        );
+        if relative.ends_with(".csv") {
+            assert_candidate_sources(&response);
+            let records = &response["content"]["sheets"][0]["records"];
+            assert_eq!(records.as_array().unwrap().len(), 2);
+            let email = &records[0]["parse"]["assignment"]["fields"][0]["candidates"][0];
+            assert_eq!(
+                email["source_reference"],
+                serde_json::json!({"block_index": 5, "coordinate_space": "raw_text_utf8", "span": {"byte_start": 2, "byte_end": 18}})
+            );
+            assert_eq!(
+                email["source_span"],
+                serde_json::json!({"byte_start": 5, "byte_end": 21})
+            );
+            assert_eq!(response["source_evidence"]["blocks"][0]["role"], "header");
+            assert_eq!(original["blocks"][4]["value"]["value"], "  Zoë  ");
+            assert_eq!(original["blocks"][6]["value"]["value"], "");
+            assert_eq!(original["blocks"][10]["value"]["value"], "  ");
+            assert_eq!(
+                records[1]["parse"]["assignment"]["warnings"][0]["code"],
+                "required_field_missing"
+            );
+            assert_eq!(records[1]["parse"]["review"]["status"], "needs_review");
+        } else if relative.ends_with(".xlsx") {
+            assert_candidate_sources(&response);
+            assert_eq!(
+                original["blocks"][5]["value"],
+                serde_json::json!({"kind": "Decimal", "value": 42.0})
+            );
+            assert_eq!(
+                original["blocks"][6]["value"],
+                serde_json::json!({"kind": "Boolean", "value": true})
+            );
+            assert_eq!(
+                original["blocks"][7]["value"],
+                serde_json::json!({"kind": "DateTime", "value": 45943.5})
+            );
+            assert_eq!(
+                original["blocks"][10]["value"],
+                serde_json::json!({"kind": "Null"})
+            );
+            assert_eq!(original["blocks"][5]["location"]["byte_start"], Value::Null);
+            assert_eq!(
+                response["source_evidence"]["blocks"][5]["coordinate_space"],
+                "rendered_value_utf8"
+            );
+            assert_eq!(
+                response["source_evidence"]["blocks"][10]["unused_spans"],
+                serde_json::json!([{"byte_start": 0, "byte_end": 0}])
+            );
+        }
+    }
+}
+
 #[test]
 fn parse_csv_with_schema_assigns_by_header() {
     let output = run_parse(&[

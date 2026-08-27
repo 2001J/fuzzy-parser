@@ -1,6 +1,7 @@
 # Current State
 
-Last reviewed: 2026-08-27 against `8f878a45d7801ab0ca0a7d10a1b8aca353c7c192`.
+Last reviewed: 2026-08-28, including the #10 source-evidence extension.
+The [dated audit](audits/2026-08-27-backlog.md) records the earlier implementation baseline.
 
 This document records only what is implemented in the repository now. It must not describe planned behavior as complete.
 
@@ -21,9 +22,9 @@ The workspace currently contains four crates:
 - `parser-core` provides serializable canonical raw-document models, source locations, raw values, warnings, structured parser errors, configurable derived text normalization, and deterministic record segmentation strategies including repeated-identifier splitting and heading-aware boundaries.
 - `parser-core` detects conservative email, integer, decimal, phone-number, boolean, date, currency, and caller-defined enum field candidates with raw values, normalized values, heuristic confidence, reason codes, and byte spans in the detector's input text.
 - `parser-core` assigns compatible candidates to caller-provided fields, uses nearby canonical or caller-provided labels, optional source-column metadata, or detected table-header labels as assignment context, applies caller-provided integer and length constraints, selects the highest-confidence candidate when context is equal, preserves multiple values when requested preferring header-matching columns, and reports missing required fields, ambiguity, and unassigned candidates.
-- `parser-core` groups blocks with row provenance into sheet rows, detects first-row headers using a heuristic, and exposes `parse_document_rows_with_assignment` for header-driven row assignment. Blocks without row provenance are excluded with warnings; their values remain in the input document, not the parse response.
+- `parser-core` groups blocks with row provenance into sheet rows, detects first-row headers using a heuristic, and exposes `parse_document_rows_with_assignment` for header-driven row assignment. Blocks without row provenance are excluded with warnings; the document-level response retains their values and an explicit exclusion reason.
 - `parser-core` exposes `parse_text_with_assignment`, which composes the implemented detectors and assignment for one supplied text record. Normalization and segmentation are separate library APIs, not stages used by this function.
-- `parse_document_with_assignment` chooses table rows when row provenance exists and otherwise parses each raw block separately. `ParseResponse` includes contract/parser versions, source type, block IDs, candidates, assignments, and warnings; it does not include the raw document, full source metadata, or all unrecognized content.
+- `parse_document_with_assignment` chooses table rows when row provenance exists and otherwise parses each raw block separately. `ParseResponse` embeds the unchanged canonical document, source metadata, coverage of parsed/header/excluded blocks, and unused spans. Candidate references resolve in every detected/assigned/unassigned copy. Input warnings are forwarded, and records carry deterministic draft/review reasons; see [data contracts](data-contracts.md).
 - `parser-formats` reads UTF-8 TXT files, pasted text, standard input, and CSV files into canonical raw blocks while preserving content and source locations.
 - CSV extraction scores comma, semicolon, tab, and pipe delimiters, supports explicit overrides, quoted/multiline cells, empty cells, and row/column provenance.
 - `parser-formats` reads XLSX workbooks with sheet, row, column, and typed-cell provenance; it reads stored values only and does not execute formulas or macros.
@@ -34,7 +35,7 @@ The workspace currently contains four crates:
 - GitHub Actions runs formatting, Clippy, tests, a workspace build, and CLI-container build/smoke checks on pull requests and pushes to `main`.
 - The CLI container is the current deployable batch artifact; pushes to `main` publish its `latest` image to GHCR.
 - The repository is licensed under Apache License 2.0.
-- Local formatting, Clippy, workspace build, and all 104 tests passed at this review. [The acceptance audit](audits/2026-08-27-backlog.md) distinguishes checked-in tests from additional temporary probes; passing tests do not establish the missing contracts below.
+- Permanent unit tests live in each crate's `tests/unit/mod.rs`; CLI subprocess tests remain in `tests/inspect.rs` and `tests/parse.rs`. Coverage includes the raw-model compatibility cases carried from #3, source resolution/unused content, typed values, warnings and old/new JSON golden contracts. [The acceptance audit](audits/2026-08-27-backlog.md) records the earlier temporary probes; passing current tests does not establish the missing contracts below.
 
 ## Known limitations
 
@@ -42,8 +43,9 @@ The workspace currently contains four crates:
 - Error JSON and messages can expose supplied absolute paths. Schema errors use a separate CLI envelope; not all errors are covered by exact serialization tests.
 - `parse` does not invoke normalization or record segmentation. Indented continuation lines still become separate records.
 - Plain-text detectors use conservative token matching; comma-adjacent email can be missed. `--stdin` is text, not a tabular auto-detection mode.
+- Label-context scoring can panic on valid Unicode when comparing multiple candidates: its 40-byte window can start inside a UTF-8 character. This pre-existing assignment bug is tracked separately in [#21](https://github.com/2001J/fuzzy-parser/issues/21); the source-evidence extension does not fix it.
 - The table header heuristic can mistake an all-text first data row for a header. There are no public CLI options for header/row/sheet selection.
-- Candidate spans in a table refer to concatenated, trimmed row text, not original file bytes. Raw cell values exist in the separately extracted document, which the parse response omits. Input document warnings are not forwarded by the orchestrator.
+- Legacy candidate spans in a table still refer to concatenated, trimmed row text. New source references index stored strings or explicitly rendered typed values in the embedded canonical document, not original CSV/XLSX file bytes. Extraction still omits original quoting, blank CSV physical lines, TXT line terminators and some workbook metadata; exact-file retention remains the caller's responsibility.
 - CLI schema conversion pools enum definitions across fields and ignores `allow_unknown_fields`. Locale/country hints and expected-column settings are not part of the current executable schema interface. Library `unique` behavior is not a database duplicate policy.
 - XLSX reads stored values within worksheet ranges. Date serials, style-based selection, and displayed formatting are not a complete consumer import contract. Legacy `.xls` is unsupported.
 
@@ -52,8 +54,8 @@ The workspace currently contains four crates:
 The following capabilities are planned but do not exist yet:
 
 - Additional field candidate detection beyond email, integer, decimal, phone-number, boolean, date, currency, and caller-defined enum values, including residual text and person-name fields.
-- A reusable schema-to-engine entry point outside the CLI, a unified serialized parse request, and a source-complete response for review.
-- Record statuses, aggregate record confidence, rejected-fragment accounting, and statistics. Candidate reason codes and nested assignment warnings already exist; confidence scores are heuristic, not calibrated accuracy probabilities.
+- A reusable schema-to-engine entry point outside the CLI and a unified serialized parse request.
+- Aggregate record confidence and statistics. Current draft/review statuses expose generic evidence gaps only; heuristic scores are not calibrated accuracy probabilities. Business rejection/approval remains host-owned, not a planned engine capability.
 - TypeScript, WebAssembly, native Node, or HTTP integration.
 - A standalone graphical interface.
 - The cross-profile, no-QualEvents independence gate described in [testing strategy](testing-strategy.md#cross-profile-conformance-and-independence--planned).

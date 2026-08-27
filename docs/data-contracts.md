@@ -29,6 +29,29 @@ are not any of these versions; see [release strategy](release-and-environment-st
 
 Parser implementation version and schema contract version are separate concerns.
 
+### Source-evidence extension and compatibility
+
+#10 extends JSON contract `0.1` additively; it does not rename existing fields,
+change candidate `source_span` meanings, or bump package/schema versions.
+New document parses always include `source_evidence`, candidate
+`source_reference` values and record `review` metadata. These optional Rust
+fields default to `None` when reading older JSON and are omitted when absent.
+Missing evidence means **unavailable**, not an empty or reviewed source.
+
+Tolerant existing JSON readers can ignore the additions. Readers that reject
+unknown keys must update their accepted shape before consuming the extended
+output. The [legacy golden](../fixtures/contracts/parse-0.1.json) round-trips
+without additions; CLI tests compare every legacy field after removing only the
+new keys. The [review golden](../fixtures/contracts/parse-source-review.json)
+fixes the extended envelope's shape. `inspect` and canonical raw JSON are unchanged.
+
+Rust function signatures remain unchanged, but manual struct literals need the
+new optional fields: `FieldCandidate.source_reference`, `TextParseResult.review`,
+`ParseResponse.source_evidence`, and `TableCell.source_block_index`. Use `None`
+when no evidence exists; do not invent references. Parsing entry points populate
+these fields. This is JSON compatibility, not a claim that old Rust struct
+literals compile unchanged.
+
 ## Parser input — proposed
 
 The following `ParserInput` does not exist. Current `parser-formats::InputSource`
@@ -217,6 +240,7 @@ pub struct FieldCandidate {
     pub normalized_value: Option<serde_json::Value>,
     pub source_span: TextSpan,
     pub source_column: Option<usize>,
+    pub source_reference: Option<SourceReference>,
     pub confidence: Confidence,
     pub reasons: Vec<Reason>,
 }
@@ -225,9 +249,38 @@ pub struct FieldCandidate {
 Candidates are evidence. They are not automatically assignments.
 `source_span` is a zero-based, end-exclusive byte range in the detector's input
 text. In table mode, that input is the concatenation of trimmed non-empty cells
-with spaces; it is not returned as a source map. `source_column` identifies the
-cell column, but exact original-cell offsets still need
-[#10](https://github.com/2001J/fuzzy-parser/issues/10).
+with spaces. This legacy span remains unchanged for assignment compatibility;
+it is not an original-cell or file-byte offset. `source_column` identifies the
+cell column. The new `source_reference` resolves to a stored canonical value:
+
+```rust
+pub struct SourceReference {
+    pub block_index: usize,
+    pub coordinate_space: SourceCoordinateSpace,
+    pub span: TextSpan,
+}
+```
+
+`block_index` is zero-based in `source_evidence.document.blocks`, disambiguating
+even repeated caller block IDs. Both span ends count UTF-8 bytes, with an
+exclusive end. `raw_text_utf8` indexes the unchanged stored string of `Text`,
+`DateTimeText`, `Duration` or `Error`; `rendered_value_utf8` indexes
+`RawValue::to_text()` for integer, decimal, boolean, date serial or null values.
+The original typed value remains embedded. Neither coordinate space claims
+CSV/XLSX file-byte offsets. For TXT, a caller can combine a raw-text span with
+the known block file offset; table locations instead identify sheet/row/column.
+
+For example, the email in `fixtures/csv/source-review.csv` has a legacy row span
+`5..21` but references block index `5`, raw-text bytes `2..18` of the cell
+`"  ada@example.test  "`. Trimming never overwrites the cell or its whitespace.
+`SourceReference::resolve(&document)` returns that substring, or `None` for an
+invalid index, coordinate kind, range or UTF-8 boundary.
+
+References are attached before assignment, so detector, assigned and unassigned
+copies all retain them (assignment may add reasons). Standalone detectors and
+`parse_text_with_assignment` have no canonical document and omit references.
+The lower-level table API references its caller's original document; use the
+document-level entry point for a self-contained response.
 
 ## Field assignment
 
@@ -257,7 +310,10 @@ pub struct AssignmentResult {
 
 `assign_candidates` matches candidate types against caller-provided fields, applies integer and length constraints, uses nearby labels and optional expected-column metadata as context, and serializes its result for integration surfaces. A missing value is different from an empty string. Ambiguous assignments and unassigned candidates remain observable.
 
-`TextParseResult` contains the candidates produced by `parse_text_with_assignment` and its corresponding `AssignmentResult`, allowing review tools and automated consumers to inspect both the decision and the evidence behind it.
+`TextParseResult` contains candidates, `AssignmentResult`, and optional
+`RecordReview` (`status` and `reasons`). The current parser populates review
+metadata; legacy JSON may omit it. [Diagnostic semantics](error-and-confidence-model.md#record-review)
+define the draft/review states; neither is approval or an accuracy probability.
 
 ## Tabular header context and row assignment
 
@@ -266,6 +322,7 @@ pub struct TableCell {
     pub source_column: usize,
     pub value: RawValue,
     pub source_block_id: String,
+    pub source_block_index: Option<usize>,
 }
 
 pub struct TableRowGroup {
@@ -302,8 +359,8 @@ pub enum HeaderExtraction {
 `TableRowParseResult` carries `source_row`, `source_block_ids`, and `parse`.
 `HeaderExtraction` serializes with a snake-case `status` tag: `detected` or
 `not_detected`. The [pipeline](parsing-pipeline.md) owns header-detection and
-assignment behavior. Excluded blocks are warned about but their raw values are
-not embedded in the table result.
+assignment behavior. The lower-level table result does not embed its input;
+the document-level response below retains header, parsed and excluded blocks.
 
 ## Versioned parse result
 
@@ -317,6 +374,7 @@ pub struct ParseResponse {
     pub source_type: SourceType,
     pub content: ParseContent,
     pub warnings: Vec<ParserWarning>,
+    pub source_evidence: Option<SourceEvidence>,
 }
 
 #[serde(tag = "mode", rename_all = "snake_case")]
@@ -335,16 +393,53 @@ pub struct TextRecordParseResult {
 provenance, otherwise one text record per raw block. It does not run the separate
 normalization/segmentation APIs. The CLI emits this envelope directly.
 
-The envelope contains no `RawDocument`, source filename, complete location
-index, or noncandidate text. Original values remain in the caller's input
-document, not in CLI parse output. Assignment warnings exist within each
-record's `parse.assignment.warnings`; top-level warnings cover row grouping.
-Input document warnings are not propagated. Rejected-fragment accounting,
-record statuses and statistics below are proposed, not fields of version `0.1`.
-[#10](https://github.com/2001J/fuzzy-parser/issues/10) must add review evidence
-with an explicit compatibility/migration contract.
+The envelope now embeds the unchanged canonical document, including metadata,
+typed values, blank cells/lines, header values, noncandidate text and input
+warnings. Top-level warnings contain input-document warnings first, then row
+grouping warnings. Record assignment warnings remain under
+`parse.assignment.warnings`; they are not silently promoted to fatal errors.
+
+```rust
+pub struct SourceEvidence {
+    pub document: RawDocument,
+    pub blocks: Vec<SourceBlockCoverage>,
+}
+
+pub struct SourceBlockCoverage {
+    pub block_index: usize,
+    pub role: SourceBlockRole,
+    pub coordinate_space: SourceCoordinateSpace,
+    pub unused_spans: Vec<TextSpan>,
+    pub reason: Option<Reason>,
+}
+```
+
+There is exactly one coverage entry per block in original order:
+
+- `parsed`: `unused_spans` complement the union of all detected candidate spans
+  in the stored/rendered value. They retain whitespace and unrecognized text;
+  an empty value has `0..0`. Overlapping detections are allowed. Detected but
+  unassigned values stay in `assignment.unassigned_candidates` rather than
+  being mislabeled as undetected content.
+- `header`: the whole block is retained as header evidence with
+  `header_detected`. The existing heuristic can still misclassify a data row;
+  this role exposes its decision, not proof that the row is a header.
+- `excluded`: the whole block remains available with `row_provenance_missing`
+  when mixed table/text input excludes a block without row metadata.
+
+Header/excluded entries have no unused spans because their role accounts for
+the entire value. There is no new business rejection policy or hidden deletion.
+Every canonical value is retained; adapters still omit details such as CSV
+blank physical lines, original quoting and XLSX styles outside their existing
+extraction contract. Callers needing original files must retain them separately.
+Output now includes potentially sensitive raw input: do not log it by default
+or expose it to readers without permission to inspect the source. Redacted
+output modes and broader resource limits remain future work.
 
 ## Parsed record — proposed
+
+This alternative record shape is not the implemented `RecordReview` extension.
+Aggregate record confidence and the statuses below remain proposed.
 
 ```rust
 pub struct ParsedRecord {
@@ -420,8 +515,8 @@ Duration is diagnostic metadata and must not affect deterministic output compari
 ## Serialization requirements
 
 These are evolution requirements, not a claim that every current input or
-output validates them. In particular, safe diagnostic redaction and complete
-source maps remain open work.
+output validates them. In particular, safe diagnostic redaction, arbitrary
+normalization source maps and adapter-level original-file fidelity remain open work.
 
 - Use explicit enums rather than magic strings internally.
 - JSON field names must remain stable once external integrations depend on them.

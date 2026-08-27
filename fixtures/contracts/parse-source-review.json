@@ -1,0 +1,43 @@
+{
+  "contract_version": "0.1",
+  "parser_version": "0.1.0",
+  "record_name": "contact",
+  "source_type": "stdin",
+  "content": {
+    "mode": "text",
+    "records": [{
+      "source_block_id": "block-1",
+      "parse": {
+        "candidates": [],
+        "assignment": {
+          "fields": [], "unassigned_candidates": [],
+          "warnings": [{"code": "required_field_missing", "message": "required field email has no compatible candidate", "location": null}]
+        },
+        "review": {
+          "status": "needs_review",
+          "reasons": [
+            {"code": "no_candidates", "message": "no field candidates were detected"},
+            {"code": "assignment_warnings", "message": "record assignment produced warnings"},
+            {"code": "unrecognized_content", "message": "non-whitespace content produced no candidate"}
+          ]
+        }
+      }
+    }]
+  },
+  "warnings": [],
+  "source_evidence": {
+    "document": {
+      "id": "txt-document",
+      "source": {"source_type": "stdin", "file_name": null, "mime_type": "text/plain", "size_bytes": 19, "delimiter": null},
+      "blocks": [{
+        "id": "block-1", "value": {"kind": "Text", "value": "  Zoë — 東京  "},
+        "location": {"line": 1, "row": null, "column": null, "sheet": null, "byte_start": 0, "byte_end": 19}
+      }],
+      "warnings": []
+    },
+    "blocks": [{
+      "block_index": 0, "role": "parsed", "coordinate_space": "raw_text_utf8",
+      "unused_spans": [{"byte_start": 0, "byte_end": 19}], "reason": null
+    }]
+  }
+}

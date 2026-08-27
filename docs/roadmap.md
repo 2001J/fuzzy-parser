@@ -16,11 +16,14 @@ just optional pasted-text help. Host review, UI, migration and cutover are
 separate work described in [integration strategy](integration-strategy.md);
 they neither block nor establish generic engine readiness.
 
-Start implementation with [#10 — Preserve source evidence and unused content in
-the versioned parse response](https://github.com/2001J/fuzzy-parser/issues/10).
-The current response cannot support a complete source review. Stabilize that
-contract before adding further interpretation. Evaluate the runtime boundary
-early in [#11](https://github.com/2001J/fuzzy-parser/issues/11).
+[#10 — Preserve source evidence and unused content in the versioned parse
+response](https://github.com/2001J/fuzzy-parser/issues/10) is implemented and
+independently verified; [data contracts](data-contracts.md) describes the
+canonical source-review extension. The next focused slice is
+[#21 — Prevent Unicode label-context slicing from crashing assignment](https://github.com/2001J/fuzzy-parser/issues/21),
+a pre-existing bug found during that review. Evaluate the runtime boundary
+early in [#11](https://github.com/2001J/fuzzy-parser/issues/11). These individual
+steps do not establish complete engine readiness or authorize publication.
 
 ## Milestone: Reviewable import engine
 
@@ -33,7 +36,8 @@ selected independently.
 
 | Work | Dependency / gate |
 | --- | --- |
-| [#10 Source-complete result and review reasons](https://github.com/2001J/fuzzy-parser/issues/10) | First implementation; raw model #3 verified |
+| [#10 Source-complete result and review reasons](https://github.com/2001J/fuzzy-parser/issues/10) | Implemented and independently verified; includes retained raw-model compatibility tests |
+| [#21 Unicode-safe assignment context](https://github.com/2001J/fuzzy-parser/issues/21) | Ready next; fix the pre-existing panic with permanent core/CLI regressions |
 | [#11 Select one reusable runtime boundary](https://github.com/2001J/fuzzy-parser/issues/11) | Early evaluation; prove the chosen target, not all alternatives |
 | [#2 Finish safe structured errors](https://github.com/2001J/fuzzy-parser/issues/2) | Ready; path redaction and error coverage remain |
 | [#4 Permanent TXT adapter edge-case fixtures](https://github.com/2001J/fuzzy-parser/issues/4) | Ready; adapter exists, durable acceptance coverage is incomplete |
@@ -103,7 +107,7 @@ acceptance gate**. Its unfinished criteria survive in #2 and #4–#7.
 | 0.6 Normalization / 0.7 Segmentation | Separate library stages exist; document composition remains #14 |
 | 0.8 Schema | Model/validation exist; shared executable capabilities remain #12/#13 |
 | 0.9 Detection / 0.10 Assignment | Partial implementation; gaps go to #12–#16 and later coverage |
-| 0.11 Explainable result | Versioned envelope exists; complete review evidence remains #10 |
+| 0.11 Explainable result | Canonical source/review extension implemented and independently verified in #10; broader engine-readiness gates remain open |
 | 0.12 Standalone / 0.13 WASM | Later possibilities; #11 selects the reusable boundary |
 | 0.14 Reliability | Required safety/regressions move into readiness tickets; broad fuzzing/benchmarks follow |
 

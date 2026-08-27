@@ -176,8 +176,9 @@ engine/schema APIs and work with unrelated caller profiles with QualEvents absen
 
 ## Architectural invariants
 
-These are requirements. In particular, source-complete parse responses and
-uniform resource limits are not yet implemented; see [current state](current-state.md).
+These are requirements. Canonical source evidence is now embedded in document
+parse responses; uniform resource limits and broader extraction fidelity remain
+incomplete. See [current state](current-state.md).
 
 - Original input remains traceable.
 - All public outputs are serializable.

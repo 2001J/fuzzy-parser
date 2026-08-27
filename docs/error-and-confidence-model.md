@@ -18,8 +18,29 @@ serialized shapes and [current state](current-state.md) for implementation gaps.
   messages use debug formatting. Redaction and exact-code coverage remain [#2](https://github.com/2001J/fuzzy-parser/issues/2).
 - Assignment warnings include `required_field_missing` and
   `multiple_candidates_ambiguous`; separate segmentation APIs have boundary
-  warnings. Record statuses, rejected fragments and aggregate confidence are
-  proposed. The document orchestrator does not forward input-document warnings.
+  warnings. The document response now forwards input warnings before row-grouping
+  warnings; record assignment warnings remain nested under each record.
+  Excluded source blocks retain a reason. Aggregate confidence is not implemented.
+
+## Record review
+
+`RecordReview` is a deterministic summary of record-level evidence, not a
+business validation or accuracy estimate. `needs_review` has one or more reasons
+below, in this order; `draft` has none. Both require the host's review/confirmation
+policy and neither authorizes persistence or messaging.
+
+| Reason code | Trigger |
+| --- | --- |
+| `no_candidates` | No field candidates were detected, including empty records |
+| `assignment_warnings` | The record's assignment emitted warnings |
+| `unassigned_candidates` | Detected values remain unassigned |
+| `unrecognized_content` | Non-whitespace content lies outside all detected spans |
+
+Whitespace is retained in source coverage but does not alone trigger the last
+reason. Scores do not determine these statuses. Document/input warnings still
+need separate inspection even for a `draft` record. Missing review metadata in
+legacy JSON means unavailable, not reviewed. See [data contracts](data-contracts.md)
+for the serialized shape and source-accounting rules.
 
 ## Fatal errors
 

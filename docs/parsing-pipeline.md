@@ -12,8 +12,8 @@ It describes the intended complete pipeline. The current paths are narrower:
 
 `parse` does not currently compose normalization or record segmentation.
 [#14](https://github.com/2001J/fuzzy-parser/issues/14) owns that connection;
-[#10](https://github.com/2001J/fuzzy-parser/issues/10) owns source-complete result
-construction. Public shapes and coordinate conventions belong in
+the #10 result extension retains canonical source evidence and unused content.
+Public shapes and coordinate conventions belong in
 [data contracts](data-contracts.md), not this stage description.
 
 ## 1. Input acquisition
@@ -167,8 +167,9 @@ Examples:
 
 Validation is intended to produce structured warnings or record errors. Today
 assignment checks required fields and integer/length constraints and reports
-ambiguity; arbitrary cross-field constraints and the proposed record status
-model are not implemented. It does not trigger product side effects.
+ambiguity. Generic draft/review reasons now summarize these warnings and unused
+content. Arbitrary cross-field constraints are not implemented; business
+approval/rejection remains host-owned. Parsing does not trigger product side effects.
 
 ## 8. Confidence and explanation
 
@@ -199,8 +200,12 @@ The intended complete result includes:
 - Parser and schema contract versions.
 
 No fragment should disappear merely because the parser did not understand it.
-Current `ParseResponse` is only a partial envelope: it omits the source document,
-noncandidate fragments, record statuses, statistics, and input-document warnings.
+Current `ParseResponse` retains the canonical source document, noncandidate
+content, assigned/unassigned references, header/exclusion evidence, record review
+reasons, and input-document warnings. Statistics and a shared request/schema
+compilation interface remain unimplemented. This does not change extraction,
+header, detection or segmentation heuristics or preserve original file bytes
+that the extraction adapters do not expose.
 See [the implemented result contract](data-contracts.md#versioned-parse-result).
 
 ## 10. Review and confirmation

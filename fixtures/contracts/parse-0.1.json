@@ -1,0 +1,46 @@
+{
+  "contract_version": "0.1",
+  "parser_version": "0.1.0",
+  "record_name": "contact",
+  "source_type": "stdin",
+  "content": {
+    "mode": "text",
+    "records": [{
+      "source_block_id": "block-1",
+      "parse": {
+        "candidates": [
+          {
+            "candidate_type": "email", "raw_value": "ada@example.test",
+            "normalized_value": "ada@example.test",
+            "source_span": {"byte_start": 0, "byte_end": 16},
+            "source_column": null, "confidence": 0.98,
+            "reasons": [{"code": "email_pattern_match", "message": "the value matches a conservative email pattern"}]
+          },
+          {
+            "candidate_type": "integer", "raw_value": "42", "normalized_value": 42,
+            "source_span": {"byte_start": 17, "byte_end": 19},
+            "source_column": null, "confidence": 0.96,
+            "reasons": [{"code": "integer_pattern_match", "message": "the value is a complete signed integer token"}]
+          }
+        ],
+        "assignment": {
+          "fields": [{"name": "email", "candidates": [{
+            "candidate_type": "email", "raw_value": "ada@example.test",
+            "normalized_value": "ada@example.test",
+            "source_span": {"byte_start": 0, "byte_end": 16},
+            "source_column": null, "confidence": 0.98,
+            "reasons": [{"code": "email_pattern_match", "message": "the value matches a conservative email pattern"}]
+          }]}],
+          "unassigned_candidates": [{
+            "candidate_type": "integer", "raw_value": "42", "normalized_value": 42,
+            "source_span": {"byte_start": 17, "byte_end": 19},
+            "source_column": null, "confidence": 0.96,
+            "reasons": [{"code": "integer_pattern_match", "message": "the value is a complete signed integer token"}]
+          }],
+          "warnings": []
+        }
+      }
+    }]
+  },
+  "warnings": []
+}

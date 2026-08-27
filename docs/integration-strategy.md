@@ -67,11 +67,12 @@ Processing errors use JSON stderr and exit `1`; usage errors use plain stderr
 and exit `2`. `cargo run` itself may print build diagnostics to stderr; use the
 built `target/debug/parser-cli` when asserting the binary's streams.
 
-Current `ParseResponse` is not sufficient for full source review: it omits the
-raw document and unrecognized fragments. The CLI also owns schema compilation
-today. [#10](https://github.com/2001J/fuzzy-parser/issues/10) and
-[#12](https://github.com/2001J/fuzzy-parser/issues/12) close those shared-boundary
-gaps before a consumer should rely on a complete review contract.
+`ParseResponse` now includes canonical source evidence, unused content and
+draft/review reasons. Its [additive compatibility contract](data-contracts.md#source-evidence-extension-and-compatibility)
+distinguishes cell/string coordinates from original file bytes and legacy
+responses without evidence. This does not establish complete integration
+readiness: schema compilation still lives in the CLI ([#12](https://github.com/2001J/fuzzy-parser/issues/12)),
+several field types are unsupported, and runtime/independence gates remain open.
 
 ## Select one reusable deployment-compatible boundary
 

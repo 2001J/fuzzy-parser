@@ -73,8 +73,11 @@ These examples assign **email only**: `contact.json` has no name field. The stdi
 mode reads plain text, not CSV. A comma directly between a name and email can
 currently prevent email detection ([regression #15](https://github.com/2001J/fuzzy-parser/issues/15)).
 Exit code `0` means processing succeeded; missing-field and ambiguity warnings
-still require inspection. The parse response does not yet include the complete
-raw document or unused text; use `inspect` to examine extracted source values.
+still require inspection. `source_evidence` embeds the unchanged canonical
+document and accounts for unused, header and excluded content. Candidate source
+references resolve to stored values; `parse.review` flags record-level reasons
+for review. Neither `draft` nor `needs_review` means approval. See the
+[source-coordinate and compatibility contract](docs/data-contracts.md#source-evidence-extension-and-compatibility).
 
 Use `cargo run -p parser-cli -- --help` for command syntax. Schema validation
 accepts a path, stdin, or inline text; `--compact <path>` emits one JSON line.

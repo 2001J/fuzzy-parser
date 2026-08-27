@@ -409,9 +409,5 @@ fn inspect_result(result: Result<parser_core::RawDocument, parser_core::ParserEr
 }
 
 #[cfg(test)]
-mod tests {
-    #[test]
-    fn empty_cli_test() {
-        assert_eq!(2 + 2, 4);
-    }
-}
+#[path = "../tests/unit/mod.rs"]
+mod tests;
