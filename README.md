@@ -67,12 +67,13 @@ Parse a CSV or text input against a caller schema, emitting a versioned parse re
 
 ```bash
 cargo run -p parser-cli -- parse fixtures/csv/comma.csv --schema fixtures/schema/contact.json
-printf 'Ada Lovelace ada@example.test\n' | cargo run -p parser-cli -- parse --stdin --schema fixtures/schema/contact.json
+printf 'Ada Lovelace,ada@example.test\n' | cargo run -p parser-cli -- parse --stdin --schema fixtures/schema/contact.json
 ```
 
 These examples assign **email only**: `contact.json` has no name field. The stdin
-mode reads plain text, not CSV. A comma directly between a name and email can
-currently prevent email detection ([regression #15](https://github.com/2001J/fuzzy-parser/issues/15)).
+mode reads plain text, not CSV. The comma example assigns `ada@example.test`
+at original UTF-8 bytes `13..29` (end exclusive), while `Ada Lovelace,` remains
+unused source content. See [email boundary limits](docs/current-state.md#known-limitations).
 Exit code `0` means processing succeeded; missing-field and ambiguity warnings
 still require inspection. `source_evidence` embeds the unchanged canonical
 document and accounts for unused, header and excluded content. Candidate source

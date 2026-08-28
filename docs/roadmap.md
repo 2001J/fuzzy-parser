@@ -59,7 +59,7 @@ selected independently.
 | [#12 Shared schema compilation/capability validation](https://github.com/2001J/fuzzy-parser/issues/12) | #2; prevents separate parsing logic per interface |
 | [#13 Caller-directed text and name fields](https://github.com/2001J/fuzzy-parser/issues/13) | #10, #12 |
 | [#14 Compose text normalization/segmentation](https://github.com/2001J/fuzzy-parser/issues/14) | #10, #12 |
-| [#15 Delimiter-adjacent email regression](https://github.com/2001J/fuzzy-parser/issues/15) | Ready; preserve original byte offsets |
+| [#15 Delimiter-adjacent email regression](https://github.com/2001J/fuzzy-parser/issues/15) | Independently reviewed, locally integrated and verified with core/CLI source-span regressions |
 | [#16 Explicit table headers/selection/provenance](https://github.com/2001J/fuzzy-parser/issues/16) | #10, #12; coordinate bounds with #17 |
 | [#17 Bound CSV/XLSX/schema/result resource use](https://github.com/2001J/fuzzy-parser/issues/17) | #2, #5, #12 |
 | [#18 Implement the selected runtime adapter](https://github.com/2001J/fuzzy-parser/issues/18) | Reviewed single-backend #11 decision, #10, #12, #17 and installation/packaging/lifecycle gates; final parity includes #13–#16 |
