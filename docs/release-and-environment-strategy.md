@@ -70,20 +70,15 @@ The core Rust workspace should remain buildable and testable offline after depen
 
 ### CI
 
-CI [automated checks after code changes] currently runs on Ubuntu and performs:
-
-```bash
-cargo fmt --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-cargo build --workspace
-```
+CI [automated checks after code changes] is test-only. The authoritative
+[CI guide](ci.md) describes the Rust/platform, Node invocation, WASM compilation,
+advisory and container gates, local reproduction, and hosted-verification limits.
 
 CI must:
 
 - Use synthetic test data.
 - Avoid secrets for ordinary parser tests.
-- Avoid publishing artifacts on pull requests.
+- Never publish or deploy on ordinary CI runs, including pushes to `main`.
 - Fail on warnings and contract regressions.
 - Add platform matrices only when platform-specific code or artifacts justify them.
 
@@ -152,11 +147,11 @@ Potential artifacts are released independently when ready:
 - Pin parser version in the image tag.
 
 The current `parser-cli` image is a batch artifact, not an HTTP service. The
-[workflow](../.github/workflows/ci.yml) builds and smoke-tests it on pull requests
-and pushes to `main`; pushes to `main` also publish
-`ghcr.io/2001j/fuzzy-parser:latest`. Current publication does not provide an
-immutable release tag. Consumers should pin a verified digest or future immutable
-release tag; do not assume `latest` is a tested QualEvents deployment.
+[workflow](../.github/workflows/ci.yml) builds/loads and tests it locally on its
+runner; it does not log in to a registry or push an image. Build inputs are pinned
+and Cargo uses the committed lockfile. A future release still needs an explicit
+artifact/version/verification decision. Historical `latest` images are not
+immutable releases or evidence of a tested QualEvents deployment.
 
 ## Publication rules
 
@@ -166,11 +161,11 @@ release tag; do not assume `latest` is a tested QualEvents deployment.
 - Release automation must not run on ordinary pull requests.
 - Prefer dry runs before irreversible publication.
 
-The existing main-push workflow publishes automatically, while the policy above
-requires explicit publication authorization. Treat a push/merge to `main` as a
-publication action requiring that authorization; a local planning change does
-not provide it. This reconciliation documents the workflow/policy mismatch but
-changes neither the workflow nor its triggers.
+[#23](https://github.com/2001J/fuzzy-parser/issues/23) removes the earlier automatic
+main-push image publication and its mismatch with this policy. Until that change
+is integrated, branches still running the old workflow can publish on main
+pushes; a local commit does not disable the remote workflow. No historical image
+is deleted, and no release pipeline or publication permission is introduced.
 
 ## Compatibility and rollback
 

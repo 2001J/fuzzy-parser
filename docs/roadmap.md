@@ -31,6 +31,10 @@ is implemented and independently verified locally with parity regressions.
 separate service is part of this initial direction. These individual
 steps do not establish complete engine readiness or authorize publication.
 
+The test-only [CI pipeline (#23)](https://github.com/2001J/fuzzy-parser/issues/23)
+is a separate verification slice. See [its gates and hosted-run limits](ci.md);
+it does not select a runtime, publish artifacts or complete the independence gate.
+
 ## Milestone: Reviewable import engine
 
 [GitHub milestone](https://github.com/2001J/fuzzy-parser/milestone/1) ·

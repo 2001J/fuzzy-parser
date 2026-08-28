@@ -5,6 +5,11 @@ This is the required testing approach, not an inventory of tests already
 implemented. See [current state](current-state.md) and the
 [dated acceptance audit](audits/2026-08-27-backlog.md) for verified coverage.
 
+The [CI guide](ci.md) owns automated gates, local commands and hosted-run limits.
+CI guard tests live under `tools/ci/tests/` and run with Node's built-in test
+runner, separately from the six Rust targets. Container checks assert actual
+parse semantics, not just a successful `--help` exit.
+
 ## Test layers
 
 ### Unit tests

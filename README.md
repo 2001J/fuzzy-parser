@@ -40,6 +40,7 @@ Start with the [documentation guide](docs/README.md). It routes you by task:
 - [Data contracts](docs/data-contracts.md)
 - [Error and confidence model](docs/error-and-confidence-model.md)
 - [Testing strategy](docs/testing-strategy.md)
+- [Continuous integration](docs/ci.md)
 - [Roadmap](docs/roadmap.md)
 - [Release and environment strategy](docs/release-and-environment-strategy.md)
 - [Integration strategy](docs/integration-strategy.md)
@@ -86,12 +87,12 @@ Validation accepts more field types than parsing: `text`, `person_name`, and
 See [integration usage](docs/integration-strategy.md) and
 [the actual JSON contracts](docs/data-contracts.md).
 
-## Container deployment
+## Container verification
 
 CI [automated checks after code changes] builds and smoke-tests a non-root batch
-CLI image on pull requests and pushes to `main`; the latter also publishes
-`ghcr.io/2001j/fuzzy-parser:latest`. It is not an HTTP service or a proven
-QualEvents deployment boundary. See [release and publication rules](docs/release-and-environment-strategy.md).
+CLI image without publishing it. It is not an HTTP service or a proven
+QualEvents deployment boundary. See [CI checks and local reproduction](docs/ci.md)
+and [release and publication rules](docs/release-and-environment-strategy.md).
 
 ## Development
 
@@ -100,13 +101,15 @@ verification is:
 
 ```bash
 cargo fmt --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-cargo build --workspace
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
+cargo build --workspace --locked
 ```
 
-GitHub Actions runs these checks and builds the CLI container. Container
-publication is guarded to pushes on `main`.
+The [workflow](.github/workflows/ci.yml) also checks Linux/macOS behavior, the
+Node invocation prototype, WASM library compilation, dependency advisories,
+and container semantics. Its tested Rust baseline is 1.96.0. CI and releases are
+separate; no automatic publication is configured in this revision.
 
 ## License
 

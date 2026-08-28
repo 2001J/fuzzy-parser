@@ -14,6 +14,7 @@ This is the project map. Start with the question you need answered.
 | How are errors and uncertainty represented? | [Error and confidence model](error-and-confidence-model.md) |
 | Which crate owns a behavior? | [Architecture](architecture.md) |
 | How should changes be tested? | [Testing strategy](testing-strategy.md) |
+| Which automated checks run, and how do I reproduce them? | [Continuous integration](ci.md) |
 | What is planned next? | [Roadmap](roadmap.md) |
 | How are releases and containers handled? | [Release and environment strategy](release-and-environment-strategy.md) |
 | How will other runtimes integrate? | [Integration strategy](integration-strategy.md) |
@@ -36,6 +37,8 @@ Each document has one primary responsibility:
   `testing-strategy.md` owns verification requirements.
 - `release-and-environment-strategy.md` owns versioning and publication rules.
   Planning milestones are not package or contract versions.
+- `ci.md` owns workflow gates, local reproduction and hosted-verification limits;
+  CI is not release automation or evidence of host adoption.
 - Dated audits record historical evidence, not a competing current-state contract.
 - Architecture decisions should be captured as ADRs [architecture decision records] when reversing the decision later would be expensive or confusing.
 

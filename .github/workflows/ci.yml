@@ -5,60 +5,176 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+
+# CI never publishes. Release automation needs a separate, authorized workflow.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUST_TOOLCHAIN: '1.96.0'
+  NODE_VERSION: '22'
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  quality:
+    name: Formatting, lint, and workflow
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
+      - name: Validate GitHub Actions and embedded shell
+        uses: docker://rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+        with:
+          args: -color
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable action, 2026-08-05
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
           components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - name: Check formatting
         run: cargo fmt --check
       - name: Lint with Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
-      - name: Run tests
-        run: cargo test --workspace
-      - name: Build workspace
-        run: cargo build --workspace
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  test:
+    name: Rust and Node (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable action, 2026-08-05
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+      - name: Test workspace (including CLI and contract regressions)
+        run: cargo test --workspace --locked
+      - name: Build all workspace crates
+        run: cargo build --workspace --locked
+      - name: Build the release CLI used by the invocation checks
+        run: cargo build --release --locked -p parser-cli
+      - name: Test CI guards
+        run: node --test tools/ci/tests/*.test.mjs
+      - name: Check Node invocation and source/error parity
+        run: |
+          node --check tools/runtime-evaluation/evaluate.mjs
+          node tools/runtime-evaluation/evaluate.mjs target/release/parser-cli
+
+  wasm:
+    name: WASM libraries (compilation only)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable action, 2026-08-05
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      - name: Check reusable libraries without selecting a JS backend
+        run: cargo check --locked --target wasm32-unknown-unknown -p parser-core -p parser-schema -p parser-formats
+
+  dependencies:
+    name: Dependency advisories
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # cargo-audit also queries Cargo when checking registry/yanked packages.
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable action, 2026-08-05
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - name: Download and verify cargo-audit 0.22.2
+        run: |
+          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error --retry 3 \
+            https://github.com/rustsec/rustsec/releases/download/cargo-audit/v0.22.2/cargo-audit-x86_64-unknown-linux-musl-v0.22.2.tgz \
+            --output "$RUNNER_TEMP/cargo-audit.tgz"
+          echo "7fb9497f8594b389e5fce5ef9b92db08432996895b2e0c5a0167a69ed445c428  $RUNNER_TEMP/cargo-audit.tgz" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/cargo-audit.tgz" --directory "$RUNNER_TEMP" \
+            cargo-audit-x86_64-unknown-linux-musl-v0.22.2/cargo-audit
+      - name: Audit the committed lockfile (no ignored advisories)
+        run: |
+          "$RUNNER_TEMP/cargo-audit-x86_64-unknown-linux-musl-v0.22.2/cargo-audit" audit \
+            --file Cargo.lock --db "$RUNNER_TEMP/advisory-db" --deny warnings
 
   container:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
+    name: Batch CLI container (no publication)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      DOCKER_BUILD_RECORD_UPLOAD: 'false'
     steps:
-      - uses: actions/checkout@v4
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      - name: Log in to GitHub Container Registry
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: docker/login-action@v3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and smoke-test container
-        uses: docker/build-push-action@v6
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - name: Build a local Linux image only
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
+          platforms: linux/amd64
           load: true
+          push: false
           tags: fuzzy-parser:ci
           cache-from: type=gha
-          cache-to: type=gha,mode=max
-      - name: Verify container help
-        run: docker run --rm fuzzy-parser:ci --help
-      - name: Normalize image name
-        id: image
-        run: |
-          owner="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
-          echo "name=ghcr.io/${owner}/fuzzy-parser" >> "$GITHUB_OUTPUT"
-      - name: Publish main image
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: docker/build-push-action@v6
+          cache-to: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'type=gha,mode=max' || '' }}
+          github-token: ''
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          context: .
-          push: true
-          tags: ${{ steps.image.outputs.name }}:latest
-          cache-from: type=gha
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+      - name: Verify non-root runtime and actual parse/error output
+        run: node tools/ci/check-container.mjs fuzzy-parser:ci
+
+  gate:
+    name: CI passed
+    if: ${{ always() }}
+    needs: [quality, test, wasm, dependencies, container]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+      - name: Require every job to succeed
+        env:
+          CI_JOB_RESULTS: ${{ toJSON(needs) }}
+        run: node tools/ci/check-results.mjs
