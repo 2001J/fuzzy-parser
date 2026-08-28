@@ -288,6 +288,15 @@ cargo build --workspace
 - Exit-code assertions.
 - stdout/stderr assertions.
 
+The nested [argument regression module](../crates/parser-cli/tests/inspect/arguments.rs)
+executes the real binary for all nine CLI forms, root/subcommand help, exact
+arity, duplicate/malformed/misplaced flags, native OS arguments, leading-only
+diagnostics, extension/error precedence and TXT size/empty overrides. Existing
+inspect/parse success goldens and source checks remain in their original
+targets. #6 changes former ignored-tail/bare-flag expectations to usage errors;
+it does not replace #7's full TXT fixture subprocess matrix. Library growth,
+shrink and I/O tests remain deterministic rather than timing subprocess races.
+
 ### Heuristic change
 
 - Focused unit tests.

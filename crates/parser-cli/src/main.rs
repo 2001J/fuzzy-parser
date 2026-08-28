@@ -1,6 +1,7 @@
 use parser_core::{DiagnosticsMode, Failure, FailureKind, OutputTarget};
 use parser_formats::{
-    CsvOptions, InputSource, TextLimits, read_csv_with_options, read_input, read_xlsx,
+    CsvOptions, FileFormat, InputSource, TextLimits, TxtOptions, read_csv_with_options, read_input,
+    read_txt_with_options, read_xlsx,
 };
 use std::{
     env, fs,
@@ -9,130 +10,69 @@ use std::{
     process,
 };
 
+mod arguments;
+
 fn main() {
     process::exit(run());
 }
 
 fn run() -> i32 {
-    let mut arguments = env::args_os();
-    let _program = arguments.next();
-    let first = arguments.next();
-    let (diagnostics, command) = if first.as_deref() == Some(std::ffi::OsStr::new("--diagnostics"))
-    {
-        (DiagnosticsMode::Detailed, arguments.next())
-    } else {
-        (DiagnosticsMode::Safe, first)
+    let invocation = match arguments::parse(env::args_os().skip(1).collect()) {
+        Ok(invocation) => invocation,
+        Err(()) => {
+            eprintln!("usage: parser-cli --help");
+            return 2;
+        }
     };
-
-    match (
-        command,
-        arguments.next(),
-        arguments.next(),
-        arguments.next(),
-    ) {
-        (Some(flag), None, None, None) if flag == "--help" || flag == "-h" => {
-            print_help();
+    let diagnostics = invocation.diagnostics;
+    match invocation.command {
+        arguments::Command::Help => {
+            println!("{}", arguments::HELP);
             0
         }
-        (Some(command), Some(action), Some(flag), None)
-            if command == "schema"
-                && action == "validate"
-                && (flag == "--help" || flag == "-h") =>
-        {
-            print_help();
-            0
+        arguments::Command::InspectPath { path, options } => {
+            inspect_result(read_document(&path, options), diagnostics)
         }
-        (Some(command), Some(flag), None, None) if command == "inspect" && flag == "--stdin" => {
-            inspect_stdin(diagnostics)
-        }
-        (Some(command), Some(flag), Some(content), None)
-            if command == "inspect" && flag == "--text" =>
-        {
-            match content.into_string() {
-                Ok(content) => inspect_text(&content, diagnostics),
-                Err(_) => {
-                    eprintln!("text argument must be valid UTF-8");
-                    2
-                }
+        arguments::Command::InspectStdin => inspect_stdin(diagnostics),
+        arguments::Command::InspectText(content) => match content.into_string() {
+            Ok(content) => inspect_text(&content, diagnostics),
+            Err(_) => {
+                eprintln!("text argument must be valid UTF-8");
+                2
             }
+        },
+        arguments::Command::ParsePath {
+            path,
+            schema,
+            options,
+        } => parse_path(path, schema, options, diagnostics),
+        arguments::Command::ParseStdin { schema } => parse_stdin(schema, diagnostics),
+        arguments::Command::SchemaPath { path, pretty } => {
+            validate_schema_path(path, pretty, diagnostics)
         }
-        (Some(command), Some(path), None, None) if command == "inspect" => {
-            inspect_path(PathBuf::from(path), diagnostics)
-        }
-        (Some(command), Some(action), Some(flag), None)
-            if command == "schema" && action == "validate" && flag == "--stdin" =>
-        {
-            validate_schema_stdin(diagnostics)
-        }
-        (Some(command), Some(action), Some(path), None)
-            if command == "schema" && action == "validate" =>
-        {
-            validate_schema_path(PathBuf::from(path), true, diagnostics)
-        }
-        (Some(command), Some(action), Some(flag), Some(content))
-            if command == "schema" && action == "validate" && flag == "--text" =>
-        {
-            match content.into_string() {
-                Ok(content) => validate_schema_input(&content, true, diagnostics, None),
-                Err(_) => report_failure(Failure::new(FailureKind::SchemaInput), diagnostics),
-            }
-        }
-        (Some(command), Some(action), Some(flag), Some(path))
-            if command == "schema" && action == "validate" && flag == "--compact" =>
-        {
-            validate_schema_path(PathBuf::from(path), false, diagnostics)
-        }
-        (Some(command), Some(stdin_flag), Some(flag), Some(schema_path))
-            if command == "parse" && stdin_flag == "--stdin" && flag == "--schema" =>
-        {
-            parse_stdin(PathBuf::from(schema_path), diagnostics)
-        }
-        (Some(command), Some(path), Some(flag), Some(schema_path))
-            if command == "parse" && flag == "--schema" =>
-        {
-            parse_path(PathBuf::from(path), PathBuf::from(schema_path), diagnostics)
-        }
-        (Some(command), Some(flag), None, None)
-            if command == "parse" && (flag == "--help" || flag == "-h") =>
-        {
-            print_help();
-            0
-        }
-        _ => {
-            eprintln!(
-                "usage: parser-cli inspect <path> | --stdin | --text <content> | schema validate <path> | parse <path> --schema <path>"
-            );
-            2
-        }
+        arguments::Command::SchemaStdin => validate_schema_stdin(diagnostics),
+        arguments::Command::SchemaText(content) => match content.into_string() {
+            Ok(content) => validate_schema_input(&content, true, diagnostics, None),
+            Err(_) => report_failure(Failure::new(FailureKind::SchemaInput), diagnostics),
+        },
     }
 }
 
-fn print_help() {
-    println!(
-        "usage: parser-cli inspect <path> | --stdin | --text <content> | schema validate <path> | schema validate --stdin | schema validate --text <content> | parse <path> --schema <schema-path> | parse --stdin --schema <schema-path>"
-    );
-}
-
-fn read_document(path: &PathBuf) -> Result<parser_core::RawDocument, parser_core::ParserError> {
-    let extension = path.extension().and_then(|extension| extension.to_str());
-    let is_csv = extension
-        .map(|extension| extension.eq_ignore_ascii_case("csv"))
-        .unwrap_or(false);
-    let is_xlsx = extension
-        .map(|extension| extension.eq_ignore_ascii_case("xlsx"))
-        .unwrap_or(false);
-
-    if is_csv {
-        read_csv_with_options(path, CsvOptions::default())
-    } else if is_xlsx {
-        read_xlsx(path)
-    } else {
-        read_input(InputSource::TxtFile(path), TextLimits::default())
+fn read_document(
+    path: &std::path::Path,
+    options: TxtOptions,
+) -> Result<parser_core::RawDocument, parser_core::ParserError> {
+    match arguments::file_format(path) {
+        Some(FileFormat::Txt) => read_txt_with_options(path, options),
+        Some(FileFormat::Csv) => read_csv_with_options(path, CsvOptions::default()),
+        Some(FileFormat::Xlsx) => read_xlsx(path),
+        None => Err(parser_core::ParserError::UnsupportedInput {
+            source_type: path
+                .extension()
+                .map(|value| value.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+        }),
     }
-}
-
-fn inspect_path(path: PathBuf, diagnostics: DiagnosticsMode) -> i32 {
-    inspect_result(read_document(&path), diagnostics)
 }
 
 fn inspect_stdin(diagnostics: DiagnosticsMode) -> i32 {
@@ -176,12 +116,17 @@ fn load_schema_file(path: PathBuf) -> Result<parser_schema::TargetSchema, Failur
         .map_err(|error| error.with_path(&path.to_string_lossy()))
 }
 
-fn parse_path(input_path: PathBuf, schema_path: PathBuf, diagnostics: DiagnosticsMode) -> i32 {
+fn parse_path(
+    input_path: PathBuf,
+    schema_path: PathBuf,
+    options: TxtOptions,
+    diagnostics: DiagnosticsMode,
+) -> i32 {
     let schema = match load_schema_file(schema_path) {
         Ok(schema) => schema,
         Err(error) => return report_failure(error, diagnostics),
     };
-    parse_with_schema(read_document(&input_path), schema, diagnostics)
+    parse_with_schema(read_document(&input_path, options), schema, diagnostics)
 }
 
 fn parse_stdin(schema_path: PathBuf, diagnostics: DiagnosticsMode) -> i32 {

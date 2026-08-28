@@ -52,7 +52,11 @@ fn parse_unsupported_types_expose_only_known_type_literals_by_default() {
         assert!(!String::from_utf8_lossy(&safe.stderr).contains("private"));
         let mut trailing = args.to_vec();
         trailing.push("--diagnostics");
-        assert_eq!(safe.stderr, support::run(&trailing, None).stderr);
+        // #6 rejects the formerly ignored tail without enabling diagnostics.
+        let usage = support::run(&trailing, None);
+        assert_eq!(usage.status.code(), Some(2));
+        assert!(usage.stdout.is_empty());
+        assert_eq!(usage.stderr, b"usage: parser-cli --help\n");
         expected["diagnostics"] = serde_json::json!({"field":"private field 東京\n\u{1b}"});
         let mut detailed_args = args.to_vec();
         detailed_args.insert(0, "--diagnostics");
@@ -648,7 +652,7 @@ fn parse_requires_a_schema_flag() {
     let output = run_parse(&["somefile.csv"]);
 
     assert_eq!(output.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("parse <path> --schema"));
+    assert_eq!(output.stderr, b"usage: parser-cli --help\n");
 }
 
 #[test]

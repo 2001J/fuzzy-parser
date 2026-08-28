@@ -65,8 +65,10 @@ ASCII email detector, not comprehensive email syntax validation.
 
 Successful results use JSON stdout and exit `0`, including records with warnings.
 Processing errors use JSON stderr and exit `1`; usage errors use plain stderr
-and exit `2`. `cargo run` itself may print build diagnostics to stderr; use the
-built `target/debug/parser-cli` when asserting the binary's streams.
+and exit `2`. Help is the explicit plain-text stdout/exit `0` exception.
+The opposite stream is empty in each case. `cargo run` itself may print build
+diagnostics to stderr; use the built `target/debug/parser-cli` when asserting
+the binary's streams.
 
 The [error contract 0.1 migration](data-contracts.md#error-contract-01-and-migration-from-unversioned-errors)
 changes default error fields and messages, not successful results. Default errors
@@ -82,10 +84,74 @@ Both commands intentionally exit `1` with `io_error` / `not_found`. The first
 has no path; the second adds `error.diagnostics.path` and escaped context in the
 outer message. Diagnostics may contain private data; do not use them in public
 logs. There is no environment opt-in, and input/schema content, filenames or
-trailing arguments containing `--diagnostics` do not enable it. Existing argument
-routing remains unchanged; this does not implement #6's strict argument handling.
+trailing arguments containing `--diagnostics` do not enable it. Bare flag-like
+paths and extra tails now fail usage validation; prefixed paths and inline
+content remain data. Only one leading diagnostic switch is accepted.
 Rust callers opt in with `ParserError::report(DiagnosticsMode::Detailed)` or the
 equivalent schema/shared-failure report method. Default `Display` remains safe.
+
+### CLI grammar and validation options
+
+Every invocation accepts one optional leading `--diagnostics`, followed by
+exactly one of these forms:
+
+```text
+inspect <path> [TXT_OPTIONS]
+inspect --stdin
+inspect --text <content>
+parse <path> --schema <schema-path> [TXT_OPTIONS]
+parse --stdin --schema <schema-path>
+schema validate <path>
+schema validate --stdin
+schema validate --text <content>
+schema validate --compact <path>
+```
+
+`-h` or `--help` alone works at root, `inspect`, `parse`, `schema`, and
+`schema validate`, also after leading diagnostics. Help with extra tokens is a
+usage error. There is no `--input`, `parse --text`, `--` terminator or compact
+stdin/text mode. Bare path tokens beginning `-` are usage errors; use `./-name`
+or an absolute path. Paths retain native OS encoding. `--text` consumes its
+next token literally, including `--help` or `--diagnostics`.
+
+`TXT_OPTIONS` contains `--max-bytes N`, `--empty accept|reject`, or both, in either
+order, at most once each, after the input path (after the schema path for
+`parse`). `N` is nonempty ASCII decimal digits fitting the platform's `usize`;
+zero and leading zeros are allowed. Signs, spaces, units, equals syntax,
+unknown flags, duplicates and extra/misplaced/missing tokens are usage errors.
+Usage prints only `usage: parser-cli --help`, with the retained exception
+`text argument must be valid UTF-8` for non-UTF-8 `inspect --text` content.
+Non-UTF-8 `schema validate --text` retains `schema_input_error`/exit `1`.
+Malformed syntax takes priority over content encoding and processing errors.
+
+Overrides apply only to TXT file input in `inspect`/`parse`, never schema files,
+stdin/inline text, CSV or XLSX. Passing them to known CSV/XLSX inputs is usage/`2`,
+even when equal to defaults. Well-formed options on an unknown extension still
+produce `unsupported_input`/`1`; malformed values or arity produce usage/`2` first.
+The TXT defaults are 1048576 bytes, 65536 bytes per line, and empty acceptance.
+`reject` checks zero bytes, not whitespace; the line limit has no CLI override.
+TXT calls [`read_txt_with_options`](file-validation.md) directly, validating and
+reading the same handle with metadata and actual-read size/empty checks. No
+preflight/reopen is added. Pasted text and stdin retain their existing defaults.
+
+Routing selects `.txt`, `.csv` or `.xlsx` case-insensitively on the final
+extension. Unknown, absent and non-UTF-8 extensions fail before filesystem I/O,
+without content sniffing. This deliberately changes missing unknown-extension
+paths from `io_error` to `unsupported_input`, and directories with unsupported
+extensions from `not_regular_file` to `unsupported_input`. Known TXT paths keep
+the library's metadata/open/read order. For `parse`, complete syntax validation
+precedes strict schema decoding, input extraction, then shared compilation;
+an invalid schema can therefore still precede unsupported input routing.
+
+Previously ignored tails in `parse`, schema inline text and schema compact
+commands now fail usage/`2`. Help no longer attempts to open an inspect path.
+These CLI compatibility changes add no error codes or JSON/package versions;
+supported successful output and diagnostic redaction remain unchanged.
+CSV/XLSX still call their existing adapters, without an accidental 1 MiB limit.
+All-format same-handle validation, CSV/XLSX raw/compressed-byte policy, expanded
+workbook and schema/result limits remain [#17](https://github.com/2001J/fuzzy-parser/issues/17).
+File validation is not a sandbox or a stable snapshot; see its
+[filesystem limits](file-validation.md#compatibility-and-limits).
 
 `ParseResponse` now includes canonical source evidence, unused content and
 draft/review reasons. Its [additive compatibility contract](data-contracts.md#source-evidence-extension-and-compatibility)

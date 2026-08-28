@@ -83,6 +83,16 @@ for review. Neither `draft` nor `needs_review` means approval. See the
 
 Use `cargo run -p parser-cli -- --help` for command syntax. Schema validation
 accepts a path, stdin, or inline text; `--compact <path>` emits one JSON line.
+Arguments are exact: unknown, duplicate, misplaced or extra tokens fail with
+usage exit `2`. TXT file inputs alone accept trailing `--max-bytes N` and
+`--empty accept|reject` (defaults: 1048576 bytes and `accept`):
+
+```bash
+cargo run -p parser-cli -- inspect fixtures/text/simple.txt --max-bytes 4096 --empty reject
+```
+
+These options never limit schema, CSV/XLSX, stdin or inline input. See the
+[CLI grammar and compatibility notes](docs/integration-strategy.md#cli-grammar-and-validation-options).
 Validation accepts more field types than parsing: `text`, `person_name`, and
 `datetime` are rejected by `parse` with `schema_field_type_unsupported`.
 Parsing uses the same executable schema compiler available to Rust callers.
