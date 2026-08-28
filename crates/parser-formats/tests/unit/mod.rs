@@ -2,6 +2,8 @@ use super::*;
 use parser_core::RawValue;
 use std::{io::Cursor, path::PathBuf};
 
+mod txt_fixtures;
+
 #[test]
 fn reader_io_conversions_keep_kinds_but_never_publish_upstream_prose() {
     use parser_core::{DiagnosticsMode, IoErrorKind};
