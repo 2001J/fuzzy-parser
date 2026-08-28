@@ -2,6 +2,8 @@ use super::*;
 use parser_core::RawValue;
 use std::{io::Cursor, path::PathBuf};
 
+mod txt_fixtures;
+
 #[test]
 fn extracts_lines_without_normalizing_content() {
     let document = read_txt_bytes(Some("sample.txt"), b"Ada  \n\n Grace\r\n", "sample.txt")

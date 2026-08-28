@@ -79,6 +79,13 @@ local/container execution never substitutes for deployment evidence.
 
 Store synthetic source files under `fixtures/`.
 
+The [TXT fixture inventory](../fixtures/text/README.md) records the permanent
+Unicode/raw-whitespace, empty, blank-line, LF/CRLF, and invalid-UTF-8 cases for
+#4. Its tests live in `parser-formats/tests/unit/txt_fixtures.rs`, nested under
+the existing unit module without adding a Cargo target. Missing/directory path
+tests and an injected permission-denied reader retain typed causes; they do not
+depend on OS permissions or assert the error wire format owned by #2.
+
 For XLSX byte input, `parser-formats` unit tests retain explicit file-reader
 expectations and compare the byte-produced document, typed values, metadata,
 errors and core source coverage. The existing CLI `inspect` test target checks
@@ -89,7 +96,7 @@ with a Unicode sheet name, Unicode/whitespace cell content and a formula `1+1`
 whose cached value is deliberately `42`; the reader must preserve `42` rather
 than evaluate the formula. No new ZIP-writing test dependency is needed.
 
-Current fixtures include `text/simple.txt`, `csv/comma.csv`, `csv/messy.csv`,
+Current fixtures include the TXT inventory above, `csv/comma.csv`, `csv/messy.csv`,
 `xlsx/sample.xlsx`, and schemas in `schema/`. The tree below illustrates desired
 coverage and includes files not yet present; it is not acceptance evidence:
 
