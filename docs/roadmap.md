@@ -56,7 +56,7 @@ selected independently.
 | [#5 Reusable file validation and empty policy](https://github.com/2001J/fuzzy-parser/issues/5) | [TXT-integrated validation](file-validation.md) independently reviewed, locally integrated and verified on macOS/Linux; closed |
 | [#6 Strict CLI dispatch and arguments](https://github.com/2001J/fuzzy-parser/issues/6) | #2/#5 complete; read-only execution preparation, no implementation dispatched |
 | [#7 Complete TXT subprocess matrix](https://github.com/2001J/fuzzy-parser/issues/7) | #6; #2/#4/#5 are complete |
-| [#12 Shared schema compilation/capability validation](https://github.com/2001J/fuzzy-parser/issues/12) | Worker implementation handed off; independent review pending, not yet integrated |
+| [#12 Shared schema compilation/capability validation](https://github.com/2001J/fuzzy-parser/issues/12) | Shared compiler/core plan independently reviewed and verified locally, with enum ownership and explicit capability failures |
 | [#13 Caller-directed text and name fields](https://github.com/2001J/fuzzy-parser/issues/13) | #10, #12 |
 | [#14 Compose text normalization/segmentation](https://github.com/2001J/fuzzy-parser/issues/14) | #10, #12 |
 | [#15 Delimiter-adjacent email regression](https://github.com/2001J/fuzzy-parser/issues/15) | Independently reviewed, locally integrated and verified with core/CLI source-span regressions |

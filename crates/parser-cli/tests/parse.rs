@@ -9,6 +9,9 @@ use std::{
 #[path = "parse/email_boundaries.rs"]
 mod email_boundaries;
 
+#[path = "parse/schema_compilation.rs"]
+mod schema_compilation;
+
 fn csv_fixture_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/csv/comma.csv")
 }

@@ -144,6 +144,16 @@ pub enum FailureKind {
     SchemaValidation { reason: SchemaValidationReason },
     #[serde(rename = "schema_field_type_unsupported")]
     SchemaFieldTypeUnsupported { field_type: UnsupportedFieldType },
+    #[serde(rename = "schema_option_unsupported")]
+    SchemaOptionUnsupported,
+    #[serde(rename = "schema_constraint_unsupported")]
+    SchemaConstraintUnsupported,
+    #[serde(rename = "schema_property_unsupported")]
+    SchemaPropertyUnsupported,
+    #[serde(rename = "schema_enum_definition_ambiguous")]
+    SchemaEnumDefinitionAmbiguous,
+    #[serde(rename = "schema_enum_definition_unsupported")]
+    SchemaEnumDefinitionUnsupported,
     #[serde(rename = "schema_serialization_error")]
     SchemaSerialization { cause: SchemaFailureCause },
     #[serde(rename = "output_serialization_error")]
@@ -188,6 +198,21 @@ impl fmt::Display for FailureKind {
                 "field type \"{field_type}\" is not supported by the parser yet"
             ),
             Self::SchemaSerialization { .. } => f.write_str("could not serialize schema"),
+            Self::SchemaOptionUnsupported => {
+                f.write_str("schema option is not supported for execution")
+            }
+            Self::SchemaConstraintUnsupported => {
+                f.write_str("schema constraint is not supported for this field type")
+            }
+            Self::SchemaPropertyUnsupported => {
+                f.write_str("schema property is not supported for execution")
+            }
+            Self::SchemaEnumDefinitionAmbiguous => {
+                f.write_str("enum field has ambiguous lexical definitions")
+            }
+            Self::SchemaEnumDefinitionUnsupported => {
+                f.write_str("enum definition cannot be detected by the current parser")
+            }
             Self::OutputSerialization {
                 target: OutputTarget::ParseResult,
             } => f.write_str("could not serialize parse result"),

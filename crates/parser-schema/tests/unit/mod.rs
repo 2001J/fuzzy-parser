@@ -1,5 +1,7 @@
 use super::*;
 
+mod compilation;
+
 #[test]
 fn all_validation_causes_have_exact_private_reports_and_opt_in_context() {
     use serde_json::json;
