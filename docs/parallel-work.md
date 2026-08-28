@@ -17,8 +17,8 @@ the applications. See [integration strategy](integration-strategy.md).
 | Owner | Assignment | Current state | Review and integration |
 | --- | --- | --- | --- |
 | Existing parser worker | #2 completed; available for a bounded independent review | Stopped; original checkout returned to coordinator | #2 privacy finding corrected and re-reviewed; no next implementation assigned here |
-| Schema worker (previously email) | [#12 Shared schema compilation](https://github.com/2001J/fuzzy-parser/issues/12) | Preparation complete; next implementation dispatch | High reasoning; new ticket branch from the reviewed integration baseline |
-| Validation worker (previously TXT tests) | [#5 Reusable file validation](https://github.com/2001J/fuzzy-parser/issues/5) | Preparation complete; next implementation dispatch | Medium reasoning; separate ticket branch and scoped error additions |
+| Schema worker (previously email) | [#12 Shared schema compilation](https://github.com/2001J/fuzzy-parser/issues/12) | Active; isolated branch/base verified | High reasoning; compatibility capture precedes behavior changes |
+| Validation worker (previously TXT tests) | [#5 Reusable file validation](https://github.com/2001J/fuzzy-parser/issues/5) | Active; isolated branch/base verified | Medium reasoning; separate ticket branch and scoped error additions |
 | QualEvents preparation / privacy reviewer | Host compatibility report and #2 message-invariant re-review | Complete; stopped | Read-only host work; no integration or runtime approval claimed |
 | Coordinator | Assignments, independent review, integration and reporting | #2/#15/#4 code locally integrated; GitHub tickets closed | Sole integration owner; next changes must pass the same review/check gate |
 
@@ -38,13 +38,13 @@ uniformly or add idle workers merely to increase headcount.
   - Task: `01a04432-a13b-7471-a1f2-3adcd2e634c7`.
   - Branch: `codex/align-fuzzy-parser-roadmap-for`.
   - Folder: `/Users/josephkoyi/Desktop/bonkers/fuzzy-parser`.
-- **Fix FP-15 email boundaries** (#15 complete; #12 next, high)
+- **Fix FP-15 email boundaries** (#15 complete; #12 active, high)
   - Task: `01a0478b-75ed-73f0-b3eb-d5a3d3b52cb4`.
-  - Completed branch: `codex/fp-15-email-boundaries`; next branch: `codex/fp-12-schema-compilation` (startup verification required).
+  - Current branch: `codex/fp-12-schema-compilation`; completed branch retained: `codex/fp-15-email-boundaries`.
   - Folder: `/Users/josephkoyi/.codex/worktrees/c5ad/fuzzy-parser`.
-- **Complete FP-4 TXT regression fixtures** (#4 complete; #5 next, medium)
+- **Complete FP-4 TXT regression fixtures** (#4 complete; #5 active, medium)
   - Task: `01a0478b-7750-7203-a772-356b98192ad9`.
-  - Completed branch: `codex/fp-4-txt-fixtures`; next branch: `codex/fp-5-file-validation` (startup verification required).
+  - Current branch: `codex/fp-5-file-validation`; completed branch retained: `codex/fp-4-txt-fixtures`.
   - Folder: `/Users/josephkoyi/.codex/worktrees/fb3f/fuzzy-parser`.
 - **Prepare QualEvents parser integration** (preparation and privacy re-review complete; read-only)
   - Task: `01a0478b-7dac-7910-a1e1-3b0973c88f5c`.
@@ -57,6 +57,10 @@ finished at `51211e06c245808b03521e3e99d03d88dc6e5523`. New dispatches must use
 that verified code plus the coordinator's documentation-only update, not an
 older main or another worker's unfinished changes. The host worktree remains
 clean at `50fcaf072abd5307157ce1e0ee96676729e896c5`.
+
+Both new implementation branches were verified at starting HEAD
+`782ccd43a3deb5a5b2ffa3dc773f0c980996444a` (reviewed code plus coordinator docs).
+Their startup reports are not implementation approval.
 
 ## Branches and working folders
 
