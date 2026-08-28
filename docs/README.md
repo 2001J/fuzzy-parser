@@ -16,6 +16,7 @@ This is the project map. Start with the question you need answered.
 | How should changes be tested? | [Testing strategy](testing-strategy.md) |
 | Which automated checks run, and how do I reproduce them? | [Continuous integration](ci.md) |
 | What is planned next? | [Roadmap](roadmap.md) |
+| Who is working on which ticket, and how are branches combined? | [Parallel work board](parallel-work.md) |
 | How are releases and containers handled? | [Release and environment strategy](release-and-environment-strategy.md) |
 | How will other runtimes integrate? | [Integration strategy](integration-strategy.md) |
 | Why was a design decision made? | [Architecture decisions](decisions/README.md) |
@@ -31,6 +32,7 @@ Each document has one primary responsibility:
 - `parsing-pipeline.md` owns stage behavior and invariants.
 - `data-contracts.md` owns current serialized shapes and clearly marked proposed models.
 - `roadmap.md` may change frequently and must not be treated as implemented behavior.
+- `parallel-work.md` is the coordinator-owned assignment and integration board, not a second product roadmap or proof of a release.
 - `integration-strategy.md` owns the reusable boundary and separately owned
   first-consumer handoff; it does not certify deployment or host adoption.
 - `error-and-confidence-model.md` owns diagnostics and heuristic-score semantics;

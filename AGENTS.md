@@ -107,7 +107,7 @@ Do not create circular crate dependencies. Do not place shared models in the CLI
 ## Release And Compatibility Rules
 
 - `main` is the stable integrated development branch. Only verified work should be merged there.
-- Feature branches should be short-lived and named by purpose, for example `agent/txt-reader` or `feature/schema-validation`.
+- Feature branches should be short-lived and named by ticket and purpose, using the `codex/` prefix.
 - The first releases are pre-1.0. Breaking changes are allowed only when documented and covered by migration notes where users could already depend on the contract.
 - Release artifacts may eventually include a Rust library, CLI binary, npm/WebAssembly package, and service image. Do not assume all surfaces must ship in the same ticket.
 - Keep parser behavior deterministic for the same input, schema, configuration, and version.
@@ -174,7 +174,12 @@ Do not copy the same explanation into multiple documents. Link to the authoritat
 
 ## Workspace And Git Hygiene
 
-- Use one repository checkout as the working and publishing location.
+- Keep the original repository checkout as the integration and publishing location.
+- When the user authorizes parallel work, the coordinator may dispatch bounded tickets to separate Git worktrees of this same repository. Give each worker its own short-lived `codex/` branch and an explicitly verified, reviewed baseline; never include another worker's unfinished changes.
+- Workers edit only their assigned worktree and scope. They must not reset, switch, stage, or modify another worker's checkout. Worktrees share Git metadata, so branch operations still require coordination.
+- Read the coordinator's assignment and [parallel work board](docs/parallel-work.md) for ownership and dependencies. A listed future ticket is not authorization to start it.
+- Workers report their exact diff, test evidence, branch, baseline, and commit status for independent review. They do not integrate into the shared branch or publish unless separately authorized.
+- The coordinator integrates reviewed changes one ticket at a time, resolves overlaps explicitly, and reruns the affected combined checks before declaring integration complete. Do not integrate into a checkout with another worker's unfinished changes. Separate non-overlapping documentation commits require explicit-path review and must leave that work untouched.
 - Inspect `git status --short --branch` before staging or committing.
 - Stage explicit paths when unrelated work exists.
 - Do not copy changes into another clone merely to commit or push them.
