@@ -116,9 +116,11 @@ the reviewed choice after its engine prerequisites.
 The prototype invokes the current CLI without copying schema conversion.
 Its two fixture profiles demonstrate only supported integer/boolean subsets,
 not the full #19 independence gate. WASM is a credible candidate, not rejected
-because today's CLI was easier to exercise. After shared schema compilation
-and [#22's XLSX byte-reader gap](https://github.com/2001J/fuzzy-parser/issues/22) are addressed, #11 needs a separately
-authorized bounded JS/WASM comparison before selecting one backend for #18.
+because today's CLI was easier to exercise. [#22's byte-input API](data-contracts.md#xlsx-library-input--implemented)
+is implemented and independently verified locally. After shared schema
+compilation, #11 still needs a separately authorized bounded JS/WASM
+comparison before selecting one backend for #18. A native byte API and target
+compilation alone do not prove JS/WASM execution.
 No second adapter is built in this slice. Native bindings are deferred; queues
 and a separate service are outside the initial direction.
 The first consumer's Node.js/Next.js configuration informs

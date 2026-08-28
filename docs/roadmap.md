@@ -25,8 +25,9 @@ a pre-existing bug found during that review, is also independently verified.
 The bounded [#11](https://github.com/2001J/fuzzy-parser/issues/11) evaluation
 proposes a library caller interface in [ADR 0006](decisions/0006-library-interface-runtime-evaluation.md).
 Node/CLI evidence is independently reviewed; backend selection awaits the
-bounded WASM gate. Next implement [#22's generic XLSX byte input](https://github.com/2001J/fuzzy-parser/issues/22);
-#2 also remains ready to unblock shared schema compilation in #12. No queue or
+bounded WASM gate. [#22's generic XLSX byte input](https://github.com/2001J/fuzzy-parser/issues/22)
+is implemented and independently verified locally with parity regressions.
+#2 remains ready to unblock shared schema compilation in #12. No queue or
 separate service is part of this initial direction. These individual
 steps do not establish complete engine readiness or authorize publication.
 
@@ -43,8 +44,8 @@ selected independently.
 | --- | --- |
 | [#10 Source-complete result and review reasons](https://github.com/2001J/fuzzy-parser/issues/10) | Implemented and independently verified; includes retained raw-model compatibility tests |
 | [#21 Unicode-safe assignment context](https://github.com/2001J/fuzzy-parser/issues/21) | Implemented and independently verified with permanent core/CLI regressions |
-| [#11 Select one reusable runtime boundary](https://github.com/2001J/fuzzy-parser/issues/11) | Bounded evidence reviewed; backend decision waits for #12, #22 and a separately scoped JS/WASM comparison |
-| [#22 Filesystem-free XLSX byte input](https://github.com/2001J/fuzzy-parser/issues/22) | Ready next; preserve the existing path reader and canonical document while removing the filesystem requirement for byte callers |
+| [#11 Select one reusable runtime boundary](https://github.com/2001J/fuzzy-parser/issues/11) | Bounded evidence reviewed; #22 is verified. Backend decision waits for #12 and a separately scoped JS/WASM comparison |
+| [#22 Filesystem-free XLSX byte input](https://github.com/2001J/fuzzy-parser/issues/22) | Implemented and independently verified locally. File/byte canonical parity is tested, not WASM execution or resource safety |
 | [#2 Finish safe structured errors](https://github.com/2001J/fuzzy-parser/issues/2) | Ready; path redaction and error coverage remain |
 | [#4 Permanent TXT adapter edge-case fixtures](https://github.com/2001J/fuzzy-parser/issues/4) | Ready; adapter exists, durable acceptance coverage is incomplete |
 | [#5 Reusable file validation and empty policy](https://github.com/2001J/fuzzy-parser/issues/5) | #2 |

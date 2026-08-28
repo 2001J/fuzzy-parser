@@ -1,8 +1,13 @@
-use calamine::{Data, Reader, Xlsx, open_workbook};
+use calamine::{Data, Reader, Xlsx, XlsxError, open_workbook, open_workbook_from_rs};
 use parser_core::{
     ParserError, RawBlock, RawDocument, RawValue, SourceLocation, SourceMetadata, SourceType,
 };
-use std::{fs, fs::File, io::Read, path::Path};
+use std::{
+    fs,
+    fs::File,
+    io::{Cursor, Read, Seek},
+    path::Path,
+};
 
 pub const DEFAULT_MAX_TEXT_BYTES: usize = 1024 * 1024;
 pub const DEFAULT_MAX_LINE_BYTES: usize = 64 * 1024;
@@ -347,26 +352,46 @@ pub fn read_xlsx(path: impl AsRef<Path>) -> Result<RawDocument, ParserError> {
             kind: error.kind().into(),
         })?
         .len();
-    let mut workbook: Xlsx<_> = open_workbook(path).map_err(|error| ParserError::InvalidXlsx {
-        path: path_display.clone(),
-        message: format!("{error:?}"),
-    })?;
+    let workbook: Xlsx<_> =
+        open_workbook(path).map_err(|error| xlsx_error(Some(&path_display), None, error))?;
+    let file_name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned());
+    extract_xlsx(
+        workbook,
+        file_name.as_deref(),
+        size_bytes,
+        Some(&path_display),
+    )
+}
 
+/// Reads borrowed XLSX bytes without filesystem or network access.
+///
+/// `file_name` is optional caller metadata, never a path to open. Stored cell
+/// values are read without evaluating formulas, macros or external links.
+/// Invalid input returns `InvalidXlsx` with an empty `path` and a generic
+/// message; filename and workbook contents are not copied into diagnostics.
+/// This API does not yet impose workbook/decompression/cell limits.
+pub fn read_xlsx_bytes(file_name: Option<&str>, bytes: &[u8]) -> Result<RawDocument, ParserError> {
+    let workbook: Xlsx<_> =
+        open_workbook_from_rs(Cursor::new(bytes)).map_err(|error| xlsx_error(None, None, error))?;
+    extract_xlsx(workbook, file_name, bytes.len() as u64, None)
+}
+
+fn extract_xlsx<RS: Read + Seek>(
+    mut workbook: Xlsx<RS>,
+    file_name: Option<&str>,
+    size_bytes: u64,
+    source_path: Option<&str>,
+) -> Result<RawDocument, ParserError> {
     let mut blocks = Vec::new();
     for (sheet_index, sheet_name) in workbook.sheet_names().into_iter().enumerate() {
         let _merged_regions = workbook
             .merge_cells_by_sheet_name(&sheet_name)
-            .map_err(|error| ParserError::InvalidXlsx {
-                path: path_display.clone(),
-                message: format!("sheet {sheet_name}: {error:?}"),
-            })?;
-        let range =
-            workbook
-                .worksheet_range(&sheet_name)
-                .map_err(|error| ParserError::InvalidXlsx {
-                    path: path_display.clone(),
-                    message: format!("sheet {sheet_name}: {error:?}"),
-                })?;
+            .map_err(|error| xlsx_error(source_path, Some(&sheet_name), error))?;
+        let range = workbook
+            .worksheet_range(&sheet_name)
+            .map_err(|error| xlsx_error(source_path, Some(&sheet_name), error))?;
         let Some((start_row, start_column)) = range.start() else {
             continue;
         };
@@ -396,9 +421,7 @@ pub fn read_xlsx(path: impl AsRef<Path>) -> Result<RawDocument, ParserError> {
         "xlsx-document",
         SourceMetadata {
             source_type: SourceType::Xlsx,
-            file_name: path
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned()),
+            file_name: file_name.map(str::to_owned),
             mime_type: Some(
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".to_owned(),
             ),
@@ -407,6 +430,18 @@ pub fn read_xlsx(path: impl AsRef<Path>) -> Result<RawDocument, ParserError> {
         },
         blocks,
     ))
+}
+
+fn xlsx_error(path: Option<&str>, sheet: Option<&str>, error: XlsxError) -> ParserError {
+    let message = match (path, sheet) {
+        (Some(_), Some(sheet)) => format!("sheet {sheet}: {error:?}"),
+        (Some(_), None) => format!("{error:?}"),
+        (None, _) => "could not read XLSX workbook".to_owned(),
+    };
+    ParserError::InvalidXlsx {
+        path: path.unwrap_or_default().to_owned(),
+        message,
+    }
 }
 
 fn raw_xlsx_value(cell: &Data) -> RawValue {

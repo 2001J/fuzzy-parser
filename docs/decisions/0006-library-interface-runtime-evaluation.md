@@ -15,6 +15,11 @@ production adapter work nor Vercel deployment readiness is established.
 This follows the evidence requirement in [ADR 0005](0005-independent-engine-consumer-validation.md).
 It does not reinstate ADR 0004's unconditional sequence of further bindings.
 
+Follow-up, 2026-08-28: [#22's XLSX byte API](../data-contracts.md#xlsx-library-input--implemented)
+is now implemented and independently verified locally. The comparison below
+records the #11 baseline; its path-only XLSX limitation is addressed by that
+separate slice. Backend selection and JS/WASM execution remain unverified.
+
 ## Context and comparison
 
 The user wants an independently reusable library, using Photon as an analogy
@@ -27,7 +32,7 @@ long-term packaging.
 The [dated evaluation](../evaluations/2026-08-28-node-cli.md) owns commands,
 measurements, consumer inspection and dated primary sources.
 
-| Option | Installation, calling and deployment tradeoffs | Evidence and disposition |
+| Option | Installation, calling and deployment tradeoffs | Evidence and disposition at the #11 baseline |
 | --- | --- | --- |
 | Packaged CLI process | A small JS wrapper can present a library call and reuse all current adapters. It still adds native artifact selection, executable permissions, process startup/reaping, bounded pipes and private temporary files. It is local to the caller, not a remote service or queue. | Only invocation prototype built; exact parity on macOS and isolated emulated Linux. Viable candidate if its packaging burden is acceptable; not a final default |
 | WebAssembly in Node, possibly browsers later | Closest to the requested embedding model: could load a portable module and pass bytes without per-call executables/temp files. Requires JS exports, byte-input parity, memory/copy budgets, initialization and cancellation design. Browser delivery is not an initial requirement. | Core/schema/formats pass a WASM compilation check. TXT/CSV byte APIs exist; XLSX currently exposes only a path API, although its dependency supports in-memory readers. JS execution/package parity remains untested; not rejected |

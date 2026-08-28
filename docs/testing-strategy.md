@@ -74,6 +74,16 @@ local/container execution never substitutes for deployment evidence.
 
 Store synthetic source files under `fixtures/`.
 
+For XLSX byte input, `parser-formats` unit tests retain explicit file-reader
+expectations and compare the byte-produced document, typed values, metadata,
+errors and core source coverage. The existing CLI `inspect` test target checks
+exact JSON parity without adding a serialization dependency to the formats crate.
+[`unicode.xlsx.hex`](../fixtures/xlsx/unicode.xlsx.hex) is a hex-encoded synthetic
+2,121-byte workbook, decoded in memory by the tests. It extends `sample.xlsx`
+with a Unicode sheet name, Unicode/whitespace cell content and a formula `1+1`
+whose cached value is deliberately `42`; the reader must preserve `42` rather
+than evaluate the formula. No new ZIP-writing test dependency is needed.
+
 Current fixtures include `text/simple.txt`, `csv/comma.csv`, `csv/messy.csv`,
 `xlsx/sample.xlsx`, and schemas in `schema/`. The tree below illustrates desired
 coverage and includes files not yet present; it is not acceptance evidence:

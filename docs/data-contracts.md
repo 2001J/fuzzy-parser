@@ -68,6 +68,42 @@ pub enum ParserInput {
 
 A public API may represent files differently for browser or service use, but every surface must converge on the same canonical document model.
 
+## XLSX library input — implemented
+
+[`parser-formats`](../crates/parser-formats/src/lib.rs) exposes two entry points:
+
+```rust
+pub fn read_xlsx(path: impl AsRef<Path>) -> Result<RawDocument, ParserError>;
+pub fn read_xlsx_bytes(file_name: Option<&str>, bytes: &[u8]) -> Result<RawDocument, ParserError>;
+```
+
+The byte API borrows an XLSX archive and reads it in memory. `file_name` is opaque
+caller metadata, never a path to open; it is preserved verbatim, including
+Unicode, or remains `None`/JSON `null`. It does not create files, access networks
+or evaluate formulas, macros or external links. The existing path API still
+uses calamine's buffered file reader, without copying the entire archive into
+a byte vector. Both use one cell-extraction/mapping path.
+
+With equivalent filename metadata, both return identical canonical documents
+and JSON: `xlsx` source type, workbook byte size, XLSX MIME type, no delimiter,
+ordered block IDs, stored typed values, blank cells, worksheet coordinates and
+warnings. Cached formula values are read without recalculation. This does not
+add original-file byte offsets, displayed formatting or new table-selection rules.
+
+Missing files and invalid file reads preserve the existing error categories,
+supplied paths and messages. Invalid byte input returns `InvalidXlsx`
+(`invalid_xlsx`) with `path: ""` and the generic message
+`could not read XLSX workbook`; no filename, sheet name or workbook content is
+added to diagnostics. The empty string preserves the existing required string
+field without inventing a filesystem path. Shared file-error redaction remains
+[#2](https://github.com/2001J/fuzzy-parser/issues/2).
+
+This additive library API does not change CLI commands or JSON/package versions.
+The local [#22](https://github.com/2001J/fuzzy-parser/issues/22) implementation and
+file-reader parity are independently verified. Workbook/decompression/cell/output limits remain
+[#17](https://github.com/2001J/fuzzy-parser/issues/17); WASM/JS execution, shared
+schema compilation and runtime packaging are separate, unverified capabilities.
+
 ## Canonical raw document
 
 ```rust

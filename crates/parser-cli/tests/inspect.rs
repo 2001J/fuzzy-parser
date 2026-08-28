@@ -84,6 +84,33 @@ fn inspect_outputs_xlsx_document_json() {
 }
 
 #[test]
+fn xlsx_inspect_matches_file_and_byte_serialization() {
+    let bytes = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/xlsx/sample.xlsx"
+    ));
+    let from_bytes = parser_formats::read_xlsx_bytes(Some("sample.xlsx"), bytes).unwrap();
+    let from_file = parser_formats::read_xlsx(xlsx_fixture_path()).unwrap();
+    let json = serde_json::to_string_pretty(&from_bytes).unwrap();
+    assert_eq!(json, serde_json::to_string_pretty(&from_file).unwrap());
+    let output = Command::new(env!("CARGO_BIN_EXE_parser-cli"))
+        .arg("inspect")
+        .arg(xlsx_fixture_path())
+        .output()
+        .expect("CLI should run");
+    assert_eq!(output.status.code(), Some(0));
+    assert!(output.stderr.is_empty());
+    assert_eq!(output.stdout, format!("{json}\n").as_bytes());
+
+    let unnamed = parser_formats::read_xlsx_bytes(None, bytes).unwrap();
+    let unnamed_json = serde_json::to_value(&unnamed).unwrap();
+    assert!(unnamed_json["source"]["file_name"].is_null());
+    let mut expected: Value = serde_json::from_str(&json).unwrap();
+    expected["source"]["file_name"] = Value::Null;
+    assert_eq!(unnamed_json, expected);
+}
+
+#[test]
 fn inspect_accepts_stdin() {
     let mut child = Command::new(env!("CARGO_BIN_EXE_parser-cli"))
         .args(["inspect", "--stdin"])

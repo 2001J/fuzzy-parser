@@ -120,6 +120,293 @@ fn reads_xlsx_fixture_with_typed_cells_and_sheet_provenance() {
     assert_eq!(document.blocks[5].location.column, Some(2));
 }
 
+fn expected_xlsx_sample() -> RawDocument {
+    let values = [
+        RawValue::text("Name"),
+        RawValue::text("Count"),
+        RawValue::text("Enabled"),
+        RawValue::text("Date"),
+        RawValue::text("Ada"),
+        RawValue::Decimal(42.0),
+        RawValue::Boolean(true),
+        RawValue::DateTime(45943.5),
+        RawValue::text("Title"),
+        RawValue::text("Merged"),
+        RawValue::Null,
+        RawValue::Null,
+    ];
+    RawDocument {
+        id: "xlsx-document".to_owned(),
+        source: SourceMetadata {
+            source_type: SourceType::Xlsx,
+            file_name: Some("sample.xlsx".to_owned()),
+            mime_type: Some(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".to_owned(),
+            ),
+            size_bytes: Some(2027),
+            delimiter: None,
+        },
+        blocks: values
+            .into_iter()
+            .enumerate()
+            .map(|(index, value)| RawBlock {
+                id: format!("sheet-1-row-{}-column-{}", index / 4 + 1, index % 4 + 1),
+                value,
+                location: SourceLocation {
+                    row: Some(index / 4 + 1),
+                    column: Some(index % 4 + 1),
+                    sheet: Some("Data".to_owned()),
+                    ..SourceLocation::default()
+                },
+            })
+            .collect(),
+        warnings: Vec::new(),
+    }
+}
+
+#[test]
+fn xlsx_file_reader_preserves_complete_fixture_contract() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/xlsx/sample.xlsx");
+    assert_eq!(read_xlsx(path).unwrap(), expected_xlsx_sample());
+}
+
+#[test]
+fn xlsx_file_errors_preserve_supplied_paths_and_categories() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures");
+    let missing = root.join("xlsx/does-not-exist.xlsx");
+    assert_eq!(
+        read_xlsx(&missing).unwrap_err(),
+        ParserError::Io {
+            path: missing.to_string_lossy().into_owned(),
+            kind: parser_core::IoErrorKind::NotFound,
+        }
+    );
+    let invalid = root.join("text/simple.txt");
+    assert_eq!(
+        read_xlsx(&invalid).unwrap_err(),
+        ParserError::InvalidXlsx {
+            path: invalid.to_string_lossy().into_owned(),
+            message: "Zip(InvalidArchive(\"Could not find EOCD\"))".to_owned(),
+        }
+    );
+}
+
+// A hex-encoded synthetic XLSX fixture stores the archive as plain text without a
+// new ZIP/base64 test dependency. Runtime byte tests never open a workbook path.
+fn unicode_xlsx_bytes() -> Vec<u8> {
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/xlsx/unicode.xlsx.hex"
+    ))
+    .split_ascii_whitespace()
+    .map(|byte| u8::from_str_radix(byte, 16).expect("fixture contains hex bytes"))
+    .collect()
+}
+
+#[test]
+fn xlsx_bytes_match_file_contract_and_repeat_deterministically() {
+    let bytes = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/xlsx/sample.xlsx"
+    ));
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/xlsx/sample.xlsx");
+    let from_file = read_xlsx(path).unwrap();
+    for _ in 0..3 {
+        let from_bytes = read_xlsx_bytes(Some("sample.xlsx"), bytes).unwrap();
+        assert_eq!(from_bytes, expected_xlsx_sample());
+        assert_eq!(from_bytes, from_file);
+    }
+}
+
+#[test]
+fn xlsx_bytes_preserve_unicode_and_optional_filename_metadata() {
+    let bytes = unicode_xlsx_bytes();
+    assert_eq!(bytes.len(), 2121);
+    let mut expected = expected_xlsx_sample();
+    expected.source.size_bytes = Some(2121);
+    expected.blocks[4].value = RawValue::text("  Zoë 東京 😀  ");
+    expected.blocks[8].value = RawValue::text("  untouched  ");
+    expected.blocks[9].value = RawValue::text("  ada@example.test grace@example.test  ");
+    for block in &mut expected.blocks {
+        block.location.sheet = Some("記録 😀".to_owned());
+    }
+    // The numeric cell has formula 1+1 with cached value 42: do not evaluate it.
+    for file_name in [
+        None,
+        Some("résumé 東京 😀.xlsx"),
+        Some("absent/directory/input.xlsx"),
+    ] {
+        expected.source.file_name = file_name.map(str::to_owned);
+        let document = read_xlsx_bytes(file_name, &bytes).unwrap();
+        assert_eq!(document, expected);
+        assert_eq!(read_xlsx_bytes(file_name, &bytes).unwrap(), document);
+    }
+}
+
+#[test]
+fn xlsx_bytes_reject_invalid_archives_without_input_diagnostics() {
+    let bytes = unicode_xlsx_bytes();
+    for invalid in [
+        &[][..],
+        &bytes[..2],
+        &bytes[..bytes.len() / 2],
+        &bytes[..bytes.len() - 22],
+        b"synthetic-private-workbook-content".as_slice(),
+    ] {
+        for file_name in [None, Some("synthetic-private-filename.xlsx")] {
+            let error = read_xlsx_bytes(file_name, invalid).unwrap_err();
+            assert_eq!(
+                error,
+                ParserError::InvalidXlsx {
+                    path: String::new(),
+                    message: "could not read XLSX workbook".to_owned(),
+                }
+            );
+            assert_eq!(error.code(), "invalid_xlsx");
+            assert_eq!(read_xlsx_bytes(file_name, invalid).unwrap_err(), error);
+        }
+    }
+}
+
+#[test]
+fn xlsx_byte_document_retains_parse_source_evidence_and_review() {
+    use parser_core::{
+        AssignmentField, CandidateType, ParseContent, RecordReviewStatus, SourceBlockRole,
+        TextSpan, parse_document_with_assignment,
+    };
+
+    let document = read_xlsx_bytes(None, &unicode_xlsx_bytes()).unwrap();
+    let fields = [
+        ("Count", CandidateType::Integer),
+        ("Enabled", CandidateType::Boolean),
+    ]
+    .map(|(name, candidate_type)| AssignmentField {
+        name: name.to_owned(),
+        aliases: Vec::new(),
+        candidate_type,
+        required: true,
+        multiple: false,
+        unique: false,
+        constraints: Vec::new(),
+        expected_column: None,
+    });
+    let result = parse_document_with_assignment(&document, &fields, &[], None);
+    assert_eq!(
+        result,
+        parse_document_with_assignment(&document, &fields, &[], None)
+    );
+    assert_eq!(result.warnings, document.warnings);
+    let evidence = result.source_evidence.as_ref().unwrap();
+    assert_eq!(evidence.document, document);
+    let ParseContent::Table { sheets } = &result.content else {
+        panic!("XLSX coordinates must select the table path");
+    };
+    assert_eq!(sheets.len(), 1);
+    assert_eq!(sheets[0].sheet.as_deref(), Some("記録 😀"));
+    let records = &sheets[0].records;
+    assert_eq!(records.len(), 2);
+    assert_eq!(
+        records[0].parse.assignment.fields[0].candidates[0].raw_value,
+        "42"
+    );
+    assert_eq!(
+        records[0].parse.assignment.fields[1].candidates[0].raw_value,
+        "true"
+    );
+    assert!(!records[0].parse.assignment.unassigned_candidates.is_empty());
+    assert!(!records[1].parse.assignment.unassigned_candidates.is_empty());
+    assert!(
+        records[1]
+            .parse
+            .assignment
+            .warnings
+            .iter()
+            .any(|warning| warning.code == "required_field_missing")
+    );
+    assert_eq!(
+        records[1].parse.review.as_ref().unwrap().status,
+        RecordReviewStatus::NeedsReview
+    );
+
+    let mut covered: Vec<Vec<bool>> = document
+        .blocks
+        .iter()
+        .map(|block| vec![false; block.value.to_text().len()])
+        .collect();
+    for record in records {
+        let parse = &record.parse;
+        for candidate in parse
+            .candidates
+            .iter()
+            .chain(
+                parse
+                    .assignment
+                    .fields
+                    .iter()
+                    .flat_map(|field| &field.candidates),
+            )
+            .chain(&parse.assignment.unassigned_candidates)
+        {
+            let reference = candidate.source_reference.as_ref().unwrap();
+            assert_eq!(
+                reference.resolve(&evidence.document).as_deref(),
+                Some(candidate.raw_value.as_str())
+            );
+            assert!(
+                parse
+                    .candidates
+                    .iter()
+                    .any(
+                        |detected| detected.source_reference == candidate.source_reference
+                            && detected.candidate_type == candidate.candidate_type
+                    )
+            );
+            covered[reference.block_index][reference.span.byte_start..reference.span.byte_end]
+                .fill(true);
+        }
+    }
+    assert_eq!(evidence.blocks.len(), document.blocks.len());
+    for (index, coverage) in evidence.blocks.iter().enumerate() {
+        assert_eq!(coverage.block_index, index);
+        if index < 4 {
+            assert_eq!(coverage.role, SourceBlockRole::Header);
+            assert!(coverage.reason.is_some());
+            continue;
+        }
+        assert_eq!(coverage.role, SourceBlockRole::Parsed);
+        for span in &coverage.unused_spans {
+            assert!(
+                document.blocks[index]
+                    .value
+                    .to_text()
+                    .get(span.byte_start..span.byte_end)
+                    .is_some()
+            );
+            let bytes = &mut covered[index][span.byte_start..span.byte_end];
+            assert!(bytes.iter().all(|byte| !byte));
+            bytes.fill(true);
+        }
+        assert!(
+            covered[index].iter().all(|byte| *byte),
+            "all source bytes must be accounted for"
+        );
+    }
+    assert_eq!(
+        evidence.blocks[4].unused_spans,
+        vec![TextSpan {
+            byte_start: 0,
+            byte_end: "  Zoë 東京 😀  ".len()
+        }]
+    );
+    assert_eq!(
+        evidence.blocks[10].unused_spans,
+        vec![TextSpan {
+            byte_start: 0,
+            byte_end: 0
+        }]
+    );
+}
+
 #[test]
 fn rejects_invalid_xlsx_structurally() {
     let error = read_xlsx("fixtures/xlsx/does-not-exist.xlsx")

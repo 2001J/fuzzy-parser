@@ -2,6 +2,8 @@
 
 Last reviewed: 2026-08-28, including the #10 source-evidence extension and the
 independently verified [#21 Unicode context fix](https://github.com/2001J/fuzzy-parser/issues/21).
+The local [#22 XLSX byte API](https://github.com/2001J/fuzzy-parser/issues/22)
+implementation and file-reader parity have also been independently verified.
 The [dated audit](audits/2026-08-27-backlog.md) records the earlier implementation baseline.
 
 This document records only what is implemented in the repository now. It must not describe planned behavior as complete.
@@ -28,7 +30,7 @@ The workspace currently contains four crates:
 - `parse_document_with_assignment` chooses table rows when row provenance exists and otherwise parses each raw block separately. `ParseResponse` embeds the unchanged canonical document, source metadata, coverage of parsed/header/excluded blocks, and unused spans. Candidate references resolve in every detected/assigned/unassigned copy. Input warnings are forwarded, and records carry deterministic draft/review reasons; see [data contracts](data-contracts.md).
 - `parser-formats` reads UTF-8 TXT files, pasted text, standard input, and CSV files into canonical raw blocks while preserving content and source locations.
 - CSV extraction scores comma, semicolon, tab, and pipe delimiters, supports explicit overrides, quoted/multiline cells, empty cells, and row/column provenance.
-- `parser-formats` reads XLSX workbooks with sheet, row, column, and typed-cell provenance; it reads stored values only and does not execute formulas or macros.
+- `parser-formats` reads XLSX workbooks from paths or borrowed bytes with optional filename metadata, using one extraction path with sheet, row, column and typed-cell provenance. The byte API performs no filesystem/network I/O; both read stored/cached values without executing formulas or macros. See [XLSX library input](data-contracts.md#xlsx-library-input--implemented) for metadata and error semantics.
 - `parser-schema` provides serializable generic target-schema models for fields, enum values, aliases, and basic constraints, plus structural validation for supported versions and ambiguous labels.
 - Text input has library-configurable byte and line-length limits; the CLI uses the fixed defaults of 1 MiB total and 64 KiB per line. Empty text is accepted. CSV, XLSX, and schema loading do not have equivalent configurable resource limits.
 - The CLI supports help output, `inspect <path>` for TXT, CSV, and XLSX files, `inspect --stdin`, `inspect --text <content>`, schema validation from a path, standard input, or inline text with optional compact output, and `parse <path> --schema <schema-path>` / `parse --stdin --schema <schema-path>`, emitting canonical JSON with structured errors and nonzero exit codes.
