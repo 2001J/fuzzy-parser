@@ -17,19 +17,42 @@ the applications. See [integration strategy](integration-strategy.md).
 | Owner | Assignment | Current state | Review and integration |
 | --- | --- | --- | --- |
 | Existing parser worker | [#2 Safe structured errors](https://github.com/2001J/fuzzy-parser/issues/2) | Implementing in the original parser checkout | Coordinator review pending; no #2 commit or merge |
-| Email worker | [#15 Punctuation-adjacent email detection](https://github.com/2001J/fuzzy-parser/issues/15) | Worktree setup pending | Independent detector fix; no error-contract edits |
-| TXT test worker | [#4 Permanent TXT fixtures](https://github.com/2001J/fuzzy-parser/issues/4) | Worktree setup pending | Raw extraction/fixture coverage; coordinate overlapping I/O tests with #2 |
-| QualEvents preparation worker | Existing import compatibility and proposed host tickets | Worktree setup pending; read-only scope | No host implementation, database access or GitHub mutations |
-| Coordinator | Assignments, independent review, integration and reporting | Organizing the parallel batch | Sole integration owner; does not treat worker reports as review approval |
+| Email worker | [#15 Punctuation-adjacent email detection](https://github.com/2001J/fuzzy-parser/issues/15) | Active; isolated branch/base verified | Independent detector fix; no error-contract edits |
+| TXT test worker | [#4 Permanent TXT fixtures](https://github.com/2001J/fuzzy-parser/issues/4) | Active; isolated branch/base verified | Raw extraction/fixture coverage; coordinate overlapping I/O tests with #2 |
+| QualEvents preparation worker | Existing import compatibility and proposed host tickets | Active; read-only branch/base verified | No host implementation, database access or GitHub mutations |
+| Coordinator | Assignments, independent review, integration and reporting | Team startup verified; implementation reports pending | Sole integration owner; does not treat worker reports as review approval |
 
-Task IDs, branch names and local worktree paths will be recorded after startup
-verification. An assigned task must not silently expand into another ticket.
+An assigned task must not silently expand into another ticket.
 
 Reasoning budgets are task-specific: #2 uses high for the compatibility-sensitive
 error migration; the bounded #15 fix, #4 fixtures and read-only host preparation
-use medium. Models keep the user's configured defaults. Raise reasoning only
+use medium. Existing task models remain unchanged; new tasks use the user's
+configured default model. Raise reasoning only
 for a concrete unresolved problem or difficult review; do not use extra-high
 uniformly or add idle workers merely to increase headcount.
+
+### Verified task locations
+
+- **Align Fuzzy Parser roadmap for QualEvents** (#2, high)
+  - Task: `01a04432-a13b-7471-a1f2-3adcd2e634c7`.
+  - Branch: `codex/align-fuzzy-parser-roadmap-for`.
+  - Folder: `/Users/josephkoyi/Desktop/bonkers/fuzzy-parser`.
+- **Fix FP-15 email boundaries** (medium)
+  - Task: `01a0478b-75ed-73f0-b3eb-d5a3d3b52cb4`.
+  - Branch: `codex/fp-15-email-boundaries`.
+  - Folder: `/Users/josephkoyi/.codex/worktrees/c5ad/fuzzy-parser`.
+- **Complete FP-4 TXT regression fixtures** (medium)
+  - Task: `01a0478b-7750-7203-a772-356b98192ad9`.
+  - Branch: `codex/fp-4-txt-fixtures`.
+  - Folder: `/Users/josephkoyi/.codex/worktrees/fb3f/fuzzy-parser`.
+- **Prepare QualEvents parser integration** (medium; read-only)
+  - Task: `01a0478b-7dac-7910-a1e1-3b0973c88f5c`.
+  - Branch: `codex/qualevents-parser-preparation`.
+  - Folder: `/Users/josephkoyi/.codex/worktrees/2e0b/wedding-app`.
+
+The coordinator verified the two new parser branch HEADs at
+`74214884dd8ce22fec745be104c329fc33922c1f` and the host branch at
+`50fcaf072abd5307157ce1e0ee96676729e896c5`. Startup is not implementation approval.
 
 ## Branches and working folders
 
