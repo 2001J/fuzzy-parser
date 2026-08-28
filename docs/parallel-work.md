@@ -16,16 +16,16 @@ the applications. See [integration strategy](integration-strategy.md).
 
 | Owner | Assignment | Current state | Review and integration |
 | --- | --- | --- | --- |
-| Existing parser worker | Independent #12 enum/plan review | Read-only review; original checkout remains coordinator-owned | High reasoning for ownership/source compatibility; #5 core-error review passed |
-| Schema worker (previously email) | [#12 Shared schema compilation](https://github.com/2001J/fuzzy-parser/issues/12) | Implementation handed off; stopped for review | High reasoning; 213 worker tests reported, not independent approval |
-| Validation worker (previously TXT tests) | [#6 CLI execution preparation](https://github.com/2001J/fuzzy-parser/issues/6) | Read-only preparation; #5 locally integrated and closed | Medium reasoning; committed objects only; no #6 implementation assigned |
+| Existing parser worker | [#11 JS/WASM experiment preparation](https://github.com/2001J/fuzzy-parser/issues/11) | Read-only brief complete; stopped, no experiment dispatched | Medium reasoning; #5 core-error and #12 enum/plan reviews complete; original checkout remains coordinator-owned |
+| Schema worker (previously email) | [#13 Caller-directed text and name fields](https://github.com/2001J/fuzzy-parser/issues/13) | Scoped implementation approved for next dispatch; startup pending | High reasoning for source ownership and abstention; #12 reviewed, integrated and closed |
+| Validation worker (previously TXT tests) | [#6 Strict CLI dispatch and arguments](https://github.com/2001J/fuzzy-parser/issues/6) | Scoped implementation approved for next dispatch; startup pending | Medium reasoning; #5 reviewed, integrated and closed |
 | QualEvents preparation / privacy reviewer | Host compatibility report and #2 message-invariant re-review | Complete; stopped | Read-only host work; no integration or runtime approval claimed |
-| Coordinator | Assignments, independent review, integration and reporting | #2/#15/#4/#5 locally integrated and closed; reviewing #12 | Sole integration owner; #12 must pass independent and combined checks |
+| Coordinator | Assignments, independent review, integration and reporting | #2/#15/#4/#5/#12 locally integrated and closed | Sole integration owner; next workers use the final reviewed combined baseline |
 
 An assigned task must not silently expand into another ticket.
 
-Reasoning budgets are task-specific: #12 uses high for schema/assignment
-compatibility, while #5 uses medium for bounded file validation. The prior #2
+Reasoning budgets are task-specific: #13 uses high for source/assignment
+compatibility, while #6 uses medium for bounded CLI behavior. The prior #2
 migration and privacy review used high; #15, #4 and host preparation used medium.
 Existing task models remain unchanged; new tasks use the user's
 configured default model. Raise reasoning only
@@ -34,17 +34,19 @@ uniformly or add idle workers merely to increase headcount.
 
 ### Verified task locations
 
-- **Align Fuzzy Parser roadmap for QualEvents** (#2 complete; read-only #12 reviewer)
+- **Align Fuzzy Parser roadmap for QualEvents** (#2 and reviews complete; #11 preparation only)
   - Task: `01a04432-a13b-7471-a1f2-3adcd2e634c7`.
   - Branch: `codex/align-fuzzy-parser-roadmap-for`.
   - Folder: `/Users/josephkoyi/Desktop/bonkers/fuzzy-parser`.
-- **Fix FP-15 email boundaries** (#15 complete; #12 awaiting review)
+- **Fix FP-15 email boundaries** (#15/#12 complete; next #13)
   - Task: `01a0478b-75ed-73f0-b3eb-d5a3d3b52cb4`.
   - Current branch: `codex/fp-12-schema-compilation`; completed branch retained: `codex/fp-15-email-boundaries`.
+  - Next assigned branch: `codex/fp-13-text-name-fields`; verify startup before editing.
   - Folder: `/Users/josephkoyi/.codex/worktrees/c5ad/fuzzy-parser`.
-- **Complete FP-4 TXT regression fixtures** (#4/#5 complete; #6 preparation, medium)
+- **Complete FP-4 TXT regression fixtures** (#4/#5 complete; next #6, medium)
   - Task: `01a0478b-7750-7203-a772-356b98192ad9`.
   - Current branch: `codex/fp-5-file-validation`; completed branch retained: `codex/fp-4-txt-fixtures`.
+  - Next assigned branch: `codex/fp-6-cli-contract`; verify startup before editing.
   - Folder: `/Users/josephkoyi/.codex/worktrees/fb3f/fuzzy-parser`.
 - **Prepare QualEvents parser integration** (preparation and privacy re-review complete; read-only)
   - Task: `01a0478b-7dac-7910-a1e1-3b0973c88f5c`.
@@ -53,17 +55,17 @@ uniformly or add idle workers merely to increase headcount.
 
 The first parser branches started at `7421488`. Reviewed ticket commits are
 `4738132` (#2), `0b8b529` (#15), and `a42ce18` (#4). Sequential local integration
-finished at `51211e06c245808b03521e3e99d03d88dc6e5523`. New dispatches must use
-that verified code plus the coordinator's documentation-only update, not an
-older main or another worker's unfinished changes. The host worktree remains
+finished at `51211e06c245808b03521e3e99d03d88dc6e5523`. The host worktree remains
 clean at `50fcaf072abd5307157ce1e0ee96676729e896c5`.
 
 Both #12/#5 implementation branches were verified at starting HEAD
 `782ccd43a3deb5a5b2ffa3dc773f0c980996444a` (reviewed code plus coordinator docs).
 #5 is committed at `74a7576fc2783adcc767ead6d131a9a4ef272bb0` and integrated at
-`0d0a949faffeefc59ef209843811d1f41c4b0963`. #12's changes remain uncommitted in
-its own worktree; its handoff is not review approval. #6 preparation reads only
-committed objects at `0d0a949`, without switching its clean #5 branch.
+`0d0a949faffeefc59ef209843811d1f41c4b0963`. #12 is committed at
+`93229f15cdd1993593eef7d8e26400bf4c7f4cd5` and integrated at
+`832e4f5816f506ef25c2796942eb265c3b122d22`. #6 and #13 must start from that
+reviewed combined code plus the coordinator's documentation-only update,
+using the exact commit in their dispatch. Preparation did not authorize edits.
 
 ## Branches and working folders
 
@@ -75,7 +77,7 @@ temporary publishing clones.
 - Original Fuzzy Parser checkout: `/Users/josephkoyi/Desktop/bonkers/fuzzy-parser`.
 - Current local integration branch: `codex/align-fuzzy-parser-roadmap-for`.
 - Last reviewed combined implementation baseline:
-  `0d0a949faffeefc59ef209843811d1f41c4b0963`.
+  `832e4f5816f506ef25c2796942eb265c3b122d22`.
 - The original checkout is clean and coordinator-owned again. Future parser
   implementations use their assigned worktrees; no worker starts another slice
   in this checkout without an explicit assignment.
@@ -94,21 +96,23 @@ credentials, Docker, or machine resources.
 
 ## Ownership and dependencies
 
-- #12 owns shared schema compilation, field-scoped enum assignment and explicit
-  executable-capability checks. Preserve #2 privacy, #10 source evidence and
-  #15 email behavior; dependent text/name support and runtime work stay separate.
-- #5 owns regular-file/extension/size/empty policy and TXT path integration.
-  Default empty acceptance remains; strict extensions and new typed failures
-  need the documented compatibility tests. Wider format limits remain #17.
-- Both may add disjoint typed failures and tests to the shared error module.
-  Neither changes the other's checkout or failure variants. The coordinator
-  reconciles those additive overlaps and rechecks exact safe output.
+- #6 owns complete CLI argument parsing, explicit TXT/CSV/XLSX routing, help
+  and TXT-only size/empty overrides. It calls #5's same-handle TXT API directly;
+  CSV/XLSX readers remain unchanged. Wider same-handle validation and resource
+  policy stay in #17. The approved grammar and precedence are in live #6.
+- #13 owns caller-directed text/name extraction through #12's shared plan.
+  Unlabeled residual text remains unresolved evidence, not an inferred identity.
+  New assignments cannot overlap existing assigned evidence. Preserve all old
+  supported profiles; #14 segmentation and #16 table options remain separate.
+- Both preserve #2 privacy, #10 source evidence, #15 email behavior and #12
+  schema compilation. #6 does not change compiler semantics; #13 does not
+  rewrite CLI argument handling. Neither reads or edits the other's draft.
 - The coordinator reconciles shared test modules and current-state/roadmap
   documentation. A clean Git merge alone does not establish semantic safety.
-- #2 and #5 are complete. #6 may prepare its exact command/override contract,
-  but implementation is not dispatched while #12's overlapping CLI/schema path
-  is under review. Backend selection and the production adapter remain gated by
-  their existing tickets. Do not invent competing schema/runtime interfaces.
+- #11's bounded JS/WASM preparation is complete, but no binding, tool download,
+  experiment or production adapter is dispatched by this board. #12 and #22
+  prerequisites are delivered; JS execution, packaging and lifecycle evidence
+  remain open. Do not invent competing schema/runtime interfaces.
 - QualEvents preparation may identify caller requirements and migration tests,
   but must not choose a parser backend, introduce domain behavior into Fuzzy
   Parser, create an integration package, or replace working import routes.
@@ -133,9 +137,9 @@ credentials, Docker, or machine resources.
    A push, pull request, merge into main, deployment, package or container
    publication still needs separate authorization.
 
-Completed order: #2, then #15, then #4, then #5, with checks between integrations.
-#12 is now in independent review; reviewed changes still integrate one at a
-time. Host preparation is a report, not a host code merge.
+Completed order: #2, then #15, then #4, then #5, then #12, with checks between
+integrations. Reviewed changes still integrate one at a time. Host preparation
+is a report, not a host code merge.
 
 ## Reporting and remaining gates
 
@@ -152,7 +156,7 @@ cases, 9 error cases, 7 controls, 2,476 source resolutions, 22 cleanups), and al
 `sha256:6cb6c100043d0359499d6827f44051a722dd59566d0cfd2ac7d5dad99470ce67`.
 This is local evidence, not hosted CI, WASM execution, deployment or publication.
 
-The current `0d0a949` baseline adds independently reviewed #5 validation. All
+The `0d0a949` baseline added independently reviewed #5 validation. All
 202 macOS Rust tests passed with no ignored tests, retaining every baseline
 name and the six original Cargo targets. Linux/amd64 passed 203 tests: the extra
 test creates a real non-UTF-8 filename unavailable on macOS. Formatting, locked
@@ -166,12 +170,29 @@ digest `sha256:1f91679a8058b5266468abd53f89a73db2b2f5d52529cc1d182327b10ceb2b0e`
 The separate Linux test run had no network and mounted only synthetic fixtures
 read-only. Both runs finished; no evaluation container remains running.
 
+The current `832e4f5` baseline adds independently reviewed #12 compilation and
+field-scoped enums. All 232 macOS Rust tests and 233 Linux/amd64 tests passed,
+with no ignored tests. The combined names are exactly the union of both ticket
+suites; all six Cargo targets remain. Formatting, locked Clippy/tests/build,
+release build, three-library WASM compilation, 11 Node guard tests and native
+parity (11 successes, 9 errors, 7 controls, 2,476 source resolutions, 22 cleanups)
+passed. The 12-case schema golden also matched the pre-#12 binary independently.
+The only merge conflict was the roadmap; source overlaps were reviewed. The
+final fixture include uses `CARGO_MANIFEST_DIR`, with the anchored test file
+included read-only in the final isolated Linux run.
+
+All 14 checks passed on the fresh `fuzzy-parser-schema-validation-review:local`
+image, digest `sha256:0c9131bb47e49856bab64619dfac8ae4f3b14e546a8e6ed95b3af255e78aa563`.
+No evaluation container remains running. These results are local verification,
+not hosted CI or execution of WASM code. Documentation-only coordination updates
+do not require another image build.
+
 The coordinator reports user-visible outcomes, active tickets, blockers and the
 next milestone. Worker message traffic is not a substitute for that summary.
 Record status and evidence here after meaningful review/integration transitions,
 not after every command.
 
-- #2, #3, #4, #5, #10, #15, #21 and #22 are closed for reviewed delivered work. #8 is superseded,
+- #2, #3, #4, #5, #10, #12, #15, #21 and #22 are closed for reviewed delivered work. #8 is superseded,
   not counted as delivered implementation.
 - [#23 CI](https://github.com/2001J/fuzzy-parser/issues/23) is committed and tested
   locally but remains open for the first authorized GitHub-hosted run.

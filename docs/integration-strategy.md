@@ -58,9 +58,10 @@ printf 'Ada Lovelace ada@example.test\n' | cargo run -p parser-cli -- parse --st
 `parse` takes a positional path, not `--input`. Its stdin mode is plain text;
 there is no JSON request envelope or `parse --text` mode. The sample schema
 requests only email: expect two CSV data records with emails and one stdin
-record with `ada@example.test`. Names are not assigned. A comma adjoining the
-email currently breaks the text example; [#15](https://github.com/2001J/fuzzy-parser/issues/15)
-tracks the regression.
+record with `ada@example.test`. Names are not assigned. Comma-adjacent email
+is supported by the reviewed [#15 fix](https://github.com/2001J/fuzzy-parser/issues/15),
+with original byte spans and unused prefix preserved. This remains a limited
+ASCII email detector, not comprehensive email syntax validation.
 
 Successful results use JSON stdout and exit `0`, including records with warnings.
 Processing errors use JSON stderr and exit `1`; usage errors use plain stderr
@@ -90,8 +91,9 @@ equivalent schema/shared-failure report method. Default `Display` remains safe.
 draft/review reasons. Its [additive compatibility contract](data-contracts.md#source-evidence-extension-and-compatibility)
 distinguishes cell/string coordinates from original file bytes and legacy
 responses without evidence. This does not establish complete integration
-readiness: schema compilation still lives in the CLI ([#12](https://github.com/2001J/fuzzy-parser/issues/12)),
-several field types are unsupported, and runtime/independence gates remain open.
+readiness. The reviewed [#12 shared schema compiler](data-contracts.md#executable-schema)
+now supplies the same executable core plan to CLI and Rust callers; text/name
+and datetime types are still unsupported, and runtime/independence gates remain open.
 
 ## Proposed library caller experience
 
@@ -102,9 +104,9 @@ wrapper would still run locally with the caller, but the package must handle
 native binaries, process lifecycle and temporary files. A WASM module could
 avoid that plumbing; its actual byte-input and runtime gates remain open.
 
-**Proposal only — not an existing npm API or executable example.** Exact types
-depend on #12/#18 and must reuse [data contracts](data-contracts.md), not create
-a second schema model:
+**Proposal only — not an existing npm API or executable example.** Exact adapter
+types belong to #18 and must reuse the implemented shared schema contract and
+[data contracts](data-contracts.md), not create a second schema model:
 
 ```typescript
 const draft = await parser.parse({
@@ -136,8 +138,8 @@ The prototype invokes the current CLI without copying schema conversion.
 Its two fixture profiles demonstrate only supported integer/boolean subsets,
 not the full #19 independence gate. WASM is a credible candidate, not rejected
 because today's CLI was easier to exercise. [#22's byte-input API](data-contracts.md#xlsx-library-input--implemented)
-is implemented and independently verified locally. After shared schema
-compilation, #11 still needs a separately authorized bounded JS/WASM
+and #12's shared schema compilation are implemented and independently verified
+locally. #11 still needs a separately dispatched bounded JS/WASM
 comparison before selecting one backend for #18. A native byte API and target
 compilation alone do not prove JS/WASM execution.
 No second adapter is built in this slice. Native bindings are deferred; queues

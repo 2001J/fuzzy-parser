@@ -20,15 +20,21 @@ is now implemented and independently verified locally. The comparison below
 records the #11 baseline; its path-only XLSX limitation is addressed by that
 separate slice. Backend selection and JS/WASM execution remain unverified.
 
+Further follow-up, 2026-08-28: [#12's shared schema compiler and core plan](../data-contracts.md#executable-schema)
+are independently reviewed and locally integrated. The private CLI conversion
+described at the original baseline below has been replaced. Both prerequisite
+APIs are available for a bounded JS/WASM comparison; its read-only preparation
+is complete, but no binding or execution experiment has been dispatched.
+
 ## Context and comparison
 
 The user wants an independently reusable library, using Photon as an analogy
 for the caller experience, not an independently operated parsing system.
 Independence does not require a network service. The existing CLI dispatches
-text/TXT/CSV/XLSX through the format, schema and engine crates. Schema conversion
-currently lives in the CLI. Reusing it allowed an experiment without copying
-that logic or implementing #12; availability alone does not make it the best
-long-term packaging.
+text/TXT/CSV/XLSX through the format, schema and engine crates. At the original
+#11 evaluation baseline, schema conversion lived in the CLI. Reusing it allowed
+that experiment without copying the logic or implementing #12; availability
+alone does not make it the best long-term packaging.
 The [dated evaluation](../evaluations/2026-08-28-node-cli.md) owns commands,
 measurements, consumer inspection and dated primary sources.
 
@@ -61,8 +67,8 @@ owns an illustrative call, explicitly not an existing npm/package API.
   parser warnings and structured parser failures must remain distinct from
   adapter initialization, timeout, cancellation, limit and packaging failures.
   Never return truncated JSON as a successful or partial parse.
-- Reuse the shared schema/extraction/core path once #12 provides it. The
-  experiment deliberately uses the existing CLI conversion unchanged.
+- Reuse the now-implemented #12 shared schema/extraction/core path. The original
+  experiment deliberately used its baseline CLI conversion unchanged.
   Do not introduce a second interpretation of the caller schema.
 - Pin parser artifact identity as well as accepted parser/schema/contract
   versions. The current version fields alone do not distinguish local commits
@@ -79,10 +85,10 @@ has operational costs even though the caller writes a library call.
 
 If WASM is selected, it must use the same shared schema and parsing path with
 byte input; it must not introduce a second parser to bypass missing engine APIs.
-The existing XLSX path reader cannot work on ordinary `wasm32-unknown-unknown`
-without adaptation, but that is not a dependency-level impossibility. The
+The original XLSX path-only API could not work on ordinary `wasm32-unknown-unknown`
+without adaptation; #22 has since added the required byte reader. The historical
 [bounded WASM probe](../evaluations/2026-08-28-node-cli.md#bounded-wasm-feasibility-check)
-records the actual gap. No WASM binding was implemented here.
+records that baseline gap. No WASM binding was implemented here.
 
 There is no new public TypeScript API in this decision. #18 must settle its
 exact types against #12's shared schema contract; the harness is neither an
@@ -96,10 +102,10 @@ Keep the measured bundled-process path as a candidate, not a silent runtime
 fallback. No application should have to implement or maintain both.
 
 Before #18 starts, a separately authorized follow-up to **#11** must test a
-minimal JS/WASM call after #12 provides shared schema compilation and
-[#22](https://github.com/2001J/fuzzy-parser/issues/22) provides generic XLSX byte
-input. #22 is a separate `parser-formats` slice, not an implicit expansion of
-#12 or #18. Compare the same four
+minimal JS/WASM call using the delivered #12 shared schema compiler and
+[#22](https://github.com/2001J/fuzzy-parser/issues/22) generic XLSX byte input.
+Those are completed separate engine slices, not work to duplicate in the
+evaluation or #18. Compare the same four
 input forms, two supported profiles, source/errors, emitted package size,
 initialization, memory copies, cancellation and generic Node/Next.js packaging
 against this retained CLI evidence. Do not build a second production adapter
@@ -121,7 +127,7 @@ and output budgets before #18 advertises supported sizes.
 
 | Gate | Owner and acceptance |
 | --- | --- |
-| Generic engine prerequisites | #2/#12/#17: safe errors, one schema compiler and enforced resource limits; #13–#16 remain required for final capability parity |
+| Generic engine prerequisites | #2/#12 safe errors and shared schema compiler are delivered; #17 enforced resource limits remain open. #13/#14/#16 remain required for final capability parity; #15 is delivered |
 | One backend selected | #11 follow-up above; reviewed decision required before #18. Current WASM evidence is compilation/source inspection only |
 | Package installation | #18: test an installable local package with QualEvents absent and no consumer build-time Rust toolchain; verify artifact/contract identity and missing/wrong artifact failures. For CLI, prove OS/architecture/ABI and executable mode. For WASM, prove emitted module/glue loading and byte/source parity. Implement only the selected branch |
 | Runtime lifecycle | #18: cancel while processing, deadline enforcement, bounded memory/output, malformed output/version mismatch, concurrent calls and no input/credential leakage. CLI also needs kill escalation/reaping/file cleanup; WASM needs an evidenced interruption/isolation strategy. The prototype covers only a subset |
