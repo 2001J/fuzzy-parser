@@ -1,5 +1,7 @@
 use super::*;
 
+mod email_boundaries;
+
 fn test_document(blocks: Vec<RawBlock>) -> RawDocument {
     RawDocument::new(
         "test-document",

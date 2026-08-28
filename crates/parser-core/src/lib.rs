@@ -1149,7 +1149,19 @@ fn candidate_score(
 }
 
 pub fn detect_email_candidates(text: &str) -> Vec<FieldCandidate> {
-    text.split_whitespace()
+    // Only email detection treats these punctuation marks as boundaries. Keep
+    // dots and other email characters inside tokens, and leave other detectors'
+    // decimal/phone tokenization unchanged. Split borrowed slices of the original
+    // text so the scan below continues to report original UTF-8 byte offsets.
+    let tokens = text.split(|character: char| {
+        character.is_whitespace()
+            || matches!(
+                character,
+                ',' | ';' | ':' | '(' | ')' | '[' | ']' | '<' | '>'
+            )
+    });
+    tokens
+        .filter(|token| !token.is_empty())
         .scan(0, |search_start, token| {
             let start = text[*search_start..].find(token)? + *search_start;
             *search_start = start + token.len();
