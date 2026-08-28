@@ -180,7 +180,13 @@ async function parserFailure(name, kind, bytes, schema, expectedCode) {
     assert.equal(result.stdout.length, 0);
     assert.deepEqual(result.stdout, baseline.stdout);
     assert.deepEqual(result.stderr, baseline.stderr);
-    assert.equal(JSON.parse(result.stderr).error.code, expectedCode);
+    const failure = JSON.parse(result.stderr);
+    assert.equal(failure.error.code, expectedCode);
+    assert.equal(failure.error.error_contract_version, '0.1');
+    for (const key of ['path', 'source', 'source_type', 'message', 'diagnostics']) {
+      assert.equal(Object.hasOwn(failure.error, key), false, `default error must omit ${key}`);
+    }
+    assert.equal(result.stderr.includes(context.directory), false, 'default message must not expose scratch paths');
     report.failures.push({ name, code: expectedCode, exactStderrParity: true });
   });
 }

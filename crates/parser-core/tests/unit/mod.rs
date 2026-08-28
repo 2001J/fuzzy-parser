@@ -1,5 +1,469 @@
 use super::*;
 
+#[test]
+fn error_report_discards_forged_outer_messages_and_canonicalizes_from_payload() {
+    let failure = ParserError::InvalidXlsx {
+        path: "/synthetic/東京\n\u{1b}.xlsx".into(),
+        message: "private upstream cause".into(),
+    };
+    for mode in [DiagnosticsMode::Safe, DiagnosticsMode::Detailed] {
+        let expected = failure.report(mode);
+        let wire = serde_json::to_value(&expected).unwrap();
+        let mut forged = wire.clone();
+        forged["message"] = "SYNTHETIC_PRIVATE_RECORD\n\u{1b}".into();
+        let decoded: ErrorReport = serde_json::from_value(forged).unwrap();
+        assert_eq!(serde_json::to_value(&decoded).unwrap(), wire);
+        assert_eq!(decoded.to_string(), wire["message"].as_str().unwrap());
+        assert_eq!(decoded.message(), decoded.to_string());
+        assert!(!format!("{decoded:?}").contains("SYNTHETIC_PRIVATE_RECORD"));
+        assert_eq!(decoded.error, expected.error);
+        let valid: ErrorReport = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(valid, expected);
+        assert_eq!(serde_json::to_value(valid).unwrap(), wire);
+        // The ignored outer field is optional and has no trusted input type.
+        for untrusted in [
+            serde_json::Value::Null,
+            42.into(),
+            serde_json::json!({"private":"SYNTHETIC_PRIVATE_RECORD"}),
+        ] {
+            let mut incoming = wire.clone();
+            incoming["message"] = untrusted;
+            let decoded: ErrorReport = serde_json::from_value(incoming).unwrap();
+            assert_eq!(serde_json::to_value(decoded).unwrap(), wire);
+        }
+        let mut missing = wire.clone();
+        missing.as_object_mut().unwrap().remove("message");
+        let decoded: ErrorReport = serde_json::from_value(missing).unwrap();
+        assert_eq!(serde_json::to_value(decoded).unwrap(), wire);
+    }
+}
+
+#[test]
+fn error_report_payload_mutation_cannot_leave_stale_serialized_message() {
+    let mut report = Failure::new(FailureKind::InvalidXlsx).report(DiagnosticsMode::Safe);
+    report.error.failure = FailureKind::InvalidUtf8 { valid_up_to: 7 };
+    assert_eq!(
+        serde_json::to_value(&report).unwrap(),
+        serde_json::json!({
+            "error": {"error_contract_version":"0.1", "code":"invalid_utf8", "valid_up_to":7},
+            "message": "input is not valid UTF-8 at byte offset 7"
+        })
+    );
+    report.error.diagnostics = Some(DiagnosticContext {
+        path: Some("/synthetic/東京\n\u{1b}.txt".into()),
+        ..DiagnosticContext::default()
+    });
+    let detailed = serde_json::to_value(&report).unwrap();
+    assert_eq!(detailed["message"], report.to_string());
+    assert_eq!(report.message(), report.to_string());
+    assert!(!report.to_string().contains(['\n', '\u{1b}']));
+    assert_eq!(
+        serde_json::from_value::<ErrorReport>(detailed).unwrap(),
+        report
+    );
+    report.error.diagnostics = None;
+    assert_eq!(
+        serde_json::to_value(&report).unwrap()["message"],
+        "input is not valid UTF-8 at byte offset 7"
+    );
+}
+
+fn legacy_error_cases() -> Vec<ParserError> {
+    serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/contracts/errors-legacy.json"
+    )))
+    .unwrap()
+}
+
+#[test]
+fn every_format_failure_has_exact_safe_and_detailed_reports() {
+    let expected = [
+        (
+            serde_json::json!({"code":"io_error","kind":"not_found"}),
+            "could not read input: file not found",
+            serde_json::json!({"path":"/synthetic/private/東京.txt"}),
+        ),
+        (
+            serde_json::json!({"code":"invalid_utf8","valid_up_to":4}),
+            "input is not valid UTF-8 at byte offset 4",
+            serde_json::json!({"path":"/synthetic/private/東京.txt"}),
+        ),
+        (
+            serde_json::json!({"code":"unsupported_input"}),
+            "unsupported input type",
+            serde_json::json!({"source_type":"private-format"}),
+        ),
+        (
+            serde_json::json!({"code":"input_too_large","limit":10,"actual":11}),
+            "input exceeds the 10-byte limit (11 bytes)",
+            serde_json::json!({"source":"/synthetic/private/東京.txt"}),
+        ),
+        (
+            serde_json::json!({"code":"line_too_long","line":3,"limit":10,"actual":11}),
+            "input line 3 exceeds the 10-byte limit (11 bytes)",
+            serde_json::json!({"source":"private-source"}),
+        ),
+        (
+            serde_json::json!({"code":"invalid_csv","record":null}),
+            "invalid CSV input",
+            serde_json::json!({"path":"private.csv"}),
+        ),
+        (
+            serde_json::json!({"code":"invalid_xlsx"}),
+            "could not read XLSX workbook",
+            serde_json::json!({"path":"private.xlsx"}),
+        ),
+    ];
+    for (cause, (mut payload, message, context)) in legacy_error_cases().into_iter().zip(expected) {
+        payload["error_contract_version"] = "0.1".into();
+        assert_eq!(serde_json::to_value(&cause).unwrap(), payload);
+        let safe = cause.report(DiagnosticsMode::Safe);
+        assert_eq!(
+            serde_json::to_value(&safe).unwrap(),
+            serde_json::json!({"error":payload,"message":message})
+        );
+        assert_eq!(cause.to_string(), message);
+        assert_eq!(safe.to_string(), message);
+        let detailed = cause.report(DiagnosticsMode::Detailed);
+        let context_text = serde_json::to_string(&detailed.error.diagnostics).unwrap();
+        payload["diagnostics"] = context;
+        let detailed_message = format!("{message} [diagnostics: {context_text}]");
+        assert_eq!(
+            serde_json::to_value(&detailed).unwrap(),
+            serde_json::json!({"error":payload,"message":detailed_message})
+        );
+        assert_eq!(detailed.to_string(), detailed_message);
+        for mode in [DiagnosticsMode::Safe, DiagnosticsMode::Detailed] {
+            let json = serde_json::to_string(&cause.report(mode)).unwrap();
+            assert!(!json.contains("upstream"));
+            assert_eq!(json, serde_json::to_string(&cause.report(mode)).unwrap());
+        }
+    }
+    let numbered = ParserError::InvalidCsv {
+        path: "private.csv".into(),
+        record: Some(2),
+        message: "upstream".into(),
+    };
+    assert_eq!(numbered.to_string(), "invalid CSV input at record 2");
+    assert_eq!(
+        serde_json::to_value(numbered).unwrap(),
+        serde_json::json!({"error_contract_version":"0.1","code":"invalid_csv","record":2})
+    );
+}
+
+#[test]
+fn versioned_error_payload_round_trips_without_fabricating_private_causes() {
+    for cause in legacy_error_cases() {
+        for mode in [DiagnosticsMode::Safe, DiagnosticsMode::Detailed] {
+            let report = cause.report(mode);
+            let json = serde_json::to_string(&report.error).unwrap();
+            assert_eq!(
+                serde_json::from_str::<ErrorPayload>(&json).unwrap(),
+                report.error
+            );
+            assert!(
+                serde_json::from_str::<ParserError>(&json).is_err(),
+                "private cause fields were not serialized"
+            );
+            let report_json = serde_json::to_string(&report).unwrap();
+            assert_eq!(
+                serde_json::from_str::<ErrorReport>(&report_json).unwrap(),
+                report
+            );
+        }
+    }
+}
+
+#[test]
+fn error_payload_requires_the_supported_error_version_and_known_diagnostic_fields() {
+    let original = serde_json::json!({"error_contract_version":"0.1","code":"invalid_xlsx"});
+    assert!(serde_json::from_value::<ErrorPayload>(original.clone()).is_ok());
+    for version in [serde_json::Value::Null, "0.2".into(), "".into(), 1.into()] {
+        let mut payload = original.clone();
+        payload["error_contract_version"] = version;
+        assert!(serde_json::from_value::<ErrorPayload>(payload).is_err());
+    }
+    let mut missing = original.clone();
+    missing
+        .as_object_mut()
+        .unwrap()
+        .remove("error_contract_version");
+    assert!(serde_json::from_value::<ErrorPayload>(missing).is_err());
+    let mut unknown_code = original.clone();
+    unknown_code["code"] = "future_error".into();
+    assert!(serde_json::from_value::<ErrorPayload>(unknown_code).is_err());
+    let mut extra = original.clone();
+    extra["future_metadata"] = "ignored".into();
+    let decoded: ErrorPayload = serde_json::from_value(extra).unwrap();
+    assert_eq!(serde_json::to_value(decoded).unwrap(), original);
+    let mut invalid_context = original;
+    invalid_context["diagnostics"] =
+        serde_json::json!({"raw_input":"must not be a diagnostic field"});
+    assert!(serde_json::from_value::<ErrorPayload>(invalid_context).is_err());
+}
+
+#[test]
+fn explicit_diagnostics_escape_controls_and_do_not_expose_upstream_prose() {
+    let path = "/private/Zoë 東京 😀\n\t\u{1b}[31m\"\\";
+    let error = ParserError::InvalidXlsx {
+        path: path.into(),
+        message: "UPSTREAM_PRIVATE_RECORD".into(),
+    };
+    let safe = error.report(DiagnosticsMode::Safe);
+    assert_eq!(safe.message(), "could not read XLSX workbook");
+    let detailed = error.report(DiagnosticsMode::Detailed);
+    assert_eq!(
+        detailed.message(),
+        format!(
+            "could not read XLSX workbook [diagnostics: {{\"path\":{}}}]",
+            serde_json::to_string(path).unwrap()
+        )
+    );
+    assert!(!detailed.message().contains('\n'));
+    assert!(!detailed.message().contains('\t'));
+    assert!(!detailed.message().contains('\u{1b}'));
+    assert!(
+        !serde_json::to_string(&detailed)
+            .unwrap()
+            .contains("UPSTREAM_PRIVATE_RECORD")
+    );
+    let bytes = ParserError::InvalidXlsx {
+        path: String::new(),
+        message: "could not read XLSX workbook".into(),
+    };
+    assert!(
+        bytes
+            .report(DiagnosticsMode::Detailed)
+            .error
+            .diagnostics
+            .is_none()
+    );
+}
+
+#[test]
+fn io_kind_conversion_preserves_categories_and_explicitly_refines_invalid_data() {
+    let cases = [
+        (
+            io::ErrorKind::NotFound,
+            IoErrorKind::NotFound,
+            "not_found",
+            "file not found",
+        ),
+        (
+            io::ErrorKind::PermissionDenied,
+            IoErrorKind::PermissionDenied,
+            "permission_denied",
+            "permission denied",
+        ),
+        (
+            io::ErrorKind::InvalidInput,
+            IoErrorKind::InvalidInput,
+            "invalid_input",
+            "invalid input",
+        ),
+        (
+            io::ErrorKind::InvalidData,
+            IoErrorKind::InvalidData,
+            "invalid_data",
+            "invalid data",
+        ),
+        (
+            io::ErrorKind::Other,
+            IoErrorKind::Other,
+            "other",
+            "I/O failure",
+        ),
+        (
+            io::ErrorKind::UnexpectedEof,
+            IoErrorKind::Other,
+            "other",
+            "I/O failure",
+        ),
+    ];
+    for (kind, expected, code, message) in cases {
+        let original = io::Error::new(kind, "PRIVATE_OS_PROSE");
+        let converted: IoErrorKind = original.kind().into();
+        assert_eq!(converted, expected);
+        assert_eq!(serde_json::to_value(&converted).unwrap(), code);
+        assert_eq!(converted.to_string(), message);
+        assert_eq!(
+            FailureKind::Io {
+                kind: converted.clone()
+            }
+            .to_string(),
+            format!("could not read input: {message}")
+        );
+        assert_eq!(
+            FailureKind::SchemaIo { kind: converted }.to_string(),
+            format!("could not read schema: {message}")
+        );
+    }
+}
+
+#[test]
+fn shared_schema_and_output_failure_families_have_exact_reports() {
+    let cases = [
+        (
+            FailureKind::SchemaIo {
+                kind: IoErrorKind::InvalidData,
+            },
+            serde_json::json!({"code":"schema_io_error","kind":"invalid_data"}),
+            "could not read schema: invalid data",
+        ),
+        (
+            FailureKind::SchemaInput,
+            serde_json::json!({"code":"schema_input_error"}),
+            "schema text must be valid UTF-8",
+        ),
+        (
+            FailureKind::SchemaParse,
+            serde_json::json!({"code":"schema_parse_error"}),
+            "invalid schema JSON",
+        ),
+        (
+            FailureKind::SchemaValidation {
+                reason: SchemaValidationReason::EmptyFieldName,
+            },
+            serde_json::json!({"code":"schema_validation_error","reason":"empty_field_name"}),
+            "invalid schema: field name must not be empty",
+        ),
+        (
+            FailureKind::SchemaFieldTypeUnsupported {
+                field_type: UnsupportedFieldType::Text,
+            },
+            serde_json::json!({"code":"schema_field_type_unsupported","field_type":"text"}),
+            "field type \"text\" is not supported by the parser yet",
+        ),
+        (
+            FailureKind::SchemaFieldTypeUnsupported {
+                field_type: UnsupportedFieldType::PersonName,
+            },
+            serde_json::json!({"code":"schema_field_type_unsupported","field_type":"person_name"}),
+            "field type \"person_name\" is not supported by the parser yet",
+        ),
+        (
+            FailureKind::SchemaFieldTypeUnsupported {
+                field_type: UnsupportedFieldType::Datetime,
+            },
+            serde_json::json!({"code":"schema_field_type_unsupported","field_type":"datetime"}),
+            "field type \"datetime\" is not supported by the parser yet",
+        ),
+        (
+            FailureKind::SchemaSerialization {
+                cause: SchemaFailureCause::Json,
+            },
+            serde_json::json!({"code":"schema_serialization_error","cause":{"kind":"json"}}),
+            "could not serialize schema",
+        ),
+        (
+            FailureKind::SchemaSerialization {
+                cause: SchemaFailureCause::Validation {
+                    reason: SchemaValidationReason::EmptyFieldName,
+                },
+            },
+            serde_json::json!({"code":"schema_serialization_error","cause":{"kind":"validation","reason":"empty_field_name"}}),
+            "could not serialize schema",
+        ),
+        (
+            FailureKind::OutputSerialization {
+                target: OutputTarget::ParseResult,
+            },
+            serde_json::json!({"code":"output_serialization_error","target":"parse_result"}),
+            "could not serialize parse result",
+        ),
+        (
+            FailureKind::OutputSerialization {
+                target: OutputTarget::RawDocument,
+            },
+            serde_json::json!({"code":"output_serialization_error","target":"raw_document"}),
+            "could not serialize raw document",
+        ),
+    ];
+    for (kind, mut payload, message) in cases {
+        payload["error_contract_version"] = "0.1".into();
+        let error = Failure::new(kind).with_path("/private/schema.json");
+        assert_eq!(serde_json::to_value(&error).unwrap(), payload);
+        assert_eq!(
+            serde_json::to_value(error.report(DiagnosticsMode::Safe)).unwrap(),
+            serde_json::json!({"error":payload,"message":message})
+        );
+        assert_eq!(error.to_string(), message);
+        payload["diagnostics"] = serde_json::json!({"path":"/private/schema.json"});
+        let detailed_message =
+            format!("{message} [diagnostics: {{\"path\":\"/private/schema.json\"}}]");
+        let detailed = error.report(DiagnosticsMode::Detailed);
+        assert_eq!(
+            serde_json::to_value(&detailed).unwrap(),
+            serde_json::json!({"error":payload,"message":detailed_message})
+        );
+        assert_eq!(
+            serde_json::from_value::<ErrorPayload>(payload).unwrap(),
+            detailed.error
+        );
+    }
+}
+
+#[test]
+fn default_parser_error_serialization_is_versioned_and_private() {
+    let error = ParserError::Io {
+        path: "/synthetic/private/東京.txt".into(),
+        kind: IoErrorKind::NotFound,
+    };
+    assert_eq!(
+        serde_json::to_value(&error).unwrap(),
+        serde_json::json!({
+            "error_contract_version": "0.1", "code": "io_error", "kind": "not_found"
+        })
+    );
+    assert_eq!(error.to_string(), "could not read input: file not found");
+}
+
+#[test]
+fn legacy_parser_error_json_retains_original_cause_data() {
+    let errors: Vec<ParserError> = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/contracts/errors-legacy.json"
+    )))
+    .unwrap();
+    assert_eq!(
+        errors,
+        vec![
+            ParserError::Io {
+                path: "/synthetic/private/東京.txt".into(),
+                kind: IoErrorKind::NotFound
+            },
+            ParserError::InvalidUtf8 {
+                path: "/synthetic/private/東京.txt".into(),
+                valid_up_to: 4
+            },
+            ParserError::UnsupportedInput {
+                source_type: "private-format".into()
+            },
+            ParserError::InputTooLarge {
+                source: "/synthetic/private/東京.txt".into(),
+                limit: 10,
+                actual: 11
+            },
+            ParserError::LineTooLong {
+                source: "private-source".into(),
+                line: 3,
+                limit: 10,
+                actual: 11
+            },
+            ParserError::InvalidCsv {
+                path: "private.csv".into(),
+                record: None,
+                message: "private upstream CSV prose".into()
+            },
+            ParserError::InvalidXlsx {
+                path: "private.xlsx".into(),
+                message: "private upstream XLSX prose".into()
+            },
+        ]
+    );
+}
+
 fn test_document(blocks: Vec<RawBlock>) -> RawDocument {
     RawDocument::new(
         "test-document",
@@ -1219,7 +1683,7 @@ fn parser_errors_have_stable_codes() {
     assert_eq!(error.code(), "invalid_utf8");
     assert_eq!(
         error.to_string(),
-        "input.txt is not valid UTF-8 at byte offset 4"
+        "input is not valid UTF-8 at byte offset 4"
     );
 }
 
@@ -1235,7 +1699,7 @@ fn input_limits_have_stable_codes() {
     assert_eq!(error.code(), "line_too_long");
     assert_eq!(
         error.to_string(),
-        "<stdin> line 3 exceeds the 10-byte limit (11 bytes)"
+        "input line 3 exceeds the 10-byte limit (11 bytes)"
     );
 }
 
@@ -1657,7 +2121,7 @@ fn io_error_kind_is_serializable() {
     let json = serde_json::to_string(&error).expect("error should serialize");
     assert_eq!(
         json,
-        r#"{"code":"io_error","path":"missing.txt","kind":"not_found"}"#
+        r#"{"error_contract_version":"0.1","code":"io_error","kind":"not_found"}"#
     );
 }
 

@@ -27,7 +27,8 @@ proposes a library caller interface in [ADR 0006](decisions/0006-library-interfa
 Node/CLI evidence is independently reviewed; backend selection awaits the
 bounded WASM gate. [#22's generic XLSX byte input](https://github.com/2001J/fuzzy-parser/issues/22)
 is implemented and independently verified locally with parity regressions.
-#2 remains ready to unblock shared schema compilation in #12. No queue or
+#2's bounded error migration is independently reviewed and verified locally,
+unblocking shared schema compilation in #12. No queue or
 separate service is part of this initial direction. These individual
 steps do not establish complete engine readiness or authorize publication.
 
@@ -50,7 +51,7 @@ selected independently.
 | [#21 Unicode-safe assignment context](https://github.com/2001J/fuzzy-parser/issues/21) | Implemented and independently verified with permanent core/CLI regressions |
 | [#11 Select one reusable runtime boundary](https://github.com/2001J/fuzzy-parser/issues/11) | Bounded evidence reviewed; #22 is verified. Backend decision waits for #12 and a separately scoped JS/WASM comparison |
 | [#22 Filesystem-free XLSX byte input](https://github.com/2001J/fuzzy-parser/issues/22) | Implemented and independently verified locally. File/byte canonical parity is tested, not WASM execution or resource safety |
-| [#2 Finish safe structured errors](https://github.com/2001J/fuzzy-parser/issues/2) | Ready; path redaction and error coverage remain |
+| [#2 Finish safe structured errors](https://github.com/2001J/fuzzy-parser/issues/2) | Independently reviewed and verified locally; safe error-contract migration and privacy/compatibility regressions |
 | [#4 Permanent TXT adapter edge-case fixtures](https://github.com/2001J/fuzzy-parser/issues/4) | Ready; adapter exists, durable acceptance coverage is incomplete |
 | [#5 Reusable file validation and empty policy](https://github.com/2001J/fuzzy-parser/issues/5) | #2 |
 | [#6 Strict CLI dispatch and arguments](https://github.com/2001J/fuzzy-parser/issues/6) | #2, #5 |
@@ -100,7 +101,7 @@ host-owned parity tests; engine completion alone does not authorize migration.
 ## Version and history reconciliation
 
 The workspace/package version is `0.1.0`; parse and schema contracts each use
-`0.1`. These are independent version axes, governed by
+`0.1`; the new error contract separately uses `0.1`. These are independent version axes, governed by
 [release strategy](release-and-environment-strategy.md). No version bump, tag, or
 release is authorized by a milestone name.
 

@@ -31,7 +31,9 @@ If a maintenance branch is later required, document its support window and merge
 ## Versioning
 
 The current workspace/package version is `0.1.0`; the parse response contract and
-schema contract each use `0.1`. Planning milestones are named outcomes
+schema contract each use `0.1`; the separate [error contract](data-contracts.md#error-contract-01-and-migration-from-unversioned-errors)
+now uses `0.1`. The error migration does not bump packages or imply publication.
+Planning milestones are named outcomes
 (`Reviewable import engine`, `Extended format and profile coverage`), not software versions.
 The historical roadmap `0.1`–`0.14` sequence and TXT-only `v0.1` epic are
 reconciled in [roadmap](roadmap.md); they do not establish published releases.

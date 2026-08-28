@@ -17,7 +17,8 @@ defined in [testing strategy](testing-strategy.md).
 
 The implemented `ParseResponse.contract_version` is `0.1`; schema JSON uses
 `schema_version: "0.1"`; the workspace/package and response `parser_version` are
-`0.1.0`. Raw inspection and current error envelopes have no version field.
+`0.1.0`. Errors now use `error_contract_version: "0.1"`; raw inspection has no
+version field. These version axes are independent.
 A unified serialized parse request is still proposed. Planning milestone names
 are not any of these versions; see [release strategy](release-and-environment-strategy.md).
 
@@ -28,6 +29,125 @@ are not any of these versions; see [release strategy](release-and-environment-st
 ```
 
 Parser implementation version and schema contract version are separate concerns.
+
+### Error contract 0.1 and migration from unversioned errors
+
+[#2](https://github.com/2001J/fuzzy-parser/issues/2) deliberately changes error
+serialization and default human messages. Its implementation is independently
+reviewed and verified locally; it is not a package release. Success JSON, schema JSON,
+`ParseResponse.contract_version`, source evidence and warnings are unchanged.
+The CLI keeps its outer `error`/`message` envelope, JSON stderr and exit `1`:
+
+```json
+{
+  "error": {
+    "error_contract_version": "0.1",
+    "code": "io_error",
+    "kind": "not_found"
+  },
+  "message": "could not read input: file not found"
+}
+```
+
+[`parser-core::Failure`](../crates/parser-core/src/errors.rs) is the shared typed
+boundary. `FailureKind` carries safe category metadata; `ErrorPayload` is the
+wire payload above; `ErrorReport` adds the outer message. `Failure::report(mode)`
+and `ParserError::report(mode)` use the same exhaustive renderer as default
+`Display`. Schema causes convert to `Failure` and expose the same report method.
+`ParserError` and `Failure` default `Serialize` emit the **bare safe payload**,
+not the outer CLI envelope.
+
+`ErrorReport` stores only its public typed `error` payload. Its `message()`
+accessor returns a freshly rendered `String`; there is no independently mutable
+`message` field. Serialization always derives the outer message from the same
+payload as `Display`, including after payload changes. Deserialization
+**canonicalizes**: it ignores incoming outer `message` prose (also accepting an
+absent or non-string message) and never stores or re-emits it. The typed `error`
+is still required and validated. Generated safe/detailed envelopes retain exact
+round trips; forged or stale outer messages intentionally do not. Explicit
+diagnostics inside `ErrorPayload` are preserved, not redacted by decoding.
+
+All thirteen previous codes retain their meanings. The table lists default
+metadata beyond `code` and `error_contract_version`; private context is absent:
+
+| Code | Default metadata |
+| --- | --- |
+| `io_error` | `kind` |
+| `invalid_utf8` | `valid_up_to` byte offset |
+| `unsupported_input` | None; does not add strict CLI extension dispatch |
+| `input_too_large` | `limit`, `actual` byte counts |
+| `line_too_long` | `line` (one-based), `limit`, `actual` byte counts |
+| `invalid_csv` | `record` (one-based) or explicit `null` |
+| `invalid_xlsx` | None |
+| `schema_io_error` | `kind`; includes invalid schema UTF-8 |
+| `schema_input_error` | None; non-UTF-8 inline schema OS argument |
+| `schema_parse_error` | None; invalid schema JSON |
+| `schema_validation_error` | Typed `reason` |
+| `schema_field_type_unsupported` | Known literal `field_type`: `text`, `person_name`, or `datetime` |
+| `schema_serialization_error` | Typed `cause`: `{"kind":"json"}` or `{"kind":"validation","reason":...}` |
+| `output_serialization_error` (new) | Fixed `target`: `parse_result` or `raw_document` |
+
+Validation reasons are `empty_schema_version`, `unsupported_schema_version`,
+`empty_field_name`, `duplicate_field_name`, `duplicate_field_label`, `empty_alias`,
+`empty_enum_value`, `duplicate_enum_value`, `empty_enum_alias`, `duplicate_enum_alias`,
+`invalid_integer_range`, and `invalid_length_range`. Numeric metadata is not
+new validation policy. Bounded reads can report the observed `limit + 1` bytes
+rather than the complete size of an unread remainder.
+
+`IoErrorKind` now has the Rust variant `InvalidData` / JSON `invalid_data`.
+Conversion from `std::io::ErrorKind::InvalidData` deliberately refines its old
+`Other` mapping. Other existing kinds remain `not_found`, `permission_denied`,
+`invalid_input`, and `other`. Rust exhaustive matches must handle the addition.
+Schema UTF-8 failures retain `schema_io_error`, not `schema_parse_error`.
+
+#### Explicit detailed diagnostics
+
+`DiagnosticsMode::Safe` is the default library mode; request `Detailed` explicitly
+through `error.report(DiagnosticsMode::Detailed)`. The CLI equivalent is a single
+leading `--diagnostics` before the command (see [usage](integration-strategy.md#current-cli-boundary)).
+Only this opt-in can add `error.diagnostics`. It contains available, typed,
+allowlisted context: `path`, `source`, `field`, `value`, `alias`, `version`, or
+`source_type`. Absent context stays absent. An empty byte-XLSX error path does not
+become a fabricated path or filename. Duplicate field labels use `value` because
+the existing cause does not distinguish a field name from an alias.
+
+Detailed `Display` and the report's message append
+` [diagnostics: {JSON-escaped context}]` to the same safe message. Control
+characters are escaped, not emitted as terminal controls. Full input/schema and
+opaque dependency/OS/serde prose are never copied into reports, even in this mode.
+Detailed diagnostics **may still contain sensitive caller data**. They and raw
+in-process cause fields / `Debug` output are not safe for public logs. Successful
+source-backed results also remain sensitive; this is not success-output redaction.
+
+#### Consumer migration and deserialization
+
+- Stop reading default `path`, `source`, `source_type`, opaque CSV/XLSX `message`,
+  or redundant schema `error.message`. Use the stable code and typed metadata;
+  use the outer message for display, not as a machine discriminator. Explicit
+  diagnostics are for authorized troubleshooting, not a replacement public log.
+- Existing in-process `ParserError` and schema cause variants/data/return types
+  remain, including #22's exact file paths and internal XLSX cause strings.
+  `SchemaParseError::source()` now exposes the actual nested validation error;
+  already-flattened OS/serde strings are not reconstructed as invented causes.
+- `ParserError::Deserialize` intentionally still reads **legacy cause JSON**
+  with its original required private fields. Its new redacted serialization
+  cannot reconstruct those fields and does **not** round-trip as `ParserError`.
+  Decode new output as `ErrorPayload` (or `ErrorReport` for the CLI envelope).
+  The [legacy cause fixture](../fixtures/contracts/errors-legacy.json) retains
+  read compatibility; it is not the new output shape.
+- `ErrorPayload` round-trips supported typed payloads, with or without explicit
+  diagnostics. It requires version `"0.1"` and rejects missing/unknown versions,
+  unknown failure variants and unknown diagnostic keys. Unknown outer payload
+  keys are ignored, not retained; this is not arbitrary-JSON round-trip support.
+- Update strict JSON consumers for the version field, typed schema metadata and
+  additive output-serialization code. Usage failures remain plain stderr/exit
+  `2`, including non-UTF-8 `inspect --text` OS arguments. No command-routing or
+  extra-argument cleanup is included.
+
+The [pre-migration success goldens](../fixtures/contracts/cli-success-before-errors.json)
+fix exact stdout for TXT/pasted/CSV/XLSX inspection, schema output and a source-backed
+parse. [Testing strategy](testing-strategy.md#error-contract-regressions) describes
+coverage and the serialization-failure branches tested only at the report boundary.
 
 ### Source-evidence extension and compatibility
 
@@ -90,13 +210,14 @@ ordered block IDs, stored typed values, blank cells, worksheet coordinates and
 warnings. Cached formula values are read without recalculation. This does not
 add original-file byte offsets, displayed formatting or new table-selection rules.
 
-Missing files and invalid file reads preserve the existing error categories,
-supplied paths and messages. Invalid byte input returns `InvalidXlsx`
+Missing files and invalid file reads preserve the existing in-process error
+categories, supplied paths and cause data. Invalid byte input returns `InvalidXlsx`
 (`invalid_xlsx`) with `path: ""` and the generic message
 `could not read XLSX workbook`; no filename, sheet name or workbook content is
 added to diagnostics. The empty string preserves the existing required string
-field without inventing a filesystem path. Shared file-error redaction remains
-[#2](https://github.com/2001J/fuzzy-parser/issues/2).
+field without inventing a filesystem path. Default serialization and Display
+now use the [safe error contract](#error-contract-01-and-migration-from-unversioned-errors);
+the empty internal path is absent even from explicit diagnostics.
 
 This additive library API does not change CLI commands or JSON/package versions.
 The local [#22](https://github.com/2001J/fuzzy-parser/issues/22) implementation and
@@ -551,8 +672,8 @@ Duration is diagnostic metadata and must not affect deterministic output compari
 ## Serialization requirements
 
 These are evolution requirements, not a claim that every current input or
-output validates them. In particular, safe diagnostic redaction, arbitrary
-normalization source maps and adapter-level original-file fidelity remain open work.
+output validates them. Arbitrary normalization source maps, optional redaction
+of successful raw results and adapter-level original-file fidelity remain open work.
 
 - Use explicit enums rather than magic strings internally.
 - JSON field names must remain stable once external integrations depend on them.

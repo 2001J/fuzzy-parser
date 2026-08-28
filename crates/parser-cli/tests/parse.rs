@@ -1,4 +1,5 @@
 use serde_json::Value;
+mod support;
 use std::{
     io::Write,
     path::PathBuf,
@@ -15,6 +16,127 @@ fn text_fixture_path() -> PathBuf {
 
 fn schema_fixture_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/schema/contact.json")
+}
+
+#[test]
+fn parse_unsupported_types_expose_only_known_type_literals_by_default() {
+    let directory = support::TestDirectory::new();
+    let input = directory.file("private.txt", b"private input --diagnostics");
+    for field_type in ["text", "person_name", "datetime"] {
+        let schema = serde_json::json!({
+            "schema_version": "0.1", "record_name": "private record", "options": {"allow_unknown_fields":true},
+            "fields": [{"name":"private field 東京\n\u{1b}", "field_type": field_type, "required":false, "multiple":false, "aliases":[], "constraints":[]}]
+        });
+        let path = directory.file(
+            "private-schema.json",
+            serde_json::to_string(&schema).unwrap().as_bytes(),
+        );
+        let args = [
+            "parse",
+            input.to_str().unwrap(),
+            "--schema",
+            path.to_str().unwrap(),
+        ];
+        let safe = support::run(&args, None);
+        let mut expected = serde_json::json!({"error_contract_version":"0.1", "code":"schema_field_type_unsupported", "field_type":field_type});
+        assert_eq!(
+            support::error(&safe),
+            serde_json::json!({"error":expected, "message":format!("field type \"{field_type}\" is not supported by the parser yet")})
+        );
+        assert!(!String::from_utf8_lossy(&safe.stderr).contains("private"));
+        let mut trailing = args.to_vec();
+        trailing.push("--diagnostics");
+        assert_eq!(safe.stderr, support::run(&trailing, None).stderr);
+        expected["diagnostics"] = serde_json::json!({"field":"private field 東京\n\u{1b}"});
+        let mut detailed_args = args.to_vec();
+        detailed_args.insert(0, "--diagnostics");
+        let detailed = support::run(&detailed_args, None);
+        assert_eq!(support::error(&detailed)["error"], expected);
+        assert_eq!(detailed.stderr, support::run(&detailed_args, None).stderr);
+        assert!(!String::from_utf8_lossy(&detailed.stderr).contains("private input"));
+        assert!(!String::from_utf8_lossy(&detailed.stderr).contains('\u{1b}'));
+    }
+}
+
+#[test]
+fn parse_file_errors_share_the_inspect_and_schema_error_boundary() {
+    let directory = support::TestDirectory::new();
+    let schema = schema_fixture_path();
+    for (name, bytes, code) in [
+        ("private.txt", b"private\xff".as_slice(), "invalid_utf8"),
+        (
+            "private.csv",
+            b"name,note\nprivate,\"unclosed".as_slice(),
+            "invalid_csv",
+        ),
+        (
+            "private.xlsx",
+            b"private workbook data".as_slice(),
+            "invalid_xlsx",
+        ),
+    ] {
+        let path = directory.file(name, bytes);
+        for prefix in [vec![], vec!["--diagnostics"]] {
+            let mut parse = prefix.clone();
+            parse.extend([
+                "parse",
+                path.to_str().unwrap(),
+                "--schema",
+                schema.to_str().unwrap(),
+            ]);
+            let output = support::run(&parse, None);
+            assert_eq!(support::error(&output)["error"]["code"], code);
+            let mut inspect = prefix;
+            inspect.extend(["inspect", path.to_str().unwrap()]);
+            assert_eq!(output.stderr, support::run(&inspect, None).stderr);
+        }
+    }
+    for bytes in [b"{private schema".as_slice(), b"private\xff".as_slice()] {
+        let schema = directory.file("private.json", bytes);
+        for prefix in [vec![], vec!["--diagnostics"]] {
+            let mut parse = prefix.clone();
+            parse.extend([
+                "parse",
+                "missing-input.txt",
+                "--schema",
+                schema.to_str().unwrap(),
+            ]);
+            let output = support::run(&parse, None);
+            support::error(&output);
+            let mut validate = prefix;
+            validate.extend(["schema", "validate", schema.to_str().unwrap()]);
+            assert_eq!(output.stderr, support::run(&validate, None).stderr);
+        }
+    }
+}
+
+#[test]
+fn leading_diagnostics_does_not_change_stdin_parse_source_or_review_output() {
+    let input = "--diagnostics 東京\nada@example.test\n\n";
+    let schema = schema_fixture_path();
+    let args = ["parse", "--stdin", "--schema", schema.to_str().unwrap()];
+    let safe = support::run(&args, Some(input.as_bytes()));
+    let detailed = support::run(
+        &[
+            "--diagnostics",
+            "parse",
+            "--stdin",
+            "--schema",
+            schema.to_str().unwrap(),
+        ],
+        Some(input.as_bytes()),
+    );
+    assert_eq!(safe.status.code(), Some(0));
+    assert_eq!(detailed.status.code(), Some(0));
+    assert!(safe.stderr.is_empty());
+    assert!(detailed.stderr.is_empty());
+    assert_eq!(safe.stdout, detailed.stdout);
+    let response: Value = serde_json::from_slice(&safe.stdout).unwrap();
+    assert_candidate_sources(&response);
+    assert_eq!(
+        response["source_evidence"]["document"]["blocks"][0]["value"]["value"],
+        "--diagnostics 東京"
+    );
 }
 
 fn text_schema_fixture_path() -> PathBuf {

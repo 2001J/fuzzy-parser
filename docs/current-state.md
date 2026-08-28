@@ -4,6 +4,8 @@ Last reviewed: 2026-08-28, including the #10 source-evidence extension and the
 independently verified [#21 Unicode context fix](https://github.com/2001J/fuzzy-parser/issues/21).
 The local [#22 XLSX byte API](https://github.com/2001J/fuzzy-parser/issues/22)
 implementation and file-reader parity have also been independently verified.
+The local [#2 error migration](https://github.com/2001J/fuzzy-parser/issues/2) is
+independently reviewed and verified with permanent privacy/compatibility regressions.
 The [dated audit](audits/2026-08-27-backlog.md) records the earlier implementation baseline.
 
 This document records only what is implemented in the repository now. It must not describe planned behavior as complete.
@@ -32,6 +34,7 @@ The workspace currently contains four crates:
 - CSV extraction scores comma, semicolon, tab, and pipe delimiters, supports explicit overrides, quoted/multiline cells, empty cells, and row/column provenance.
 - `parser-formats` reads XLSX workbooks from paths or borrowed bytes with optional filename metadata, using one extraction path with sheet, row, column and typed-cell provenance. The byte API performs no filesystem/network I/O; both read stored/cached values without executing formulas or macros. See [XLSX library input](data-contracts.md#xlsx-library-input--implemented) for metadata and error semantics.
 - `parser-schema` provides serializable generic target-schema models for fields, enum values, aliases, and basic constraints, plus structural validation for supported versions and ambiguous labels.
+- Format/schema errors share typed reports and safe default JSON/Display in `parser-core`. Explicit library diagnostics and a leading CLI `--diagnostics` expose only allowlisted context, which may be sensitive. The [error contract migration](data-contracts.md#error-contract-01-and-migration-from-unversioned-errors) preserves codes/cause meanings while changing default fields/messages, adding the separate error version and refining invalid-data I/O kinds. Successful output is unchanged.
 - Text input has library-configurable byte and line-length limits; the CLI uses the fixed defaults of 1 MiB total and 64 KiB per line. Empty text is accepted. CSV, XLSX, and schema loading do not have equivalent configurable resource limits.
 - The CLI supports help output, `inspect <path>` for TXT, CSV, and XLSX files, `inspect --stdin`, `inspect --text <content>`, schema validation from a path, standard input, or inline text with optional compact output, and `parse <path> --schema <schema-path>` / `parse --stdin --schema <schema-path>`, emitting canonical JSON with structured errors and nonzero exit codes.
 - The CLI `parse` command loads a validated caller schema, converts supported field types into assignment instructions, and runs the versioned `ParseResponse` pipeline; schemas that reference not-yet-supported field types (`text`, `person_name`, `datetime`) are rejected with a structured `schema_field_type_unsupported` error instead of silently dropping fields.
@@ -44,7 +47,7 @@ The workspace currently contains four crates:
 ## Known limitations
 
 - Unknown file extensions fall through to the TXT reader; the shared file-validation API, explicit empty-file policy, and strict dispatch are incomplete (#5/#6 in the [roadmap](roadmap.md)).
-- Error JSON and messages can expose supplied absolute paths. Schema errors use a separate CLI envelope; not all errors are covered by exact serialization tests.
+- Raw in-process cause data and `Debug`, explicit diagnostics, and successful source-backed output remain potentially sensitive. Default error redaction does not add success-output redaction, uniform resource limits, or a general diagnostics framework.
 - `parse` does not invoke normalization or record segmentation. Indented continuation lines still become separate records.
 - Plain-text detectors use conservative token matching; comma-adjacent email can be missed. `--stdin` is text, not a tabular auto-detection mode.
 - The table header heuristic can mistake an all-text first data row for a header. There are no public CLI options for header/row/sheet selection.

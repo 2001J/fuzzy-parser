@@ -1,3 +1,7 @@
+use parser_core::{
+    DiagnosticContext, DiagnosticsMode, ErrorReport, Failure, FailureKind, SchemaFailureCause,
+    SchemaValidationReason,
+};
 use serde::{Deserialize, Serialize};
 use std::{error::Error, fmt};
 
@@ -89,54 +93,111 @@ pub enum SchemaParseError {
 
 impl fmt::Display for SchemaParseError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Failure::from(self).fmt(formatter)
+    }
+}
+
+impl Error for SchemaParseError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::InvalidJson(message) => write!(formatter, "invalid schema JSON: {message}"),
-            Self::InvalidSchema(error) => write!(formatter, "invalid schema: {error}"),
+            Self::InvalidSchema(error) => Some(error),
+            Self::InvalidJson(_) => None,
         }
     }
 }
 
-impl Error for SchemaParseError {}
-
 impl fmt::Display for SchemaValidationError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::EmptySchemaVersion => write!(formatter, "schema version must not be empty"),
-            Self::UnsupportedSchemaVersion(version) => {
-                write!(formatter, "unsupported schema version: {version}")
-            }
-            Self::EmptyFieldName => write!(formatter, "field name must not be empty"),
-            Self::DuplicateFieldName(name) => write!(formatter, "duplicate field name: {name}"),
-            Self::DuplicateFieldLabel(label) => {
-                write!(formatter, "duplicate field label: {label}")
-            }
-            Self::EmptyAlias { field } => write!(formatter, "field {field} has an empty alias"),
-            Self::EmptyEnumValue { field } => {
-                write!(formatter, "enum field {field} has an empty value")
-            }
-            Self::DuplicateEnumValue { field, value } => {
-                write!(formatter, "enum field {field} repeats value: {value}")
-            }
-            Self::EmptyEnumAlias { field, value } => {
-                write!(
-                    formatter,
-                    "enum value {value} in field {field} has an empty alias"
-                )
-            }
-            Self::DuplicateEnumAlias { field, alias } => {
-                write!(formatter, "enum field {field} repeats alias: {alias}")
-            }
-            Self::InvalidIntegerRange { field } => {
-                write!(formatter, "field {field} has an invalid integer range")
-            }
-            Self::InvalidLengthRange { field } => {
-                write!(formatter, "field {field} has an invalid length range")
-            }
-        }
+        Failure::from(self).fmt(formatter)
     }
 }
 
 impl Error for SchemaValidationError {}
+
+impl From<&SchemaValidationError> for Failure {
+    fn from(error: &SchemaValidationError) -> Self {
+        let mut context = DiagnosticContext::default();
+        let reason = match error {
+            SchemaValidationError::EmptySchemaVersion => SchemaValidationReason::EmptySchemaVersion,
+            SchemaValidationError::UnsupportedSchemaVersion(version) => {
+                context.version = Some(version.clone());
+                SchemaValidationReason::UnsupportedSchemaVersion
+            }
+            SchemaValidationError::EmptyFieldName => SchemaValidationReason::EmptyFieldName,
+            SchemaValidationError::DuplicateFieldName(field) => {
+                context.field = Some(field.clone());
+                SchemaValidationReason::DuplicateFieldName
+            }
+            SchemaValidationError::DuplicateFieldLabel(value) => {
+                context.value = Some(value.clone());
+                SchemaValidationReason::DuplicateFieldLabel
+            }
+            SchemaValidationError::EmptyAlias { field } => {
+                context.field = Some(field.clone());
+                SchemaValidationReason::EmptyAlias
+            }
+            SchemaValidationError::EmptyEnumValue { field } => {
+                context.field = Some(field.clone());
+                SchemaValidationReason::EmptyEnumValue
+            }
+            SchemaValidationError::DuplicateEnumValue { field, value } => {
+                context.field = Some(field.clone());
+                context.value = Some(value.clone());
+                SchemaValidationReason::DuplicateEnumValue
+            }
+            SchemaValidationError::EmptyEnumAlias { field, value } => {
+                context.field = Some(field.clone());
+                context.value = Some(value.clone());
+                SchemaValidationReason::EmptyEnumAlias
+            }
+            SchemaValidationError::DuplicateEnumAlias { field, alias } => {
+                context.field = Some(field.clone());
+                context.alias = Some(alias.clone());
+                SchemaValidationReason::DuplicateEnumAlias
+            }
+            SchemaValidationError::InvalidIntegerRange { field } => {
+                context.field = Some(field.clone());
+                SchemaValidationReason::InvalidIntegerRange
+            }
+            SchemaValidationError::InvalidLengthRange { field } => {
+                context.field = Some(field.clone());
+                SchemaValidationReason::InvalidLengthRange
+            }
+        };
+        Failure::new(FailureKind::SchemaValidation { reason }).with_context(context)
+    }
+}
+
+impl From<&SchemaParseError> for Failure {
+    fn from(error: &SchemaParseError) -> Self {
+        match error {
+            SchemaParseError::InvalidJson(_) => Failure::new(FailureKind::SchemaParse),
+            SchemaParseError::InvalidSchema(error) => Failure::from(error),
+        }
+    }
+}
+
+impl SchemaParseError {
+    pub fn report(&self, mode: DiagnosticsMode) -> ErrorReport {
+        Failure::from(self).report(mode)
+    }
+
+    pub fn serialization_failure(&self) -> Failure {
+        let mut failure = Failure::from(self);
+        let cause = match failure.kind {
+            FailureKind::SchemaValidation { reason } => SchemaFailureCause::Validation { reason },
+            _ => SchemaFailureCause::Json,
+        };
+        failure.kind = FailureKind::SchemaSerialization { cause };
+        failure
+    }
+}
+
+impl SchemaValidationError {
+    pub fn report(&self, mode: DiagnosticsMode) -> ErrorReport {
+        Failure::from(self).report(mode)
+    }
+}
 
 impl TargetSchema {
     pub fn from_json(input: &str) -> Result<Self, SchemaParseError> {

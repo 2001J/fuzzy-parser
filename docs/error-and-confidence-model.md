@@ -10,12 +10,15 @@ serialized shapes and [current state](current-state.md) for implementation gaps.
 - `parser-core::ParserError` has `io_error`, `invalid_utf8`, `unsupported_input`,
   `input_too_large`, `line_too_long`, `invalid_csv`, and `invalid_xlsx` variants.
   Missing files use `io_error` with `kind: "not_found"`.
-- The CLI maps separate schema errors to codes including `schema_parse_error`,
-  `schema_validation_error`, and `schema_field_type_unsupported`. There is not
-  yet one shared serializable error contract across all libraries/interfaces.
+- Format and schema causes now convert to `parser-core::Failure`, with shared
+  typed payloads and exhaustive safe rendering. The [error contract and migration](data-contracts.md#error-contract-01-and-migration-from-unversioned-errors)
+  owns the codes, exact fields and legacy-read versus new-wire compatibility.
+  This #2 implementation is independently reviewed and verified locally.
 - Normal processing failures use JSON stderr and exit `1`. Usage failures use
-  plain stderr and exit `2`. Errors can expose supplied absolute paths, and some
-  messages use debug formatting. Redaction and exact-code coverage remain [#2](https://github.com/2001J/fuzzy-parser/issues/2).
+  plain stderr and exit `2`. Default JSON and `Display` omit supplied paths,
+  caller values and opaque upstream prose. Explicit detailed reports may expose
+  allowlisted caller context with JSON escaping; they are potentially sensitive,
+  as are raw in-process cause fields and `Debug`. Do not send them to public logs.
 - Assignment warnings include `required_field_missing` and
   `multiple_candidates_ambiguous`; separate segmentation APIs have boundary
   warnings. The document response now forwards input warnings before row-grouping
@@ -56,12 +59,12 @@ Required categories (some remain unimplemented at the shared boundary):
 - Invalid schema.
 - Internal invariant failure.
 
-The target fatal-error contract should include:
+The implemented fatal-error contract contains stable codes, fixed human messages,
+typed numeric/reason metadata and optional explicitly requested diagnostics.
+It does not include retry policy or a generic invariant-failure category. Future
+extensions may add:
 
-- Stable machine-readable code.
-- Human-readable message.
-- Optional source location.
-- Optional safe diagnostic context.
+- Additional typed source locations.
 - Whether retrying with different input or configuration may help.
 
 The CLI should return a non-zero exit code for fatal errors.
@@ -86,10 +89,11 @@ Warnings must not be represented only as prose. Use stable codes and structured 
 
 ## Rejected fragments
 
-A rejected fragment is the proposed representation for source content that
-could not be incorporated into a record or assignment. No such complete
-accounting exists in `ParseResponse` yet; unassigned *detected candidates* alone
-do not cover text that no detector recognized.
+A standalone rejected-fragment model remains proposed. Today's `ParseResponse`
+accounts for every canonical block through embedded evidence, unused spans and
+header/exclusion roles; unassigned detected candidates remain separate. See
+[source coverage](data-contracts.md#versioned-parse-result). This is canonical
+content retention, not exact original CSV/XLSX file fidelity or business rejection.
 
 It should preserve:
 

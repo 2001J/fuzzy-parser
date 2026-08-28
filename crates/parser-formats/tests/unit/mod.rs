@@ -3,6 +3,111 @@ use parser_core::RawValue;
 use std::{io::Cursor, path::PathBuf};
 
 #[test]
+fn reader_io_conversions_keep_kinds_but_never_publish_upstream_prose() {
+    use parser_core::{DiagnosticsMode, IoErrorKind};
+    struct BrokenReader(std::io::ErrorKind);
+    impl Read for BrokenReader {
+        fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::new(
+                self.0,
+                "private upstream record 東京\n\u{1b}",
+            ))
+        }
+    }
+    for (os_kind, kind) in [
+        (std::io::ErrorKind::NotFound, IoErrorKind::NotFound),
+        (
+            std::io::ErrorKind::PermissionDenied,
+            IoErrorKind::PermissionDenied,
+        ),
+        (std::io::ErrorKind::InvalidInput, IoErrorKind::InvalidInput),
+        (std::io::ErrorKind::InvalidData, IoErrorKind::InvalidData),
+        (std::io::ErrorKind::Other, IoErrorKind::Other),
+    ] {
+        let path = "/private/東京.txt";
+        let error =
+            read_limited(&mut BrokenReader(os_kind), path, TextLimits::default()).unwrap_err();
+        assert_eq!(
+            error,
+            ParserError::Io {
+                path: path.to_owned(),
+                kind: kind.clone()
+            }
+        );
+        let report = error.report(DiagnosticsMode::Safe);
+        assert_eq!(
+            report.error.error_contract_version,
+            parser_core::ErrorContractVersion::V0_1
+        );
+        assert_eq!(report.error.failure, parser_core::FailureKind::Io { kind });
+        assert!(report.error.diagnostics.is_none());
+        let safe = report.to_string();
+        assert!(!safe.contains("private"));
+        let detailed = error.report(DiagnosticsMode::Detailed);
+        assert_eq!(
+            detailed.error.diagnostics.as_ref().unwrap().path.as_deref(),
+            Some(path)
+        );
+        assert!(!detailed.message().contains("upstream"));
+    }
+}
+
+#[test]
+fn malformed_byte_inputs_preserve_private_causes_without_leaking_payloads() {
+    use parser_core::DiagnosticsMode;
+    let errors = [
+        read_txt_bytes(None, b"private-record\xff", "/private/input.txt").unwrap_err(),
+        read_csv_bytes(
+            None,
+            b"name,note\nprivate,\"unclosed",
+            "/private/input.csv",
+            CsvOptions::default(),
+        )
+        .unwrap_err(),
+        read_csv_bytes(
+            None,
+            b"name\nprivate\xff",
+            "/private/encoding.csv",
+            CsvOptions::default(),
+        )
+        .unwrap_err(),
+        read_xlsx_bytes(Some("private.xlsx"), b"private workbook content").unwrap_err(),
+    ];
+    assert!(
+        matches!(&errors[0], ParserError::InvalidUtf8 { path, valid_up_to: 14 } if path == "/private/input.txt")
+    );
+    assert!(
+        matches!(&errors[1], ParserError::InvalidCsv { path, record: None, .. } if path == "/private/input.csv")
+    );
+    assert!(
+        matches!(&errors[2], ParserError::InvalidCsv { path, .. } if path == "/private/encoding.csv")
+    );
+    assert_eq!(
+        errors[3],
+        ParserError::InvalidXlsx {
+            path: String::new(),
+            message: "could not read XLSX workbook".to_owned()
+        }
+    );
+    for error in errors {
+        let original = error.clone();
+        let safe = error.report(DiagnosticsMode::Safe).to_string();
+        assert!(!safe.contains("private"));
+        let detailed = error.report(DiagnosticsMode::Detailed);
+        assert_eq!(
+            detailed.error.failure,
+            parser_core::Failure::from(&error).kind
+        );
+        if matches!(error, ParserError::InvalidXlsx { .. }) {
+            assert!(detailed.error.diagnostics.is_none());
+        }
+        assert!(!detailed.to_string().contains("unclosed"));
+        assert!(!detailed.to_string().contains("private workbook content"));
+        assert_eq!(error, original);
+    }
+}
+
+#[test]
 fn extracts_lines_without_normalizing_content() {
     let document = read_txt_bytes(Some("sample.txt"), b"Ada  \n\n Grace\r\n", "sample.txt")
         .expect("valid text should be read");

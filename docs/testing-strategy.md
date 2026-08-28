@@ -121,6 +121,50 @@ Review snapshot changes as contract changes, not as automatic updates.
 
 ### Regression tests
 
+#### Error contract regressions
+
+[#2](https://github.com/2001J/fuzzy-parser/issues/2) separates compatibility into
+legacy private-cause reads and exact versioned public-payload round trips. The
+checked-in [legacy fixture](../fixtures/contracts/errors-legacy.json) preserves
+all seven original format cause shapes/data; the
+[pre-migration success goldens](../fixtures/contracts/cli-success-before-errors.json)
+were captured and passed before serialization changed. CLI tests compare exact
+success stdout with diagnostics both off and on. Existing #10 source/review
+goldens and #22 path/byte cause tests remain unchanged.
+
+Permanent core/schema tests cover default and detailed JSON/Display for all
+format families, existing schema codes, all twelve validation reasons and the
+additive output-serialization code. They check version acceptance/rejection,
+private sentinel redaction, Unicode/control escaping, legacy deserialization,
+new payload round trips, typed I/O conversion and actual nested schema causes.
+Forged safe/detailed report messages and payload mutations verify that JSON,
+`Display` and `message()` always use the current typed payload. Incoming outer
+message text is ignored; explicit payload diagnostics retain exact round trips.
+Format tests inject I/O failures without adding a JSON dependency to that crate.
+
+Real CLI regressions cover absolute/missing/unreadable paths, malformed
+CSV/XLSX/schema/UTF-8, numeric text limits, unsupported types, deterministic
+messages, explicit versus incidental flag-like input, and exits/streams. Unix
+permission tests run the subprocess without root privileges (drop to UID/GID
+65534 if the test runner is root); non-UTF-8 OS argument tests retain the inspect
+usage versus structured schema-input distinction. Test-only temporary files
+are synthetic and removed by the shared `tests/support/mod.rs` helper; it is
+not an additional Cargo target.
+
+`output_serialization_error` targets and schema-serialization JSON causes are
+tested at the typed report boundary: current concrete successful output models
+do not provide a safe input that forces those serializer failures. Do not claim
+those branches were induced through the CLI. Invalid schema serialization does
+exercise the real `TargetSchema::to_json` validation cause.
+
+The native Node evaluation retains exact direct/subprocess stderr parity and
+adds version/redaction assertions. Container smoke uses exact safe error
+envelopes; rebuild the binary/image before invoking these checks. Historical
+runtime results are not evidence for changed code. See the authoritative
+[migration contract](data-contracts.md#error-contract-01-and-migration-from-unversioned-errors).
+
+#### Bug regressions
+
 Every parser bug should produce a permanent regression test or fixture before or alongside the fix.
 
 The test name should describe the failure, for example:

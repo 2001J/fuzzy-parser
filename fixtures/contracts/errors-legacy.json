@@ -1,0 +1,9 @@
+[
+  {"code":"io_error","path":"/synthetic/private/東京.txt","kind":"not_found"},
+  {"code":"invalid_utf8","path":"/synthetic/private/東京.txt","valid_up_to":4},
+  {"code":"unsupported_input","source_type":"private-format"},
+  {"code":"input_too_large","source":"/synthetic/private/東京.txt","limit":10,"actual":11},
+  {"code":"line_too_long","source":"private-source","line":3,"limit":10,"actual":11},
+  {"code":"invalid_csv","path":"private.csv","record":null,"message":"private upstream CSV prose"},
+  {"code":"invalid_xlsx","path":"private.xlsx","message":"private upstream XLSX prose"}
+]

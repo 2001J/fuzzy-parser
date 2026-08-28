@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::{fmt, io};
 
+mod errors;
+pub use errors::*;
+
 pub const CONTRACT_VERSION: &str = "0.1";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -2131,6 +2134,7 @@ pub enum IoErrorKind {
     NotFound,
     PermissionDenied,
     InvalidInput,
+    InvalidData,
     Other,
 }
 
@@ -2140,12 +2144,27 @@ impl From<io::ErrorKind> for IoErrorKind {
             io::ErrorKind::NotFound => Self::NotFound,
             io::ErrorKind::PermissionDenied => Self::PermissionDenied,
             io::ErrorKind::InvalidInput => Self::InvalidInput,
+            io::ErrorKind::InvalidData => Self::InvalidData,
             _ => Self::Other,
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+impl fmt::Display for IoErrorKind {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::NotFound => "file not found",
+            Self::PermissionDenied => "permission denied",
+            Self::InvalidInput => "invalid input",
+            Self::InvalidData => "invalid data",
+            Self::Other => "I/O failure",
+        })
+    }
+}
+
+// Deserialize is intentionally the original, private cause format. New output
+// must be decoded as ErrorPayload; absent private fields are never invented.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(tag = "code")]
 pub enum ParserError {
     #[serde(rename = "io_error")]
@@ -2193,47 +2212,19 @@ impl ParserError {
 
 impl fmt::Display for ParserError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Io { path, kind } => write!(formatter, "could not read {path}: {kind:?}"),
-            Self::InvalidUtf8 { path, valid_up_to } => write!(
-                formatter,
-                "{path} is not valid UTF-8 at byte offset {valid_up_to}"
-            ),
-            Self::UnsupportedInput { source_type } => {
-                write!(formatter, "unsupported input type: {source_type}")
-            }
-            Self::InputTooLarge {
-                source,
-                limit,
-                actual,
-            } => write!(
-                formatter,
-                "{source} exceeds the {limit}-byte limit ({actual} bytes)"
-            ),
-            Self::LineTooLong {
-                source,
-                line,
-                limit,
-                actual,
-            } => write!(
-                formatter,
-                "{source} line {line} exceeds the {limit}-byte limit ({actual} bytes)"
-            ),
-            Self::InvalidCsv {
-                path,
-                record,
-                message,
-            } => match record {
-                Some(record) => write!(
-                    formatter,
-                    "invalid CSV in {path} at record {record}: {message}"
-                ),
-                None => write!(formatter, "invalid CSV in {path}: {message}"),
-            },
-            Self::InvalidXlsx { path, message } => {
-                write!(formatter, "invalid XLSX in {path}: {message}")
-            }
-        }
+        Failure::from(self).fmt(formatter)
+    }
+}
+
+impl Serialize for ParserError {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        Failure::from(self).serialize(serializer)
+    }
+}
+
+impl ParserError {
+    pub fn report(&self, mode: DiagnosticsMode) -> ErrorReport {
+        Failure::from(self).report(mode)
     }
 }
 

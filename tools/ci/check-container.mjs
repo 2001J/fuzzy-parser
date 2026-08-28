@@ -93,9 +93,15 @@ function main() {
   const response = JSON.parse(run(['parse', '--stdin', '--schema', '/fixtures/runtime/inventory-supported.json'], { input }));
   assertParseResult(response, inspected);
   const invalid = JSON.parse(run(['inspect', '--stdin'], { input: Buffer.from([0xff]), code: 1 }));
-  assert.equal(invalid.error.code, 'invalid_utf8');
+  assert.deepEqual(invalid, {
+    error: { error_contract_version: '0.1', code: 'invalid_utf8', valid_up_to: 0 },
+    message: 'input is not valid UTF-8 at byte offset 0',
+  });
   const missing = JSON.parse(run(['inspect', '/fixtures/does-not-exist.txt'], { code: 1 }));
-  assert.equal(missing.error.code, 'io_error');
+  assert.deepEqual(missing, {
+    error: { error_contract_version: '0.1', code: 'io_error', kind: 'not_found' },
+    message: 'could not read input: file not found',
+  });
   assert.match(run(['unknown-command'], { code: 2 }), /^usage: parser-cli /);
   // The finite sleep also bounds this regression if client termination breaks.
   assert.equal(run(['-c', 'trap "" TERM; printf ready; sleep 10'], {

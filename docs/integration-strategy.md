@@ -67,6 +67,25 @@ Processing errors use JSON stderr and exit `1`; usage errors use plain stderr
 and exit `2`. `cargo run` itself may print build diagnostics to stderr; use the
 built `target/debug/parser-cli` when asserting the binary's streams.
 
+The [error contract 0.1 migration](data-contracts.md#error-contract-01-and-migration-from-unversioned-errors)
+changes default error fields and messages, not successful results. Default errors
+omit paths and caller values. For authorized troubleshooting only, place
+`--diagnostics` **before** the command:
+
+```bash
+cargo run -p parser-cli -- inspect /synthetic/private/missing.txt
+cargo run -p parser-cli -- --diagnostics inspect /synthetic/private/missing.txt
+```
+
+Both commands intentionally exit `1` with `io_error` / `not_found`. The first
+has no path; the second adds `error.diagnostics.path` and escaped context in the
+outer message. Diagnostics may contain private data; do not use them in public
+logs. There is no environment opt-in, and input/schema content, filenames or
+trailing arguments containing `--diagnostics` do not enable it. Existing argument
+routing remains unchanged; this does not implement #6's strict argument handling.
+Rust callers opt in with `ParserError::report(DiagnosticsMode::Detailed)` or the
+equivalent schema/shared-failure report method. Default `Display` remains safe.
+
 `ParseResponse` now includes canonical source evidence, unused content and
 draft/review reasons. Its [additive compatibility contract](data-contracts.md#source-evidence-extension-and-compatibility)
 distinguishes cell/string coordinates from original file bytes and legacy

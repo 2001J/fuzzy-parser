@@ -49,6 +49,7 @@ Owns generic parsing behavior and shared runtime models:
 - Parse orchestration.
 - Confidence components and explanations.
 - Warnings, rejected fragments, and parse statistics.
+- Shared typed failures, versioned error payloads and safe message rendering.
 
 It must not depend on the CLI or a product-specific profile. Consumer names,
 identifiers, schemas and domain constants must not select special engine behavior.
@@ -100,7 +101,7 @@ The current local-crate dependencies, verified from the manifests, are:
 parser-cli → parser-formats → parser-core
 parser-cli → parser-core
 parser-cli → parser-schema
-parser-schema → no other workspace crate
+parser-schema → parser-core
 ```
 
 Exact dependencies may evolve, but these constraints remain:
@@ -111,6 +112,10 @@ Exact dependencies may evolve, but these constraints remain:
 - Circular crate dependencies are not allowed.
 
 If shared request or response models are needed by several crates, place them at the lowest stable layer rather than introducing a broad utility crate prematurely.
+The schema-to-core dependency provides the shared error boundary; schema cause
+variants and validation stay in `parser-schema`. No dependency cycle or separate
+CLI error model is needed. [Error contracts](data-contracts.md#error-contract-01-and-migration-from-unversioned-errors)
+define the migration. This dependency does not implement schema compilation.
 Today `assignment_spec` in the CLI converts schema fields into core assignment
 instructions. [#12](https://github.com/2001J/fuzzy-parser/issues/12) moves that
 interpretation into a shared library boundary; the diagram must be updated if
