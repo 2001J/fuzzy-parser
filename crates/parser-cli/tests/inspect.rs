@@ -214,14 +214,16 @@ fn diagnostics_like_input_names_content_and_trailing_arguments_do_not_opt_in() {
 #[test]
 fn real_text_limits_keep_numeric_metadata_without_default_source_names() {
     let directory = support::TestDirectory::new();
-    for (size, mut expected) in [
+    for (size, mut expected, context_key) in [
         (
             65537,
             serde_json::json!({"code":"line_too_long", "line":1, "limit":65536, "actual":65537}),
+            "source",
         ),
         (
             1048577,
-            serde_json::json!({"code":"input_too_large", "limit":1048576, "actual":1048577}),
+            serde_json::json!({"code":"file_too_large", "limit":1048576, "actual":1048577}),
+            "path",
         ),
     ] {
         let path = directory.file("private limit.txt", &vec![b'x'; size]);
@@ -229,13 +231,55 @@ fn real_text_limits_keep_numeric_metadata_without_default_source_names() {
         let safe = support::error(&support::run(&["inspect", path.to_str().unwrap()], None));
         assert_eq!(safe["error"], expected);
         assert!(!safe.to_string().contains("private"));
-        expected["diagnostics"] = serde_json::json!({"source":path});
+        expected["diagnostics"] = serde_json::json!({context_key:path});
         let detailed = support::error(&support::run(
             &["--diagnostics", "inspect", path.to_str().unwrap()],
             None,
         ));
         assert_eq!(detailed["error"], expected);
     }
+}
+
+#[test]
+fn txt_validation_rejects_the_existing_cli_fallback_without_routing_changes() {
+    let directory = support::TestDirectory::new();
+    let schema = schema_fixture_path();
+    for name in ["input.pdf", "input"] {
+        let path = directory.file(name, b"hello");
+        for args in [
+            vec!["inspect", path.to_str().unwrap()],
+            vec![
+                "parse",
+                path.to_str().unwrap(),
+                "--schema",
+                schema.to_str().unwrap(),
+            ],
+        ] {
+            assert_eq!(
+                support::error(&support::run(&args, None)),
+                serde_json::json!({
+                    "error":{"error_contract_version":"0.1","code":"unsupported_input"},
+                    "message":"unsupported input type"
+                })
+            );
+        }
+    }
+    let report = support::error(&support::run(
+        &["inspect", directory.0.to_str().unwrap()],
+        None,
+    ));
+    assert_eq!(
+        report,
+        serde_json::json!({"error":{"error_contract_version":"0.1","code":"not_regular_file"},"message":"input is not a regular file"})
+    );
+    let detailed = support::error(&support::run(
+        &["--diagnostics", "inspect", directory.0.to_str().unwrap()],
+        None,
+    ));
+    assert_eq!(
+        detailed["error"],
+        serde_json::json!({"error_contract_version":"0.1","code":"not_regular_file","diagnostics":{"path":directory.0}})
+    );
 }
 
 #[cfg(unix)]

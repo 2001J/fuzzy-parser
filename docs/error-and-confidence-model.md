@@ -8,7 +8,8 @@ serialized shapes and [current state](current-state.md) for implementation gaps.
 ## Implemented boundary
 
 - `parser-core::ParserError` has `io_error`, `invalid_utf8`, `unsupported_input`,
-  `input_too_large`, `line_too_long`, `invalid_csv`, and `invalid_xlsx` variants.
+  `input_too_large`, `line_too_long`, `invalid_csv`, and `invalid_xlsx` variants,
+  plus the local #5 [file-validation additions](data-contracts.md#file-validation-additions-in-error-contract-01).
   Missing files use `io_error` with `kind: "not_found"`.
 - Format and schema causes now convert to `parser-core::Failure`, with shared
   typed payloads and exhaustive safe rendering. The [error contract and migration](data-contracts.md#error-contract-01-and-migration-from-unversioned-errors)

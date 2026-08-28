@@ -25,9 +25,9 @@ dispatcher must return identical documents. The unchanged
 defines blank lines and the absence of a phantom block after a final terminator.
 
 Failure tests create a missing child path in a fresh temporary directory and
-pass the directory itself as an unreadable file. They assert typed I/O causes;
-the directory cause is compared with the platform's own file read instead of
-assuming a particular errno. A synthetic reader returns permission denied
+pass the directory itself as an unreadable file. Missing paths retain typed I/O
+causes; #5 deliberately changes directories to `not_regular_file` before open,
+preserving the original regression name. A synthetic reader returns permission denied
 after a partial read through the existing bounded TXT reader. This permanently
 tests cause propagation without chmod, host paths, root-dependent skips, or
 production test seams; it does not claim to test OS permission enforcement.

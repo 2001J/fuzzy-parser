@@ -53,7 +53,7 @@ selected independently.
 | [#22 Filesystem-free XLSX byte input](https://github.com/2001J/fuzzy-parser/issues/22) | Implemented and independently verified locally. File/byte canonical parity is tested, not WASM execution or resource safety |
 | [#2 Finish safe structured errors](https://github.com/2001J/fuzzy-parser/issues/2) | Independently reviewed and verified locally; safe error-contract migration and privacy/compatibility regressions |
 | [#4 Permanent TXT adapter edge-case fixtures](https://github.com/2001J/fuzzy-parser/issues/4) | [Fixture coverage](../fixtures/text/README.md) independently reviewed, locally integrated and verified |
-| [#5 Reusable file validation and empty policy](https://github.com/2001J/fuzzy-parser/issues/5) | Active in an isolated branch after reviewed #2; validation/compatibility scope recorded in the ticket |
+| [#5 Reusable file validation and empty policy](https://github.com/2001J/fuzzy-parser/issues/5) | [TXT-integrated validation](file-validation.md) independently reviewed and verified locally on macOS/Linux |
 | [#6 Strict CLI dispatch and arguments](https://github.com/2001J/fuzzy-parser/issues/6) | #5; #2 is complete |
 | [#7 Complete TXT subprocess matrix](https://github.com/2001J/fuzzy-parser/issues/7) | #5, #6; #2/#4 are complete |
 | [#12 Shared schema compilation/capability validation](https://github.com/2001J/fuzzy-parser/issues/12) | Active in an isolated branch after reviewed #2; one shared executable schema interface and explicit capability checks |

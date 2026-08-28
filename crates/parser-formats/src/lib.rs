@@ -4,9 +4,13 @@ use parser_core::{
 };
 use std::{
     fs,
-    fs::File,
     io::{Cursor, Read, Seek},
     path::Path,
+};
+
+mod file_validation;
+pub use file_validation::{
+    EmptyFilePolicy, FileFormat, FileValidationOptions, ValidatedFile, open_validated_file,
 };
 
 pub const DEFAULT_MAX_TEXT_BYTES: usize = 1024 * 1024;
@@ -33,6 +37,13 @@ impl Default for TextLimits {
     }
 }
 
+/// TXT uses one byte limit for both validation and bounded extraction.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct TxtOptions {
+    pub limits: TextLimits,
+    pub empty_policy: EmptyFilePolicy,
+}
+
 pub enum InputSource<'a> {
     Text(&'a str),
     Stdin(&'a mut dyn Read),
@@ -48,25 +59,53 @@ pub fn read_input(source: InputSource<'_>, limits: TextLimits) -> Result<RawDocu
             let bytes = read_limited(reader, "<stdin>", limits)?;
             document_from_bytes(None, &bytes, "<stdin>", SourceType::Stdin, limits)
         }
-        InputSource::TxtFile(path) => {
-            let path_display = path.to_string_lossy().into_owned();
-            let bytes = read_file_limited(path, &path_display, limits)?;
-            let file_name = path
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned());
-            document_from_bytes(
-                file_name.as_deref(),
-                &bytes,
-                &path_display,
-                SourceType::Txt,
+        InputSource::TxtFile(path) => read_txt_with_options(
+            path,
+            TxtOptions {
                 limits,
-            )
-        }
+                empty_policy: EmptyFilePolicy::Accept,
+            },
+        ),
     }
 }
 
 pub fn read_txt(path: impl AsRef<Path>) -> Result<RawDocument, ParserError> {
-    read_input(InputSource::TxtFile(path.as_ref()), TextLimits::default())
+    read_txt_with_options(path, TxtOptions::default())
+}
+
+/// Validate a `.txt` path and extract from that same handle, following symlinks.
+pub fn read_txt_with_options(
+    path: impl AsRef<Path>,
+    options: TxtOptions,
+) -> Result<RawDocument, ParserError> {
+    let path = path.as_ref();
+    let input = open_validated_file(
+        path,
+        &FileValidationOptions {
+            enabled_formats: vec![FileFormat::Txt],
+            max_bytes: options.limits.max_bytes,
+            empty_policy: options.empty_policy,
+        },
+    )?;
+    read_validated_txt(input, path, options)
+}
+
+fn read_validated_txt(
+    input: ValidatedFile,
+    path: &Path,
+    options: TxtOptions,
+) -> Result<RawDocument, ParserError> {
+    let source = path.to_string_lossy();
+    let bytes = read_limited(&mut input.into_file(), &source, options.limits)?;
+    file_validation::check_empty(bytes.len() as u64, &source, options.empty_policy)?;
+    let file_name = path.file_name().map(|name| name.to_string_lossy());
+    document_from_bytes(
+        file_name.as_deref(),
+        &bytes,
+        &source,
+        SourceType::Txt,
+        options.limits,
+    )
 }
 
 pub fn read_txt_bytes(
@@ -456,18 +495,6 @@ fn raw_xlsx_value(cell: &Data) -> RawValue {
         Data::Error(value) => RawValue::Error(value.to_string()),
         Data::Empty => RawValue::Null,
     }
-}
-
-fn read_file_limited(
-    path: &Path,
-    source: &str,
-    limits: TextLimits,
-) -> Result<Vec<u8>, ParserError> {
-    let mut file = File::open(path).map_err(|error| ParserError::Io {
-        path: source.to_owned(),
-        kind: error.kind().into(),
-    })?;
-    read_limited(&mut file, source, limits)
 }
 
 fn read_limited(
