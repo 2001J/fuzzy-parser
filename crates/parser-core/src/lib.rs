@@ -2185,6 +2185,16 @@ pub enum ParserError {
     InvalidUtf8 { path: String, valid_up_to: usize },
     #[serde(rename = "unsupported_input")]
     UnsupportedInput { source_type: String },
+    #[serde(rename = "not_regular_file")]
+    NotRegularFile { path: String },
+    #[serde(rename = "empty_input")]
+    EmptyInput { path: String },
+    #[serde(rename = "file_too_large")]
+    FileTooLarge {
+        path: String,
+        limit: u64,
+        actual: u64,
+    },
     #[serde(rename = "input_too_large")]
     InputTooLarge {
         source: String,
@@ -2214,6 +2224,9 @@ impl ParserError {
             Self::Io { .. } => "io_error",
             Self::InvalidUtf8 { .. } => "invalid_utf8",
             Self::UnsupportedInput { .. } => "unsupported_input",
+            Self::NotRegularFile { .. } => "not_regular_file",
+            Self::EmptyInput { .. } => "empty_input",
+            Self::FileTooLarge { .. } => "file_too_large",
             Self::InputTooLarge { .. } => "input_too_large",
             Self::LineTooLong { .. } => "line_too_long",
             Self::InvalidCsv { .. } => "invalid_csv",

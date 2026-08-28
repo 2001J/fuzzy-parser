@@ -74,7 +74,7 @@ metadata beyond `code` and `error_contract_version`; private context is absent:
 | --- | --- |
 | `io_error` | `kind` |
 | `invalid_utf8` | `valid_up_to` byte offset |
-| `unsupported_input` | None; does not add strict CLI extension dispatch |
+| `unsupported_input` | None; includes file-extension eligibility failures |
 | `input_too_large` | `limit`, `actual` byte counts |
 | `line_too_long` | `line` (one-based), `limit`, `actual` byte counts |
 | `invalid_csv` | `record` (one-based) or explicit `null` |
@@ -86,6 +86,9 @@ metadata beyond `code` and `error_contract_version`; private context is absent:
 | `schema_field_type_unsupported` | Known literal `field_type`: `text`, `person_name`, or `datetime` |
 | `schema_serialization_error` | Typed `cause`: `{"kind":"json"}` or `{"kind":"validation","reason":...}` |
 | `output_serialization_error` (new) | Fixed `target`: `parse_result` or `raw_document` |
+| `not_regular_file` (#5) | None |
+| `empty_input` (#5) | None |
+| `file_too_large` (#5) | Exact `u64` metadata byte counts: `limit`, `actual` |
 
 Validation reasons are `empty_schema_version`, `unsupported_schema_version`,
 `empty_field_name`, `duplicate_field_name`, `duplicate_field_label`, `empty_alias`,
@@ -148,6 +151,36 @@ The [pre-migration success goldens](../fixtures/contracts/cli-success-before-err
 fix exact stdout for TXT/pasted/CSV/XLSX inspection, schema output and a source-backed
 parse. [Testing strategy](testing-strategy.md#error-contract-regressions) describes
 coverage and the serialization-failure branches tested only at the report boundary.
+
+### File-validation additions in error contract 0.1
+
+The local #5 slice adds `not_regular_file`, `empty_input`, and
+`file_too_large` to `ParserError` and `FailureKind`, retaining error version
+`0.1`. The first two have no default metadata; `file_too_large` has exact `u64`
+`limit` and `actual` byte counts from metadata. Fixed messages are respectively
+`input is not a regular file`, `empty input is not allowed`, and
+`file exceeds the {limit}-byte limit ({actual} bytes)`. Only explicit detailed
+diagnostics may include the supplied `path`. Existing payload shapes, private
+legacy-cause decoding, and safe/detailed rendering rules remain unchanged.
+Consumers with exhaustive Rust matches or strict typed JSON readers must add
+these cases; older readers may reject new codes even though the version remains
+`0.1`. This is an intentional pre-1.0 extension, not a package release.
+
+TXT path validation deliberately rejects non-`.txt` extensions (case
+insensitive), including absent/non-UTF-8 extensions, using `unsupported_input`.
+The CLI's existing unknown-extension fallback consequently fails in the TXT
+library instead of accepting arbitrary file names; routing itself remains #6.
+Directory paths now yield `not_regular_file`, rather than a platform-dependent
+I/O cause. Metadata oversize now yields `file_too_large` before decoding;
+bounded-read overflow (including growth after validation) retains
+`input_too_large` with its original `usize` fields and observed-byte meaning.
+No metadata length is truncated to fit those legacy fields.
+
+Zero-byte acceptance remains the explicit default; callers may reject empty
+files at both metadata and actual-read checks. Whitespace alone is not empty.
+Successful TXT values/metadata, byte/text/stdin inputs, existing line limits,
+and other format readers are unchanged. See [file validation](file-validation.md)
+for API defaults, ordering, overrides and filesystem race limits.
 
 ### Source-evidence extension and compatibility
 

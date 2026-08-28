@@ -86,6 +86,20 @@ the existing unit module without adding a Cargo target. Missing/directory path
 tests and an injected permission-denied reader retain typed causes; they do not
 depend on OS permissions or assert the error wire format owned by #2.
 
+The [file-validation tests](../crates/parser-formats/tests/unit/file_validation.rs)
+reuse TXT fixture setup and are included privately by the validation module,
+without a new Cargo target. They check extension eligibility, metadata versus
+actual reads, explicit empty policy, bounded growth, shrinkage and same-handle
+extraction without timing races. Unix symlinks/sockets have platform-scoped tests.
+Non-UTF-8 extension selection is tested with a synthetic OS path on Unix;
+Linux additionally tests a real filename, which macOS does not permit creating.
+The retained #2 CLI test separately checks real permission denial from a
+non-root process. [New error tests](../crates/parser-core/tests/unit/file_validation_errors.rs)
+assert exact safe/detailed output while the old cause and payload tests remain.
+#5 deliberately changes the retained directory test to `not_regular_file` and
+the CLI metadata-overflow expectation to `file_too_large`; bounded overflow
+still returns `input_too_large`. See [compatibility](data-contracts.md#file-validation-additions-in-error-contract-01).
+
 For XLSX byte input, `parser-formats` unit tests retain explicit file-reader
 expectations and compare the byte-produced document, typed values, metadata,
 errors and core source coverage. The existing CLI `inspect` test target checks

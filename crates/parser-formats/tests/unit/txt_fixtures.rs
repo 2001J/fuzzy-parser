@@ -10,10 +10,10 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-struct TempDirectory(PathBuf);
+pub(crate) struct TempDirectory(pub(crate) PathBuf);
 
 impl TempDirectory {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         for _ in 0..100 {
             let path = std::env::temp_dir().join(format!(
@@ -177,13 +177,12 @@ fn missing_file_retains_the_not_found_cause() {
 #[test]
 fn directory_path_retains_the_platform_io_cause() {
     let directory = TempDirectory::new();
-    // Opening a directory may succeed on Unix, but reading it as a file fails.
-    // Compare the typed OS cause instead of pinning a platform-specific errno.
-    let expected_kind = fs::read(&directory.0).unwrap_err().kind().into();
-    let ParserError::Io { kind, .. } = read_txt(&directory.0).unwrap_err() else {
-        panic!("unreadable path must return a structured I/O error");
-    };
-    assert_eq!(kind, expected_kind);
+    // Retain the original regression name: #5 deliberately replaces the old
+    // platform-specific I/O cause with validation before opening a directory.
+    assert!(matches!(
+        read_txt(&directory.0).unwrap_err(),
+        ParserError::NotRegularFile { .. }
+    ));
 }
 
 #[test]

@@ -116,6 +116,12 @@ pub enum FailureKind {
     InvalidUtf8 { valid_up_to: usize },
     #[serde(rename = "unsupported_input")]
     UnsupportedInput,
+    #[serde(rename = "not_regular_file")]
+    NotRegularFile,
+    #[serde(rename = "empty_input")]
+    EmptyInput,
+    #[serde(rename = "file_too_large")]
+    FileTooLarge { limit: u64, actual: u64 },
     #[serde(rename = "input_too_large")]
     InputTooLarge { limit: usize, actual: usize },
     #[serde(rename = "line_too_long")]
@@ -152,6 +158,11 @@ impl fmt::Display for FailureKind {
                 write!(f, "input is not valid UTF-8 at byte offset {valid_up_to}")
             }
             Self::UnsupportedInput => f.write_str("unsupported input type"),
+            Self::NotRegularFile => f.write_str("input is not a regular file"),
+            Self::EmptyInput => f.write_str("empty input is not allowed"),
+            Self::FileTooLarge { limit, actual } => {
+                write!(f, "file exceeds the {limit}-byte limit ({actual} bytes)")
+            }
             Self::InputTooLarge { limit, actual } => {
                 write!(f, "input exceeds the {limit}-byte limit ({actual} bytes)")
             }
@@ -320,6 +331,25 @@ impl From<&ParserError> for Failure {
             ParserError::UnsupportedInput { source_type } => {
                 context.source_type = Some(source_type.clone());
                 FailureKind::UnsupportedInput
+            }
+            ParserError::NotRegularFile { path } => {
+                context.path = nonempty(path);
+                FailureKind::NotRegularFile
+            }
+            ParserError::EmptyInput { path } => {
+                context.path = nonempty(path);
+                FailureKind::EmptyInput
+            }
+            ParserError::FileTooLarge {
+                path,
+                limit,
+                actual,
+            } => {
+                context.path = nonempty(path);
+                FailureKind::FileTooLarge {
+                    limit: *limit,
+                    actual: *actual,
+                }
             }
             ParserError::InputTooLarge {
                 source,
