@@ -193,9 +193,10 @@ these cases; older readers may reject new codes even though the version remains
 
 TXT path validation deliberately rejects non-`.txt` extensions (case
 insensitive), including absent/non-UTF-8 extensions, using `unsupported_input`.
-The CLI's existing unknown-extension fallback consequently fails in the TXT
-library instead of accepting arbitrary file names; routing itself remains #6.
-Directory paths now yield `not_regular_file`, rather than a platform-dependent
+The CLI now routes extensions explicitly before I/O; its deliberately changed
+failure precedence and TXT-only overrides are documented in the
+[CLI contract](integration-strategy.md#cli-grammar-and-validation-options).
+Eligible TXT directory paths yield `not_regular_file`, rather than a platform-dependent
 I/O cause. Metadata oversize now yields `file_too_large` before decoding;
 bounded-read overflow (including growth after validation) retains
 `input_too_large` with its original `usize` fields and observed-byte meaning.

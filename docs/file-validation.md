@@ -52,8 +52,11 @@ On filesystems that accept such names, non-UTF-8 extensions are rejected with
 
 The [error additions and compatibility changes](data-contracts.md#file-validation-additions-in-error-contract-01)
 cover strict TXT extensions, directory errors, metadata oversize, and empty
-rejection. The CLI gains the TXT fallback rejection through its existing library
-call; no routing rewrite or new flags are included (#6).
+rejection. The original #5 change rejected the CLI's TXT fallback through its
+existing library call. The subsequent [CLI contract](integration-strategy.md#cli-grammar-and-validation-options)
+now routes extensions explicitly and exposes TXT-only trailing byte/empty
+overrides. It calls `read_txt_with_options` directly; CSV/XLSX readers remain
+unchanged and wider same-handle validation remains #17.
 
 Extensions are eligibility hints, not MIME verification or content sniffing.
 CSV/XLSX eligibility in this helper does not integrate their current readers,

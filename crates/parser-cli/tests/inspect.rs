@@ -1,4 +1,6 @@
 use serde_json::Value;
+#[path = "inspect/arguments.rs"]
+mod arguments;
 mod support;
 use std::{
     io::Write,
@@ -186,15 +188,31 @@ fn diagnostics_like_input_names_content_and_trailing_arguments_do_not_opt_in() {
         .args(["inspect", "--diagnostics"])
         .output()
         .unwrap();
-    assert_eq!(support::error(&literal_name), filename_error);
+    // #6 reserves bare flag-like paths; explicit relative paths remain data.
+    assert_eq!(literal_name.status.code(), Some(2));
+    assert!(literal_name.stdout.is_empty());
+    assert_eq!(literal_name.stderr, b"usage: parser-cli --help\n");
+    let prefixed_name = Command::new(env!("CARGO_BIN_EXE_parser-cli"))
+        .current_dir(&directory.0)
+        .args(["inspect", "./--diagnostics"])
+        .output()
+        .unwrap();
+    assert_eq!(support::error(&prefixed_name), filename_error);
     let schema = r#"{"schema_version":"--diagnostics","fields":[],"record_name":null,"options":{"allow_unknown_fields":true}}"#;
     for args in [
         vec!["schema", "validate", "--text", schema],
         vec!["schema", "validate", "--text", schema, "--diagnostics"],
     ] {
         let output = support::run(&args, None);
-        let report = support::error(&output);
-        assert!(report["error"].get("diagnostics").is_none());
+        if args.len() == 4 {
+            let report = support::error(&output);
+            assert!(report["error"].get("diagnostics").is_none());
+        } else {
+            // Exact arity rejects the formerly ignored tail before processing.
+            assert_eq!(output.status.code(), Some(2));
+            assert!(output.stdout.is_empty());
+            assert_eq!(output.stderr, b"usage: parser-cli --help\n");
+        }
         assert!(!String::from_utf8_lossy(&output.stderr).contains("--diagnostics"));
     }
     let text = support::run(&["inspect", "--text", "--diagnostics"], None);
@@ -264,8 +282,11 @@ fn txt_validation_rejects_the_existing_cli_fallback_without_routing_changes() {
             );
         }
     }
+    // Keep the regular-file failure check on an eligible extension after #6 routing.
+    let txt_directory = directory.0.join("directory.txt");
+    std::fs::create_dir(&txt_directory).unwrap();
     let report = support::error(&support::run(
-        &["inspect", directory.0.to_str().unwrap()],
+        &["inspect", txt_directory.to_str().unwrap()],
         None,
     ));
     assert_eq!(
@@ -273,12 +294,12 @@ fn txt_validation_rejects_the_existing_cli_fallback_without_routing_changes() {
         serde_json::json!({"error":{"error_contract_version":"0.1","code":"not_regular_file"},"message":"input is not a regular file"})
     );
     let detailed = support::error(&support::run(
-        &["--diagnostics", "inspect", directory.0.to_str().unwrap()],
+        &["--diagnostics", "inspect", txt_directory.to_str().unwrap()],
         None,
     ));
     assert_eq!(
         detailed["error"],
-        serde_json::json!({"error_contract_version":"0.1","code":"not_regular_file","diagnostics":{"path":directory.0}})
+        serde_json::json!({"error_contract_version":"0.1","code":"not_regular_file","diagnostics":{"path":txt_directory}})
     );
 }
 
@@ -497,7 +518,7 @@ fn inspect_requires_command_and_input() {
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(
         String::from_utf8_lossy(&output.stderr),
-        "usage: parser-cli inspect <path> | --stdin | --text <content> | schema validate <path> | parse <path> --schema <path>\n"
+        "usage: parser-cli --help\n"
     );
 }
 
