@@ -181,6 +181,32 @@ This pass does not modify the host repository or tracker.
 The [2026-08-28 runtime evaluation](evaluations/2026-08-28-node-cli.md#read-only-consumer-evidence)
 revalidates route/runtime configuration at the same commit without running the host.
 
+The 2026-08-28 read-only import preparation, with coordinator checks of the
+critical paths at that same host commit, adds these migration constraints:
+
+- The Contributor route treats only `mode=clean-sheet` as preparation; every
+  other mode enters import. Do not send an invented `mode=preview` to it. A draft
+  needs a distinct explicit contract, not a new label on the existing save path.
+- Preparation has no imported-record or messaging effects, but
+  [Event resolution](https://github.com/2001J/digital-invitation/blob/50fcaf072abd5307157ce1e0ee96676729e896c5/lib/event-context.ts)
+  invokes [expired-Event archival](https://github.com/2001J/digital-invitation/blob/50fcaf072abd5307157ce1e0ee96676729e896c5/lib/event-lifecycle.ts).
+  Thus a no-import-writes draft is not automatically a zero-database-writes HTTP
+  guarantee. Confirmation must bind and revalidate Event, profile and reviewed rows.
+- Contributor import can log a payment and automatically promote an eligible
+  Contributor through the existing [promotion service](https://github.com/2001J/digital-invitation/blob/50fcaf072abd5307157ce1e0ee96676729e896c5/lib/contribution-promotion.ts),
+  creating/updating a confirmed Guest without sending invitations. Preserve that
+  host-owned behavior; the generic parser must never perform it.
+- Guest preparation and upload differ in duplicate winners, phone checks and
+  Contributor-conflict checks. A workbook labelled Upload Ready is not proof of
+  save parity. Characterize those differences before a separate Guest cutover.
+- Existing workbook selection/display formatting and TSV/delimited-TXT/XLS
+  handling are not equivalent to the current engine. Keep those paths available
+  until explicit host parity and rollback gates pass.
+
+This preparation ran no host tests, builds, database/provider operations or
+installation. Its proposed host tickets remain uncreated and implementation
+requires a separately scoped host assignment.
+
 ## Future QualEvents work: separately owned
 
 These are host planning slices, not Fuzzy Parser implementation tickets. Create
@@ -194,10 +220,17 @@ or conditions for generic engine readiness.
 
 | Slice | Depends on | Required host verification |
 | --- | --- | --- |
-| Profiles and thin bridge | Selected boundary, #10/#12/#18 contracts | Caller field/alias/custom-field/locale behavior; contract mismatch and unsupported capabilities fail explicitly |
-| Review/correction and source display | Engine conformance #19 and bridge | Paste/TXT/CSV/XLSX drafts, source references, warning/unused-content visibility, edits and rejection; no writes/messages from parsing or preview |
-| Export and explicit confirmation | Reviewed records and existing domain services | Clean-sheet/export behavior, formula-safe exports, server revalidation, auth/Event scope, duplicates and qualification; persistence only for explicitly confirmed valid rows |
-| Staged Contributor then Guest cutover | Host parity matrix informed by generic capabilities in #20 | Existing accepted files/profiles and route behaviors remain available; separate Guest guarantees, explicit routing, rollback, no silent fallback on engine failure |
+| Opt-in Contributor profile and simple-CSV draft | Reviewed #11 runtime choice, #12/#13/#17/#18 and relevant #19 conformance | Real name/phone and required custom-field capability; contract/source-reference validation; no imported-record, promotion or messaging effects; legacy import unchanged |
+| Contributor correction and review export | Draft bridge; #16 before broader table inputs | Original evidence beside corrections; unused/warning visibility; host validation; formula-safe exports and preserved custom fields; download/cancel without saving |
+| Explicit Contributor confirmation | Reviewed draft and existing domain services | Server revalidation, auth/Event/profile/source binding, duplicates, qualification, replay/concurrency and partial outcomes; only explicitly confirmed valid rows persist |
+| Contributor compatibility and default cutover | Prior slices and required #16/#19/#20 capabilities | All accepted extensions, header/sheet/highlight selection and typed/display values; explicit legacy exceptions, rollback and no silent fallback on engine failure |
+| Separate Guest profile and cutover | Contributor evidence plus separate Guest decisions/tests | Status/category defaults, Event isolation, duplicate-winner and preparation/save differences, Contributor conflicts, global invitation identities and no sends |
+
+The smallest meaningful first demo is a synthetic two-row CSV with names and
+phones, source-backed proposed fields and review reasons, followed by cancel
+with no import-model/provider calls. It waits for actual name/text support and
+the reusable runtime; the current integer/boolean prototype is not a substitute.
+Export follows review; saving belongs to the later explicit-confirmation slice.
 
 Use a feature gate [a switch controlling which implementation a flow uses] and
 synthetic comparison fixtures before changing the default. Unsupported legacy

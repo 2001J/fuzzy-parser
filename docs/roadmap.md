@@ -53,10 +53,10 @@ selected independently.
 | [#22 Filesystem-free XLSX byte input](https://github.com/2001J/fuzzy-parser/issues/22) | Implemented and independently verified locally. File/byte canonical parity is tested, not WASM execution or resource safety |
 | [#2 Finish safe structured errors](https://github.com/2001J/fuzzy-parser/issues/2) | Independently reviewed and verified locally; safe error-contract migration and privacy/compatibility regressions |
 | [#4 Permanent TXT adapter edge-case fixtures](https://github.com/2001J/fuzzy-parser/issues/4) | [Fixture coverage](../fixtures/text/README.md) independently reviewed, locally integrated and verified |
-| [#5 Reusable file validation and empty policy](https://github.com/2001J/fuzzy-parser/issues/5) | #2 |
-| [#6 Strict CLI dispatch and arguments](https://github.com/2001J/fuzzy-parser/issues/6) | #2, #5 |
-| [#7 Complete TXT subprocess matrix](https://github.com/2001J/fuzzy-parser/issues/7) | #2, #4, #5, #6 |
-| [#12 Shared schema compilation/capability validation](https://github.com/2001J/fuzzy-parser/issues/12) | #2; prevents separate parsing logic per interface |
+| [#5 Reusable file validation and empty policy](https://github.com/2001J/fuzzy-parser/issues/5) | Ready after reviewed #2; prepared for an independent validation slice |
+| [#6 Strict CLI dispatch and arguments](https://github.com/2001J/fuzzy-parser/issues/6) | #5; #2 is complete |
+| [#7 Complete TXT subprocess matrix](https://github.com/2001J/fuzzy-parser/issues/7) | #5, #6; #2/#4 are complete |
+| [#12 Shared schema compilation/capability validation](https://github.com/2001J/fuzzy-parser/issues/12) | Ready after reviewed #2; next critical-path slice for one shared executable schema interface |
 | [#13 Caller-directed text and name fields](https://github.com/2001J/fuzzy-parser/issues/13) | #10, #12 |
 | [#14 Compose text normalization/segmentation](https://github.com/2001J/fuzzy-parser/issues/14) | #10, #12 |
 | [#15 Delimiter-adjacent email regression](https://github.com/2001J/fuzzy-parser/issues/15) | Independently reviewed, locally integrated and verified with core/CLI source-span regressions |
@@ -108,12 +108,13 @@ release is authorized by a milestone name.
 The old roadmap's `0.1`–`0.14` headings were planning stages, not shipped package
 versions. The old [TXT-only v0.1 epic #8](https://github.com/2001J/fuzzy-parser/issues/8)
 used a conflicting meaning. It is superseded as a plan, **not completed as an
-acceptance gate**. Its unfinished criteria survive in #2 and #4–#7.
+acceptance gate**. Its criteria were carried into #2 and #4–#7; #2/#4 are now
+complete and #5–#7 retain the outstanding policy/CLI coverage.
 
 | Former stage | Reconciled status / destination |
 | --- | --- |
 | 0.1 Workspace foundation | Implemented workspace and automated checks |
-| 0.2 TXT inspection | Working path; validation/privacy/test gaps remain in #2, #4–#7 |
+| 0.2 TXT inspection | Working path; #2 privacy/#4 fixtures complete, validation/CLI gaps remain in #5–#7 |
 | 0.3 Pasted text/dispatch | Text/stdin exist; strict file dispatch remains #5/#6 |
 | 0.4 CSV / 0.5 XLSX | Adapters exist; table compatibility and limits remain #16/#17/#20 |
 | 0.6 Normalization / 0.7 Segmentation | Separate library stages exist; document composition remains #14 |
