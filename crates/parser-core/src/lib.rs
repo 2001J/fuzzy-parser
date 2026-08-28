@@ -3,6 +3,9 @@ use std::{fmt, io};
 
 mod errors;
 pub use errors::*;
+mod plan;
+use plan::{DetectionRules, EnumDefinitions};
+pub use plan::{ParsePlan, PlanField, parse_document_with_plan};
 
 pub const CONTRACT_VERSION: &str = "0.1";
 
@@ -311,16 +314,16 @@ pub fn parse_text_with_assignment(
     fields: &[AssignmentField],
     enum_definitions: &[(String, Vec<String>)],
 ) -> TextParseResult {
-    parse_text_record(text, fields, enum_definitions, None)
+    parse_text_record(text, fields, DetectionRules::Legacy(enum_definitions), None)
 }
 
 fn parse_text_record(
     text: &str,
     fields: &[AssignmentField],
-    enum_definitions: &[(String, Vec<String>)],
+    rules: DetectionRules<'_>,
     source: Option<(usize, &RawValue)>,
 ) -> TextParseResult {
-    let mut candidates = collect_field_candidates(text, enum_definitions);
+    let mut candidates = collect_field_candidates(text, rules);
     if let Some((block_index, value)) = source {
         for candidate in &mut candidates {
             candidate.source_reference = Some(SourceReference {
@@ -330,7 +333,7 @@ fn parse_text_record(
             });
         }
     }
-    let assignment = assign_candidates(text, &candidates, fields);
+    let assignment = assign_candidates_inner(text, &candidates, fields, None, rules.scoped());
     finish_text_parse(text, candidates, assignment)
 }
 
@@ -409,10 +412,7 @@ fn uncovered_spans(length: usize, spans: impl Iterator<Item = TextSpan>) -> Vec<
     uncovered
 }
 
-fn collect_field_candidates(
-    text: &str,
-    enum_definitions: &[(String, Vec<String>)],
-) -> Vec<FieldCandidate> {
+fn collect_field_candidates(text: &str, rules: DetectionRules<'_>) -> Vec<FieldCandidate> {
     let mut candidates = Vec::new();
     candidates.extend(detect_email_candidates(text));
     candidates.extend(detect_integer_candidates(text));
@@ -421,7 +421,7 @@ fn collect_field_candidates(
     candidates.extend(detect_boolean_candidates(text));
     candidates.extend(detect_date_candidates(text));
     candidates.extend(detect_currency_candidates(text));
-    candidates.extend(detect_enum_candidates(text, enum_definitions));
+    candidates.extend(rules.detect_enums(text));
     candidates
 }
 
@@ -593,7 +593,7 @@ pub fn detect_table_headers(rows: &[TableRowGroup]) -> HeaderExtraction {
         .map(|(_, label)| label.as_str())
         .collect::<Vec<_>>()
         .join(" ");
-    if !collect_field_candidates(&header_text, &[]).is_empty() {
+    if !collect_field_candidates(&header_text, DetectionRules::Legacy(&[])).is_empty() {
         return HeaderExtraction::not_detected(
             "header_not_detected_strong_values",
             "the first row contains strongly typed values, so it was not treated as a header",
@@ -642,6 +642,14 @@ pub fn parse_document_rows_with_assignment(
     fields: &[AssignmentField],
     enum_definitions: &[(String, Vec<String>)],
 ) -> TableParseResult {
+    parse_document_rows_inner(document, fields, DetectionRules::Legacy(enum_definitions))
+}
+
+fn parse_document_rows_inner(
+    document: &RawDocument,
+    fields: &[AssignmentField],
+    rules: DetectionRules<'_>,
+) -> TableParseResult {
     let grouped = group_document_rows(document);
 
     let mut buckets: Vec<(Option<String>, Vec<TableRowGroup>)> = Vec::new();
@@ -662,7 +670,7 @@ pub fn parse_document_rows_with_assignment(
                     .is_none_or(|headers| row.source_row != headers.source_row)
             });
             let records = data_rows
-                .map(|row| parse_row_group(row, header.context(), fields, enum_definitions))
+                .map(|row| parse_row_group(row, header.context(), fields, rules))
                 .collect();
             SheetTableResult {
                 sheet,
@@ -682,7 +690,7 @@ fn parse_row_group(
     row: &TableRowGroup,
     header: Option<&TableHeaderContext>,
     fields: &[AssignmentField],
-    enum_definitions: &[(String, Vec<String>)],
+    rules: DetectionRules<'_>,
 ) -> TableRowParseResult {
     let mut row_text = String::new();
     let mut candidates = Vec::new();
@@ -699,7 +707,7 @@ fn parse_row_group(
         let offset = row_text.len();
         row_text.push_str(trimmed);
 
-        for mut candidate in collect_field_candidates(trimmed, enum_definitions) {
+        for mut candidate in collect_field_candidates(trimmed, rules) {
             let trim_offset = cell_text.len() - cell_text.trim_start().len();
             candidate.source_reference =
                 cell.source_block_index.map(|block_index| SourceReference {
@@ -717,7 +725,8 @@ fn parse_row_group(
         }
     }
 
-    let assignment = assign_candidates_inner(&row_text, &candidates, fields, header);
+    let assignment =
+        assign_candidates_inner(&row_text, &candidates, fields, header, rules.scoped());
     TableRowParseResult {
         source_row: row.source_row,
         source_block_ids: row.source_block_ids.clone(),
@@ -868,6 +877,20 @@ pub fn parse_document_with_assignment(
     enum_definitions: &[(String, Vec<String>)],
     record_name: Option<String>,
 ) -> ParseResponse {
+    parse_document_inner(
+        document,
+        fields,
+        DetectionRules::Legacy(enum_definitions),
+        record_name,
+    )
+}
+
+fn parse_document_inner(
+    document: &RawDocument,
+    fields: &[AssignmentField],
+    rules: DetectionRules<'_>,
+    record_name: Option<String>,
+) -> ParseResponse {
     let grouped = group_document_rows(document);
     let (content, warnings) = if grouped.rows.is_empty() {
         let records = document
@@ -879,14 +902,14 @@ pub fn parse_document_with_assignment(
                 parse: parse_text_record(
                     &block.value.to_text(),
                     fields,
-                    enum_definitions,
+                    rules,
                     Some((index, &block.value)),
                 ),
             })
             .collect();
         (ParseContent::Text { records }, Vec::new())
     } else {
-        let table = parse_document_rows_with_assignment(document, fields, enum_definitions);
+        let table = parse_document_rows_inner(document, fields, rules);
         (
             ParseContent::Table {
                 sheets: table.sheets,
@@ -914,7 +937,7 @@ pub fn assign_candidates(
     candidates: &[FieldCandidate],
     fields: &[AssignmentField],
 ) -> AssignmentResult {
-    assign_candidates_inner(text, candidates, fields, None)
+    assign_candidates_inner(text, candidates, fields, None, None)
 }
 
 pub fn assign_candidates_with_header_context(
@@ -923,7 +946,7 @@ pub fn assign_candidates_with_header_context(
     fields: &[AssignmentField],
     header: Option<&TableHeaderContext>,
 ) -> AssignmentResult {
-    assign_candidates_inner(text, candidates, fields, header)
+    assign_candidates_inner(text, candidates, fields, header, None)
 }
 
 fn assign_candidates_inner(
@@ -931,18 +954,24 @@ fn assign_candidates_inner(
     candidates: &[FieldCandidate],
     fields: &[AssignmentField],
     header: Option<&TableHeaderContext>,
+    enum_definitions: Option<&[EnumDefinitions]>,
 ) -> AssignmentResult {
     let mut assigned = vec![false; candidates.len()];
     let mut result_fields = Vec::new();
-    let mut warnings = Vec::new();
+    let (owners, mut warnings) =
+        plan::enum_ownership(text, candidates, fields, header, enum_definitions);
 
-    for field in fields {
+    for (field_index, field) in fields.iter().enumerate() {
         let matching_indices = candidates
             .iter()
             .enumerate()
             .filter(|(index, candidate)| {
                 !assigned[*index]
                     && candidate.candidate_type == field.candidate_type
+                    && (candidate.candidate_type != CandidateType::Enum
+                        || owners
+                            .as_ref()
+                            .is_none_or(|owners| owners[*index] == Some(field_index)))
                     && candidate_satisfies_constraints(candidate, field)
             })
             .map(|(index, _)| index)

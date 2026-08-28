@@ -1,6 +1,4 @@
-use parser_core::{
-    DiagnosticContext, DiagnosticsMode, Failure, FailureKind, OutputTarget, UnsupportedFieldType,
-};
+use parser_core::{DiagnosticsMode, Failure, FailureKind, OutputTarget};
 use parser_formats::{
     CsvOptions, InputSource, TextLimits, read_csv_with_options, read_input, read_xlsx,
 };
@@ -153,96 +151,6 @@ fn inspect_text(content: &str, diagnostics: DiagnosticsMode) -> i32 {
     )
 }
 
-struct AssignmentSpec {
-    fields: Vec<parser_core::AssignmentField>,
-    enum_definitions: Vec<(String, Vec<String>)>,
-}
-
-fn assignment_spec(schema: &parser_schema::TargetSchema) -> Result<AssignmentSpec, Failure> {
-    use parser_core::{AssignmentConstraint, AssignmentField, CandidateType};
-    use parser_schema::{FieldConstraint, FieldType};
-
-    let mut fields = Vec::new();
-    let mut enum_definitions: Vec<(String, Vec<String>)> = Vec::new();
-
-    for field in &schema.fields {
-        let candidate_type = match &field.field_type {
-            FieldType::Email => CandidateType::Email,
-            FieldType::Integer => CandidateType::Integer,
-            FieldType::Decimal => CandidateType::Decimal,
-            FieldType::PhoneNumber => CandidateType::PhoneNumber,
-            FieldType::Boolean => CandidateType::Boolean,
-            FieldType::Date => CandidateType::Date,
-            FieldType::Currency => CandidateType::Currency,
-            FieldType::Enum { values } => {
-                for value in values {
-                    enum_definitions.push((value.value.clone(), value.aliases.clone()));
-                }
-                CandidateType::Enum
-            }
-            FieldType::Datetime => {
-                return Err(unsupported_field(
-                    &field.name,
-                    UnsupportedFieldType::Datetime,
-                ));
-            }
-            FieldType::Text => {
-                return Err(unsupported_field(&field.name, UnsupportedFieldType::Text));
-            }
-            FieldType::PersonName => {
-                return Err(unsupported_field(
-                    &field.name,
-                    UnsupportedFieldType::PersonName,
-                ));
-            }
-        };
-
-        let constraints = field
-            .constraints
-            .iter()
-            .map(|constraint| match constraint {
-                FieldConstraint::MinimumInteger(value) => {
-                    AssignmentConstraint::MinimumInteger(*value)
-                }
-                FieldConstraint::MaximumInteger(value) => {
-                    AssignmentConstraint::MaximumInteger(*value)
-                }
-                FieldConstraint::MinimumLength(value) => {
-                    AssignmentConstraint::MinimumLength(*value)
-                }
-                FieldConstraint::MaximumLength(value) => {
-                    AssignmentConstraint::MaximumLength(*value)
-                }
-            })
-            .collect();
-
-        fields.push(AssignmentField {
-            name: field.name.clone(),
-            aliases: field.aliases.clone(),
-            candidate_type,
-            required: field.required,
-            multiple: field.multiple,
-            unique: false,
-            constraints,
-            expected_column: None,
-        });
-    }
-
-    Ok(AssignmentSpec {
-        fields,
-        enum_definitions,
-    })
-}
-
-fn unsupported_field(field: &str, field_type: UnsupportedFieldType) -> Failure {
-    Failure::new(FailureKind::SchemaFieldTypeUnsupported { field_type }).with_context(
-        DiagnosticContext {
-            field: Some(field.to_owned()),
-            ..DiagnosticContext::default()
-        },
-    )
-}
-
 fn schema_failure(error: &parser_schema::SchemaParseError, path: Option<&PathBuf>) -> Failure {
     let failure = Failure::from(error);
     match path {
@@ -264,8 +172,8 @@ fn schema_io_failure(error: &io::Error, path: Option<&PathBuf>) -> Failure {
 fn load_schema_file(path: PathBuf) -> Result<parser_schema::TargetSchema, Failure> {
     let input =
         fs::read_to_string(&path).map_err(|error| schema_io_failure(&error, Some(&path)))?;
-    parser_schema::TargetSchema::from_json(&input)
-        .map_err(|error| schema_failure(&error, Some(&path)))
+    parser_schema::decode_execution_schema(&input)
+        .map_err(|error| error.with_path(&path.to_string_lossy()))
 }
 
 fn parse_path(input_path: PathBuf, schema_path: PathBuf, diagnostics: DiagnosticsMode) -> i32 {
@@ -299,16 +207,11 @@ fn parse_with_schema(
         Ok(document) => document,
         Err(error) => return report_failure(Failure::from(&error), diagnostics),
     };
-    let spec = match assignment_spec(&schema) {
+    let spec = match parser_schema::compile_schema(&schema) {
         Ok(spec) => spec,
         Err(error) => return report_failure(error, diagnostics),
     };
-    let response = parser_core::parse_document_with_assignment(
-        &document,
-        &spec.fields,
-        &spec.enum_definitions,
-        schema.record_name,
-    );
+    let response = parser_core::parse_document_with_plan(&document, &spec);
     match serde_json::to_string_pretty(&response) {
         Ok(json) => {
             println!("{json}");

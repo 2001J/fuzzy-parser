@@ -46,7 +46,7 @@ Owns generic parsing behavior and shared runtime models:
 - Record candidates and segmentation strategies.
 - Generic field candidates.
 - Candidate assignment.
-- Parse orchestration.
+- Parse orchestration and the runtime-only `ParsePlan`.
 - Confidence components and explanations.
 - Warnings, rejected fragments, and parse statistics.
 - Shared typed failures, versioned error payloads and safe message rendering.
@@ -74,9 +74,12 @@ Owns the caller-provided description of desired output:
 - Field definitions and types.
 - Required and optional fields.
 - Enum values and aliases.
-- Locale and country hints.
-- Caller-provided labels, stop words, and constraints.
-- Schema validation.
+- Caller-provided labels and constraints.
+- Structural schema validation and executable capability compilation into core plans.
+- Strict execution JSON decoding, separate from compatible structural decoding.
+
+Locale/country hints and stop words remain future profile capabilities, not
+currently executable schema options.
 
 The schema crate describes generic structure. Product-specific schemas live in consuming applications or external profile files.
 
@@ -112,14 +115,13 @@ Exact dependencies may evolve, but these constraints remain:
 - Circular crate dependencies are not allowed.
 
 If shared request or response models are needed by several crates, place them at the lowest stable layer rather than introducing a broad utility crate prematurely.
-The schema-to-core dependency provides the shared error boundary; schema cause
-variants and validation stay in `parser-schema`. No dependency cycle or separate
-CLI error model is needed. [Error contracts](data-contracts.md#error-contract-01-and-migration-from-unversioned-errors)
-define the migration. This dependency does not implement schema compilation.
-Today `assignment_spec` in the CLI converts schema fields into core assignment
-instructions. [#12](https://github.com/2001J/fuzzy-parser/issues/12) moves that
-interpretation into a shared library boundary; the diagram must be updated if
-the dependency direction changes.
+The existing schema-to-core dependency provides both the shared error boundary
+and executable schema compilation. Raw models, validation and compilation stay
+in `parser-schema`; runtime plans, field-scoped enum ownership and execution stay
+in `parser-core`. The CLI calls these APIs instead of owning `assignment_spec`.
+Legacy lower-level core APIs and plan execution share internals. No dependency,
+crate, cycle or separate CLI error model was added for #12. See the
+[executable schema contract](data-contracts.md#executable-schema).
 
 ## Processing boundaries
 

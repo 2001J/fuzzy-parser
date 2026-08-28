@@ -85,6 +85,11 @@ Use `cargo run -p parser-cli -- --help` for command syntax. Schema validation
 accepts a path, stdin, or inline text; `--compact <path>` emits one JSON line.
 Validation accepts more field types than parsing: `text`, `person_name`, and
 `datetime` are rejected by `parse` with `schema_field_type_unsupported`.
+Parsing uses the same executable schema compiler available to Rust callers.
+Only permissive `allow_unknown_fields=true` is supported; unknown schema members,
+inapplicable constraints and unsupported enum definitions fail explicitly.
+Enum ownership ties remain unassigned with warnings. See the
+[executable schema capabilities and migration](docs/data-contracts.md#executable-schema).
 See [integration usage](docs/integration-strategy.md) and
 [the actual JSON contracts](docs/data-contracts.md).
 

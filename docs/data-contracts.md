@@ -30,6 +30,29 @@ are not any of these versions; see [release strategy](release-and-environment-st
 
 Parser implementation version and schema contract version are separate concerns.
 
+### Executable schema migration (#12)
+
+The #12 execution boundary preserves structural `TargetSchema` decoding and the
+raw/parse-response JSON shapes. Execution deliberately rejects unsupported
+options, inapplicable constraints, unknown schema properties, ambiguous enum
+definitions and definitions that cannot be detected. The additive failure codes
+are `schema_option_unsupported`, `schema_constraint_unsupported`,
+`schema_property_unsupported`, `schema_enum_definition_ambiguous` and
+`schema_enum_definition_unsupported`, under error contract `0.1`. They have no
+variable safe metadata. Rust exhaustive matches on `FailureKind` and strict typed
+error readers must handle these new variants. Existing codes and safe-report
+rendering remain unchanged. Caller strings in errors remain diagnostics-only;
+successful results and record warnings retain their existing raw-data contract.
+
+Enum ownership corrections can change previously incorrect assignments and add
+`enum_field_ambiguous` warnings. No response fields or versions are added.
+Profiles relying on ignored options, ineffective constraints, unknown properties
+or pooled enum assignments must migrate to the [executable capabilities below](#executable-schema).
+Structural schema validation alone remains compatible and is not proof of execution support.
+The [pre-change fixture](../fixtures/contracts/schema-compilation-before.json)
+locks complete CLI output for contact, attendance and inventory profiles across
+TXT, stdin, CSV and XLSX; tests also compare the same output with library execution.
+
 ### Error contract 0.1 and migration from unversioned errors
 
 [#2](https://github.com/2001J/fuzzy-parser/issues/2) deliberately changes error
@@ -84,6 +107,8 @@ metadata beyond `code` and `error_contract_version`; private context is absent:
 | `schema_parse_error` | None; invalid schema JSON |
 | `schema_validation_error` | Typed `reason` |
 | `schema_field_type_unsupported` | Known literal `field_type`: `text`, `person_name`, or `datetime` |
+| `schema_option_unsupported`, `schema_constraint_unsupported`, `schema_property_unsupported` | None; execution capability failures |
+| `schema_enum_definition_ambiguous`, `schema_enum_definition_unsupported` | None; executable enum definition failures |
 | `schema_serialization_error` | Typed `cause`: `{"kind":"json"}` or `{"kind":"validation","reason":...}` |
 | `output_serialization_error` (new) | Fixed `target`: `parse_result` or `raw_document` |
 
@@ -222,8 +247,9 @@ the empty internal path is absent even from explicit diagnostics.
 This additive library API does not change CLI commands or JSON/package versions.
 The local [#22](https://github.com/2001J/fuzzy-parser/issues/22) implementation and
 file-reader parity are independently verified. Workbook/decompression/cell/output limits remain
-[#17](https://github.com/2001J/fuzzy-parser/issues/17); WASM/JS execution, shared
-schema compilation and runtime packaging are separate, unverified capabilities.
+[#17](https://github.com/2001J/fuzzy-parser/issues/17); WASM/JS execution and runtime
+packaging remain separate capabilities. [Compiled plan execution](#executable-schema)
+accepts canonical documents from either XLSX input API.
 
 ## Canonical raw document
 
@@ -377,16 +403,88 @@ Product-specific concepts should be represented as generic fields plus caller-pr
 
 `TargetSchema::from_json` validates a JSON schema before returning it, including the supported schema version and unambiguous field and enum labels. `TargetSchema::to_json` refuses to serialize an invalid schema. Parsing and validation errors remain structured as `SchemaParseError` values.
 
-Validation accepts the field vocabulary above; CLI execution rejects `text`,
-`person_name`, and `datetime`. Enum JSON uses an externally tagged object such as
+Validation accepts the field vocabulary above. Enum JSON uses an externally tagged object such as
 `{"enum":{"values":[{"value":"active","aliases":["enabled"]}]}}`.
-Constraints are tagged with `kind`/`value`; see the source for exact variants.
-`SchemaOptions` currently contains only `allow_unknown_fields`, which the CLI
-parse path does not enforce. Locale/country hints, runtime options, and explicit
-column mapping are not supported schema fields. The CLI pools enum values
-across fields; shared capability/field-scope enforcement is [#12](https://github.com/2001J/fuzzy-parser/issues/12).
+Constraints are tagged with `kind`/`value`.
 
 The CLI preserves this validation contract for file, standard-input, and inline-text sources. Valid output is pretty-printed by default and can be emitted as one compact JSON line for pipeline consumers.
+
+### Executable schema
+
+`parser_schema::compile_schema(&TargetSchema) -> Result<parser_core::ParsePlan, Failure>`
+validates programmatically constructed schemas and compiles supported behavior.
+`parser_core::parse_document_with_plan(&RawDocument, &ParsePlan) -> ParseResponse`
+reuses the existing document pipeline, detectors and assignment internals. The
+plan is reusable, stores no input and has no JSON representation. Its field
+representation is private; `PlanField::new` and `ParsePlan::new` are low-level
+runtime constructors, not substitutes for schema validation.
+
+JSON callers should use `parser_schema::compile_schema_json(&str)` to retain strict
+execution checks. `decode_execution_schema(&str)` exposes strict decoding separately
+from compilation; the CLI uses this split to preserve its existing precedence:
+schema decoding/structural validation before input reading, then capability
+compilation after successful extraction. Existing structural errors retain priority,
+and compilation checks the first unsupported type before new option/constraint/enum
+capability failures. Unknown members are rejected at modeled schema, option,
+field, constraint and enum-definition objects before they can be silently lost.
+Missing required JSON members still produce `schema_parse_error`; `record_name`
+remains optional. `TargetSchema::from_json`, ordinary Serde decoding, and
+`schema validate` remain structural and tolerate unknown members as before.
+Compiling an already decoded typed schema cannot recover discarded JSON keys.
+Execution also preserves Serde's accepted positional struct arrays and unit-type
+objects such as `{"email":null}`; strict traversal checks nested objects in those
+representations too. Normal schema serialization still emits named properties
+and string unit types.
+
+| Field type | Executable constraints |
+| --- | --- |
+| `integer` | `minimum_integer`, `maximum_integer` |
+| `email`, `phone_number`, `date`, `enum` | `minimum_length`, `maximum_length` |
+| `decimal`, `currency`, `boolean` | None |
+| `text`, `person_name`, `datetime` | Execution fails with `schema_field_type_unsupported` |
+
+All bounds are inclusive and repeated bounds are conjoined, not overwritten.
+Lengths count Unicode scalars in normalized values: email text, phone digits,
+ISO date text or the canonical enum value. Structural range validation remains
+unchanged; later repeated bounds can leave no eligible values. Rejected candidates
+remain unassigned and a required field without an eligible value warns.
+Inapplicable combinations fail with `schema_constraint_unsupported`.
+
+`required` controls missing-field warnings; it does not make a parse fatal.
+`multiple=true` retains eligible occurrences, preferring matching header columns;
+`false` selects one using existing context/confidence and warns about multiple
+candidates. Field names and aliases supply existing label/header context.
+`record_name` is echoed only. `allow_unknown_fields=true` preserves all unused
+and unassigned evidence; `false` fails with `schema_option_unsupported` until a
+strict data policy exists. This option concerns input evidence, not unknown JSON
+schema members. Locale, country hints, explicit columns, uniqueness and runtime
+limits are not executable schema properties. Low-level `AssignmentField.unique`
+still only warns when more than one candidate was selected; it is not deduplication
+or database uniqueness, and compilation sets it to false.
+
+Enum definitions belong to individual fields. Matching remains ASCII case
+insensitive on whitespace-separated tokens with edge `. , ; : ( ) [ ]` trimming.
+Each lexical definition must be detectable as such a token. A multiword or
+otherwise undetectable canonical value is allowed when reachable through supported
+short aliases, and is emitted verbatim; aliases must themselves be detectable.
+There is no phrase detection. Unsupported definitions fail explicitly rather than
+being omitted. An empty `values` array remains valid and matches nothing.
+Within-field lexical collisions fail compilation (existing structural collision
+errors retain precedence).
+
+An occurrence is eligible only for fields whose own raw canonical/alias definition
+matched it. Shared canonical strings do not share aliases. For competing owners,
+a uniquely best existing header match, then nearby label match, can resolve
+ownership. Ties leave all hypotheses unassigned with `enum_field_ambiguous`;
+constraints and schema order cannot break them. One enum occurrence is never
+assigned to two enum fields. All canonical alternatives remain detected evidence;
+unchosen alternatives remain unassigned even when context selects an owner.
+Other candidate types keep their independent detections and assignment behavior.
+
+Existing `parse_document_with_assignment`, `parse_text_with_assignment`, table and
+standalone assignment APIs retain their signatures and legacy caller-supplied
+global enum semantics. Use the compiled plan for field-scoped schema execution.
+Both routes share core internals; neither composes normalization/segmentation yet.
 
 ## Field candidate
 
@@ -546,8 +644,9 @@ pub struct TextRecordParseResult {
 }
 ```
 
-`parse_document_with_assignment` chooses table mode when any blocks have row
-provenance, otherwise one text record per raw block. It does not run the separate
+`parse_document_with_plan` and `parse_document_with_assignment` choose table mode
+when any blocks have row provenance, otherwise one text record per raw block.
+Neither runs the separate
 normalization/segmentation APIs. The CLI emits this envelope directly.
 
 The envelope now embeds the unchanged canonical document, including metadata,

@@ -7,6 +7,9 @@ use std::{error::Error, fmt};
 
 pub const SCHEMA_VERSION: &str = "0.1";
 
+mod compile;
+pub use compile::{compile_schema, compile_schema_json, decode_execution_schema};
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TargetSchema {
     pub schema_version: String,

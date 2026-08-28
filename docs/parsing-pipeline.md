@@ -8,7 +8,8 @@ It describes the intended complete pipeline. The current paths are narrower:
 | CLI `inspect` | Format extraction → canonical `RawDocument` JSON |
 | `normalize_document` / `segment_document` | Separately callable normalization and segmentation APIs |
 | `parse_text_with_assignment` | Detectors → assignment for one supplied text record |
-| CLI `parse` / `parse_document_with_assignment` | Table grouping/header detection/row assignment, or independent raw-block text assignment |
+| CLI `parse` | Strict execution schema decoding → input extraction → shared schema compilation → core plan execution |
+| `parse_document_with_plan` / `parse_document_with_assignment` | Table grouping/header detection/row assignment, or independent raw-block text assignment |
 
 `parse` does not currently compose normalization or record segmentation.
 [#14](https://github.com/2001J/fuzzy-parser/issues/14) owns that connection;
@@ -133,6 +134,14 @@ For tabular documents, `group_document_rows` groups blocks carrying row provenan
 
 The caller-provided schema describes the desired fields. Assignment scores compatible candidates against those fields.
 
+Compiled plans retain each enum field's lexical definitions. Ownership is decided
+before constraint filtering using only a uniquely best existing header/label
+match; tied owners remain unassigned with `enum_field_ambiguous`. Detection retains
+all canonical hypotheses and exact source references. Existing lower-level APIs
+keep their global enum semantics through the same internals. The
+[executable schema contract](data-contracts.md#executable-schema) defines supported
+options, constraints, enum shapes and compatibility limits.
+
 Possible evidence:
 
 - Type compatibility.
@@ -202,8 +211,8 @@ The intended complete result includes:
 No fragment should disappear merely because the parser did not understand it.
 Current `ParseResponse` retains the canonical source document, noncandidate
 content, assigned/unassigned references, header/exclusion evidence, record review
-reasons, and input-document warnings. Statistics and a shared request/schema
-compilation interface remain unimplemented. This does not change extraction,
+reasons, and input-document warnings. Shared schema compilation is implemented;
+statistics and a serialized parse request remain unimplemented. This does not change extraction,
 header, detection or segmentation heuristics or preserve original file bytes
 that the extraction adapters do not expose.
 See [the implemented result contract](data-contracts.md#versioned-parse-result).
