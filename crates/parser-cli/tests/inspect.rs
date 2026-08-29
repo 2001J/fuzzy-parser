@@ -2,6 +2,8 @@ use serde_json::Value;
 #[path = "inspect/arguments.rs"]
 mod arguments;
 mod support;
+#[path = "inspect/txt_fixtures.rs"]
+mod txt_fixtures;
 use std::{
     io::Write,
     path::PathBuf,

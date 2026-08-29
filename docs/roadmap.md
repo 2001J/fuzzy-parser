@@ -56,7 +56,7 @@ selected independently.
 | [#4 Permanent TXT adapter edge-case fixtures](https://github.com/2001J/fuzzy-parser/issues/4) | [Fixture coverage](../fixtures/text/README.md) independently reviewed, locally integrated and verified |
 | [#5 Reusable file validation and empty policy](https://github.com/2001J/fuzzy-parser/issues/5) | [TXT-integrated validation](file-validation.md) independently reviewed, locally integrated and verified on macOS/Linux; closed |
 | [#6 Strict CLI dispatch and arguments](https://github.com/2001J/fuzzy-parser/issues/6) | Exact OS argument grammar, explicit routing and TXT-only overrides independently reviewed, locally integrated and verified on macOS/Linux; closed |
-| [#7 Complete TXT subprocess matrix](https://github.com/2001J/fuzzy-parser/issues/7) | #2/#4/#5/#6 complete; test-only fixture matrix approved for next dispatch |
+| [#7 Complete TXT subprocess matrix](https://github.com/2001J/fuzzy-parser/issues/7) | Full synthetic fixture matrix implemented in the real-binary inspect target; independent review pending |
 | [#12 Shared schema compilation/capability validation](https://github.com/2001J/fuzzy-parser/issues/12) | Shared compiler/core plan independently reviewed, locally integrated and verified on macOS/Linux; closed |
 | [#13 Caller-directed text and name fields](https://github.com/2001J/fuzzy-parser/issues/13) | Contextual extraction/residual abstention implemented and independently reviewed; combined integration verification pending, issue remains open |
 | [#14 Compose text normalization/segmentation](https://github.com/2001J/fuzzy-parser/issues/14) | #10/#12 complete; ready, not assigned |
@@ -111,12 +111,12 @@ versions. The old [TXT-only v0.1 epic #8](https://github.com/2001J/fuzzy-parser/
 used a conflicting meaning. It is superseded as a plan, **not completed as an
 acceptance gate**. Its criteria were carried into #2 and #4–#7; #2/#4/#5 are now
 complete; #6 CLI behavior is independently reviewed and verified locally,
-and #7 retains the wider TXT subprocess coverage.
+and #7's wider TXT subprocess coverage is implemented locally pending review.
 
 | Former stage | Reconciled status / destination |
 | --- | --- |
 | 0.1 Workspace foundation | Implemented workspace and automated checks |
-| 0.2 TXT inspection | Working path; #2 privacy/#4 fixtures/#5 validation/#6 CLI verified; #7 matrix remains |
+| 0.2 TXT inspection | Working path; #2 privacy/#4 fixtures/#5 validation/#6 CLI verified; #7 matrix implemented locally pending review |
 | 0.3 Pasted text/dispatch | Text/stdin exist; #5 validates TXT paths, #6 explicit routing independently reviewed and verified |
 | 0.4 CSV / 0.5 XLSX | Adapters exist; table compatibility and limits remain #16/#17/#20 |
 | 0.6 Normalization / 0.7 Segmentation | Separate library stages exist; document composition remains #14 |

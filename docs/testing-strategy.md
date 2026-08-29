@@ -294,8 +294,11 @@ arity, duplicate/malformed/misplaced flags, native OS arguments, leading-only
 diagnostics, extension/error precedence and TXT size/empty overrides. Existing
 inspect/parse success goldens and source checks remain in their original
 targets. #6 changes former ignored-tail/bare-flag expectations to usage errors;
-it does not replace #7's full TXT fixture subprocess matrix. Library growth,
-shrink and I/O tests remain deterministic rather than timing subprocess races.
+The [completed TXT fixture subprocess module](../crates/parser-cli/tests/inspect/txt_fixtures.rs)
+adds the #7 Unicode/raw-whitespace and LF/CRLF/blank/trailing-terminator matrix,
+plus invalid UTF-8 fixture materialization, without duplicating #6's retained
+empty/size/extension/stream checks. Library growth, shrink and I/O tests remain
+deterministic rather than timing subprocess races.
 
 ### Heuristic change
 

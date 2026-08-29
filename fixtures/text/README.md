@@ -32,3 +32,24 @@ after a partial read through the existing bounded TXT reader. This permanently
 tests cause propagation without chmod, host paths, root-dependent skips, or
 production test seams; it does not claim to test OS permission enforcement.
 Error JSON/Display and redaction are owned by issue #2, not these fixtures.
+
+## Real CLI coverage
+
+The nested [`parser-cli` TXT fixture module](../../crates/parser-cli/tests/inspect/txt_fixtures.rs)
+decodes the same hex representations into owned temporary `.txt` files and
+executes the built CLI. It independently describes expected JSON rather than
+serializing `parser-formats` output. The Unicode case asserts the complete
+source metadata, block IDs, raw spaces, tabs, nonbreaking space, decomposed
+accent, punctuation, one-based lines and UTF-8 byte locations. The LF/CRLF case
+asserts all seven blocks, including consecutive blanks and the absence of a
+phantom block after the final terminator. The invalid UTF-8 case asserts the
+safe structured error and exact byte offset.
+
+Retained subprocess tests in
+[`arguments.rs`](../../crates/parser-cli/tests/inspect/arguments.rs) cover both
+empty policies, whitespace-only input, zero/exact/one-over byte limits,
+unsupported/no extensions and output stream/exit behavior. Existing tests in
+[`inspect.rs`](../../crates/parser-cli/tests/inspect.rs) retain the ordinary
+multiline fixture, missing file, privacy/error envelope, stdout JSON and
+no-extra-log checks. This avoids duplicating #6's broader grammar matrix while
+making every original #7 TXT scenario permanent and executable.
