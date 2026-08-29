@@ -16,16 +16,16 @@ the applications. See [integration strategy](integration-strategy.md).
 
 | Owner | Assignment | Current state | Review and integration |
 | --- | --- | --- | --- |
-| Existing parser worker | [#11 JS/WASM experiment preparation](https://github.com/2001J/fuzzy-parser/issues/11) | Read-only brief complete; stopped, no experiment dispatched | Medium reasoning; #5 core-error and #12 enum/plan reviews complete; original checkout remains coordinator-owned |
-| Schema worker (previously email) | [#13 Caller-directed text and name fields](https://github.com/2001J/fuzzy-parser/issues/13) | Scoped implementation approved for next dispatch; startup pending | High reasoning for source ownership and abstention; #12 reviewed, integrated and closed |
-| Validation worker (previously TXT tests) | [#6 Strict CLI dispatch and arguments](https://github.com/2001J/fuzzy-parser/issues/6) | Scoped implementation approved for next dispatch; startup pending | Medium reasoning; #5 reviewed, integrated and closed |
+| Existing parser worker | Independent #6 CLI review; [#11 JS/WASM preparation](https://github.com/2001J/fuzzy-parser/issues/11) | Review and preparation complete; stopped, no experiment dispatched | Medium reasoning; original checkout remains coordinator-owned |
+| Schema worker (previously email) | [#13 Caller-directed text and name fields](https://github.com/2001J/fuzzy-parser/issues/13) | Implementing; startup verified at `d757e28` | High reasoning for source ownership and abstention; #12 reviewed, integrated and closed |
+| Validation worker (previously TXT tests) | [#7 TXT subprocess matrix](https://github.com/2001J/fuzzy-parser/issues/7) | Test-only slice approved for next dispatch; #6 reviewed and locally integrated | Medium reasoning; no production behavior changes authorized |
 | QualEvents preparation / privacy reviewer | Host compatibility report and #2 message-invariant re-review | Complete; stopped | Read-only host work; no integration or runtime approval claimed |
-| Coordinator | Assignments, independent review, integration and reporting | #2/#15/#4/#5/#12 locally integrated and closed | Sole integration owner; next workers use the final reviewed combined baseline |
+| Coordinator | Assignments, independent review, integration and reporting | #2/#15/#4/#5/#12/#6 locally integrated and closed | Sole integration owner; new dispatches use the final reviewed combined baseline |
 
 An assigned task must not silently expand into another ticket.
 
 Reasoning budgets are task-specific: #13 uses high for source/assignment
-compatibility, while #6 uses medium for bounded CLI behavior. The prior #2
+compatibility, while #7 uses medium for bounded fixture/contract tests. The prior #2
 migration and privacy review used high; #15, #4 and host preparation used medium.
 Existing task models remain unchanged; new tasks use the user's
 configured default model. Raise reasoning only
@@ -38,15 +38,14 @@ uniformly or add idle workers merely to increase headcount.
   - Task: `01a04432-a13b-7471-a1f2-3adcd2e634c7`.
   - Branch: `codex/align-fuzzy-parser-roadmap-for`.
   - Folder: `/Users/josephkoyi/Desktop/bonkers/fuzzy-parser`.
-- **Fix FP-15 email boundaries** (#15/#12 complete; next #13)
+- **Fix FP-15 email boundaries** (#15/#12 complete; #13 implementing)
   - Task: `01a0478b-75ed-73f0-b3eb-d5a3d3b52cb4`.
-  - Current branch: `codex/fp-12-schema-compilation`; completed branch retained: `codex/fp-15-email-boundaries`.
-  - Next assigned branch: `codex/fp-13-text-name-fields`; verify startup before editing.
+  - Current branch: `codex/fp-13-text-name-fields`; completed branches retained: `codex/fp-12-schema-compilation`, `codex/fp-15-email-boundaries`.
   - Folder: `/Users/josephkoyi/.codex/worktrees/c5ad/fuzzy-parser`.
-- **Complete FP-4 TXT regression fixtures** (#4/#5 complete; next #6, medium)
+- **Complete FP-4 TXT regression fixtures** (#4/#5/#6 complete; next #7, medium)
   - Task: `01a0478b-7750-7203-a772-356b98192ad9`.
-  - Current branch: `codex/fp-5-file-validation`; completed branch retained: `codex/fp-4-txt-fixtures`.
-  - Next assigned branch: `codex/fp-6-cli-contract`; verify startup before editing.
+  - Current branch: `codex/fp-6-cli-contract`; completed branches retained: `codex/fp-5-file-validation`, `codex/fp-4-txt-fixtures`.
+  - Next assigned branch: `codex/fp-7-txt-subprocess-matrix`; verify startup before editing.
   - Folder: `/Users/josephkoyi/.codex/worktrees/fb3f/fuzzy-parser`.
 - **Prepare QualEvents parser integration** (preparation and privacy re-review complete; read-only)
   - Task: `01a0478b-7dac-7910-a1e1-3b0973c88f5c`.
@@ -63,9 +62,12 @@ Both #12/#5 implementation branches were verified at starting HEAD
 #5 is committed at `74a7576fc2783adcc767ead6d131a9a4ef272bb0` and integrated at
 `0d0a949faffeefc59ef209843811d1f41c4b0963`. #12 is committed at
 `93229f15cdd1993593eef7d8e26400bf4c7f4cd5` and integrated at
-`832e4f5816f506ef25c2796942eb265c3b122d22`. #6 and #13 must start from that
-reviewed combined code plus the coordinator's documentation-only update,
-using the exact commit in their dispatch. Preparation did not authorize edits.
+`832e4f5816f506ef25c2796942eb265c3b122d22`. #6 and #13 both verified clean
+startup at its documentation follow-up `d757e28413d91aeb1aa3e75373268199cd29ee8a`.
+#6 is now committed at `e594794408741c9210d0529e3e41e0e71a2a24da` and integrated
+at `21cc208dc06b6cd594c247cbd2626f69e0e4bf68`. #7 starts from that reviewed code
+plus the exact coordinator documentation commit in its dispatch. #13 continues
+its existing branch; it must not absorb #6 or another draft during implementation.
 
 ## Branches and working folders
 
@@ -77,7 +79,7 @@ temporary publishing clones.
 - Original Fuzzy Parser checkout: `/Users/josephkoyi/Desktop/bonkers/fuzzy-parser`.
 - Current local integration branch: `codex/align-fuzzy-parser-roadmap-for`.
 - Last reviewed combined implementation baseline:
-  `832e4f5816f506ef25c2796942eb265c3b122d22`.
+  `21cc208dc06b6cd594c247cbd2626f69e0e4bf68`.
 - The original checkout is clean and coordinator-owned again. Future parser
   implementations use their assigned worktrees; no worker starts another slice
   in this checkout without an explicit assignment.
@@ -96,17 +98,18 @@ credentials, Docker, or machine resources.
 
 ## Ownership and dependencies
 
-- #6 owns complete CLI argument parsing, explicit TXT/CSV/XLSX routing, help
-  and TXT-only size/empty overrides. It calls #5's same-handle TXT API directly;
-  CSV/XLSX readers remain unchanged. Wider same-handle validation and resource
-  policy stay in #17. The approved grammar and precedence are in live #6.
+- #6's complete argument grammar, explicit routing, help and TXT-only overrides
+  are delivered. #7 fills the remaining real-file TXT subprocess fixture matrix,
+  reusing #4 fixtures and mapping retained #6 tests. No CLI/reader behavior,
+  policy, dependency or new Cargo target is authorized in this test-only slice.
+  Wider same-handle validation and resource policy remain #17.
 - #13 owns caller-directed text/name extraction through #12's shared plan.
   Unlabeled residual text remains unresolved evidence, not an inferred identity.
   New assignments cannot overlap existing assigned evidence. Preserve all old
   supported profiles; #14 segmentation and #16 table options remain separate.
 - Both preserve #2 privacy, #10 source evidence, #15 email behavior and #12
-  schema compilation. #6 does not change compiler semantics; #13 does not
-  rewrite CLI argument handling. Neither reads or edits the other's draft.
+  schema compilation. #13 does not rewrite #6 CLI argument handling. #7 does
+  not inspect #13's draft or expand into parser capability tests.
 - The coordinator reconciles shared test modules and current-state/roadmap
   documentation. A clean Git merge alone does not establish semantic safety.
 - #11's bounded JS/WASM preparation is complete, but no binding, tool download,
@@ -137,7 +140,7 @@ credentials, Docker, or machine resources.
    A push, pull request, merge into main, deployment, package or container
    publication still needs separate authorization.
 
-Completed order: #2, then #15, then #4, then #5, then #12, with checks between
+Completed order: #2, then #15, then #4, then #5, then #12, then #6, with checks between
 integrations. Reviewed changes still integrate one at a time. Host preparation
 is a report, not a host code merge.
 
@@ -170,7 +173,7 @@ digest `sha256:1f91679a8058b5266468abd53f89a73db2b2f5d52529cc1d182327b10ceb2b0e`
 The separate Linux test run had no network and mounted only synthetic fixtures
 read-only. Both runs finished; no evaluation container remains running.
 
-The current `832e4f5` baseline adds independently reviewed #12 compilation and
+The `832e4f5` baseline added independently reviewed #12 compilation and
 field-scoped enums. All 232 macOS Rust tests and 233 Linux/amd64 tests passed,
 with no ignored tests. The combined names are exactly the union of both ticket
 suites; all six Cargo targets remain. Formatting, locked Clippy/tests/build,
@@ -187,12 +190,30 @@ No evaluation container remains running. These results are local verification,
 not hosted CI or execution of WASM code. Documentation-only coordination updates
 do not require another image build.
 
+The current `21cc208` baseline adds independently reviewed #6 CLI handling.
+All 244 macOS / 245 Linux tests passed, retaining all 232 earlier names and the
+six Cargo targets. Two source reviews found no actionable issue; the second
+also ran 16 bounded real-binary privacy/grammar probes. Formatting, locked
+Clippy/tests/build/release, three-library WASM compilation, all 11 Node guards,
+native parity and 106 documentation links passed. The new README TXT override
+example exactly matched prior successful stdout. Integration had no conflict
+and its tree exactly matches the reviewed ticket; original-checkout Rust checks
+and native parity were rerun. No #13 draft was included.
+
+All 14 fresh container checks passed on `fuzzy-parser-cli-contract-review:local`,
+digest `sha256:0a30a1f8d5d2442dda32dde291097698d37302ddfe7fae8ecef344ee957078a6`.
+The isolated Linux run had no network and only synthetic fixtures mounted
+read-only; both runs finished. Native release SHA-256 is
+`1b6867cf0ebd29b204e2087653da8da684c59438bf431bec5c6a885ac6150e44`.
+The full TXT fixture matrix remains #7; expanded input/resource policies remain
+#17. No hosted CI or WASM execution is implied by these local results.
+
 The coordinator reports user-visible outcomes, active tickets, blockers and the
 next milestone. Worker message traffic is not a substitute for that summary.
 Record status and evidence here after meaningful review/integration transitions,
 not after every command.
 
-- #2, #3, #4, #5, #10, #12, #15, #21 and #22 are closed for reviewed delivered work. #8 is superseded,
+- #2, #3, #4, #5, #6, #10, #12, #15, #21 and #22 are closed for reviewed delivered work. #8 is superseded,
   not counted as delivered implementation.
 - [#23 CI](https://github.com/2001J/fuzzy-parser/issues/23) is committed and tested
   locally but remains open for the first authorized GitHub-hosted run.

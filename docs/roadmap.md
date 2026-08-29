@@ -55,10 +55,10 @@ selected independently.
 | [#2 Finish safe structured errors](https://github.com/2001J/fuzzy-parser/issues/2) | Independently reviewed and verified locally; safe error-contract migration and privacy/compatibility regressions |
 | [#4 Permanent TXT adapter edge-case fixtures](https://github.com/2001J/fuzzy-parser/issues/4) | [Fixture coverage](../fixtures/text/README.md) independently reviewed, locally integrated and verified |
 | [#5 Reusable file validation and empty policy](https://github.com/2001J/fuzzy-parser/issues/5) | [TXT-integrated validation](file-validation.md) independently reviewed, locally integrated and verified on macOS/Linux; closed |
-| [#6 Strict CLI dispatch and arguments](https://github.com/2001J/fuzzy-parser/issues/6) | Exact OS argument grammar, explicit routing and TXT-only overrides independently reviewed and verified locally on macOS/Linux |
-| [#7 Complete TXT subprocess matrix](https://github.com/2001J/fuzzy-parser/issues/7) | #6; #2/#4/#5 are complete |
+| [#6 Strict CLI dispatch and arguments](https://github.com/2001J/fuzzy-parser/issues/6) | Exact OS argument grammar, explicit routing and TXT-only overrides independently reviewed, locally integrated and verified on macOS/Linux; closed |
+| [#7 Complete TXT subprocess matrix](https://github.com/2001J/fuzzy-parser/issues/7) | #2/#4/#5/#6 complete; test-only fixture matrix approved for next dispatch |
 | [#12 Shared schema compilation/capability validation](https://github.com/2001J/fuzzy-parser/issues/12) | Shared compiler/core plan independently reviewed, locally integrated and verified on macOS/Linux; closed |
-| [#13 Caller-directed text and name fields](https://github.com/2001J/fuzzy-parser/issues/13) | #10/#12 complete; scoped directed-extraction/residual-abstention implementation approved for next dispatch |
+| [#13 Caller-directed text and name fields](https://github.com/2001J/fuzzy-parser/issues/13) | #10/#12 complete; scoped directed-extraction/residual-abstention implementation active, not yet reviewed |
 | [#14 Compose text normalization/segmentation](https://github.com/2001J/fuzzy-parser/issues/14) | #10/#12 complete; ready, not assigned |
 | [#15 Delimiter-adjacent email regression](https://github.com/2001J/fuzzy-parser/issues/15) | Independently reviewed, locally integrated and verified with core/CLI source-span regressions |
 | [#16 Explicit table headers/selection/provenance](https://github.com/2001J/fuzzy-parser/issues/16) | #10/#12 complete; ready, not assigned; coordinate bounds with #17 |
