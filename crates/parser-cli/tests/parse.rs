@@ -12,6 +12,9 @@ mod email_boundaries;
 #[path = "parse/schema_compilation.rs"]
 mod schema_compilation;
 
+#[path = "parse/text_names.rs"]
+mod text_names;
+
 fn csv_fixture_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/csv/comma.csv")
 }
@@ -44,6 +47,35 @@ fn parse_unsupported_types_expose_only_known_type_literals_by_default() {
             path.to_str().unwrap(),
         ];
         let safe = support::run(&args, None);
+        // #13 makes text/name executable; their historical error payloads remain
+        // covered by the core serialization tests. Datetime is still rejected.
+        if field_type != "datetime" {
+            assert_eq!(safe.status.code(), Some(0));
+            assert!(safe.stderr.is_empty());
+            let response: Value = serde_json::from_slice(&safe.stdout).unwrap();
+            let parsed = &response["content"]["records"][0]["parse"];
+            assert!(
+                parsed["assignment"]["fields"]
+                    .as_array()
+                    .unwrap()
+                    .is_empty()
+            );
+            assert!(
+                !parsed["assignment"]["unassigned_candidates"]
+                    .as_array()
+                    .unwrap()
+                    .is_empty()
+            );
+            assert_eq!(parsed["review"]["status"], "needs_review");
+            assert_candidate_sources(&response);
+            let mut detailed = args.to_vec();
+            detailed.insert(0, "--diagnostics");
+            let repeated = support::run(&detailed, None);
+            assert_eq!(repeated.status.code(), Some(0));
+            assert!(repeated.stderr.is_empty());
+            assert_eq!(repeated.stdout, safe.stdout);
+            continue;
+        }
         let mut expected = serde_json::json!({"error_contract_version":"0.1", "code":"schema_field_type_unsupported", "field_type":field_type});
         assert_eq!(
             support::error(&safe),
@@ -566,12 +598,15 @@ fn parse_text_with_schema_reports_required_missing() {
 
 #[test]
 fn parse_rejects_unsupported_field_type_as_structured_error() {
+    let directory = support::TestDirectory::new();
+    let mut schema: Value =
+        serde_json::from_slice(&std::fs::read(text_schema_fixture_path()).unwrap()).unwrap();
+    schema["fields"][0]["field_type"] = "datetime".into();
+    let schema_path = directory.file("datetime.json", schema.to_string().as_bytes());
     let output = run_parse(&[
         csv_fixture_path().to_str().expect("CSV path is UTF-8"),
         "--schema",
-        text_schema_fixture_path()
-            .to_str()
-            .expect("schema path is UTF-8"),
+        schema_path.to_str().expect("schema path is UTF-8"),
     ]);
 
     assert_eq!(output.status.code(), Some(1));
@@ -581,7 +616,7 @@ fn parse_rejects_unsupported_field_type_as_structured_error() {
     assert!(
         error["message"]
             .as_str()
-            .is_some_and(|message| message.contains("text"))
+            .is_some_and(|message| message.contains("datetime"))
     );
 }
 

@@ -53,6 +53,18 @@ The [pre-change fixture](../fixtures/contracts/schema-compilation-before.json)
 locks complete CLI output for contact, attendance and inventory profiles across
 TXT, stdin, CSV and XLSX; tests also compare the same output with library execution.
 
+### Contextual text/name migration (#13)
+
+The additive `CandidateType::Text` / `PersonName` variants serialize as `text` /
+`person_name` under parse contract `0.1`. Exhaustive Rust matches and strict typed
+JSON readers must accept these tags before consuming profiles requesting these
+types. Raw, schema, response and plan constructor shapes and package versions
+are unchanged. Historical unsupported text/name error payloads remain readable
+and render identically; execution now supports contextual text/name profiles.
+`datetime` stays unsupported. Previously successful profiles without text/name
+fields keep their complete output. New-type ambiguity is unresolved rather than
+selected by schema order; scores are heuristic and do not authorize import.
+
 ### Error contract 0.1 and migration from unversioned errors
 
 [#2](https://github.com/2001J/fuzzy-parser/issues/2) deliberately changes error
@@ -473,13 +485,13 @@ and string unit types.
 | Field type | Executable constraints |
 | --- | --- |
 | `integer` | `minimum_integer`, `maximum_integer` |
-| `email`, `phone_number`, `date`, `enum` | `minimum_length`, `maximum_length` |
+| `email`, `phone_number`, `date`, `enum`, `text`, `person_name` | `minimum_length`, `maximum_length` |
 | `decimal`, `currency`, `boolean` | None |
-| `text`, `person_name`, `datetime` | Execution fails with `schema_field_type_unsupported` |
+| `datetime` | Execution fails with `schema_field_type_unsupported` |
 
 All bounds are inclusive and repeated bounds are conjoined, not overwritten.
 Lengths count Unicode scalars in normalized values: email text, phone digits,
-ISO date text or the canonical enum value. Structural range validation remains
+ISO date text, the canonical enum value, or the exact trimmed text/name substring. Structural range validation remains
 unchanged; later repeated bounds can leave no eligible values. Rejected candidates
 remain unassigned and a required field without an eligible value warns.
 Inapplicable combinations fail with `schema_constraint_unsupported`.
@@ -487,7 +499,9 @@ Inapplicable combinations fail with `schema_constraint_unsupported`.
 `required` controls missing-field warnings; it does not make a parse fatal.
 `multiple=true` retains eligible occurrences, preferring matching header columns;
 `false` selects one using existing context/confidence and warns about multiple
-candidates. Field names and aliases supply existing label/header context.
+candidates for scalar fields. Text/name fields instead abstain on competing
+directed values before constraint filtering, as described below. Field names and
+aliases supply label/header context.
 `record_name` is echoed only. `allow_unknown_fields=true` preserves all unused
 and unassigned evidence; `false` fails with `schema_option_unsupported` until a
 strict data policy exists. This option concerns input evidence, not unknown JSON
@@ -519,6 +533,59 @@ Existing `parse_document_with_assignment`, `parse_text_with_assignment`, table a
 standalone assignment APIs retain their signatures and legacy caller-supplied
 global enum semantics. Use the compiled plan for field-scoped schema execution.
 Both routes share core internals; neither composes normalization/segmentation yet.
+
+### Contextual text and possible person names
+
+Text/name detection runs only when requested by caller fields, after existing
+scalar/enum detection and assignment. It does not run during header detection.
+The same private region/ownership and selection helpers serve compiled plans
+and lower-level core APIs; there is no separate CLI parser or public ownership
+model. Standalone assignment accepts supplied candidates without inventing
+additional ones or trusting caller-supplied reason strings as direction.
+
+A directed region is a canonical `RawValue::Text` cell under an exact matching
+caller header, or a literal field name/alias immediately followed by `:` at the
+start or after whitespace, comma or semicolon. Matching is ASCII case insensitive,
+without synonyms. Inline values end at the next recognized caller label or the
+current block/cell end. Label syntax and separator punctuation introducing the
+next label remain unused. Matching header ownership covers the entire cell and
+outranks inline labels there. Overlapping anchors remain ambiguous; cells/blocks
+are never joined and commas do not create records.
+
+Only outer whitespace is trimmed, by adjusting the original UTF-8 byte bounds.
+Raw and normalized strings are identical, including interior whitespace,
+combining characters and punctuation. There is no NFC, case folding,
+transliteration, or title/surname splitting. `person_name` means a possible name
+requested by the caller, not identity verification. It requires alphabetic
+content and rejects a region that is entirely an existing scalar/enum candidate.
+This deliberately misses values such as `No` (a boolean token). All non-Text raw
+cell variants, including typed numbers, booleans, errors and nulls, are excluded
+from new detection; their original values and existing detections remain visible.
+
+No new assignment may intersect an already assigned source interval or another
+new assignment, comparing block index, coordinate space and byte bounds. Existing
+scalar-versus-scalar behavior is unchanged. A directed region that intersects
+prior assignments yields `text_evidence_overlap`; its contiguous leftover
+fragments remain unresolved, never joined or assigned as truncated values.
+Outside directed regions, maximal nonblank residual spans exclude detected
+scalar/enum evidence and label syntax. Alphabetic residuals can produce `text`
+and requested `person_name` hypotheses, but are **never assigned**, even to a
+sole field. Without direction, a name cannot reliably be distinguished from a note.
+
+Competing owners and multiple directed values for a singular field yield
+`text_field_ambiguous` and remain unassigned. Schema order, confidence and
+constraints do not break ownership ties. `multiple=true` selects disjoint,
+uniquely directed occurrences in source order, then applies all length bounds.
+Blank, absent, label-only, rejected or ambiguous values do not invent empty
+defaults; required fields retain `required_field_missing`. Low-level `unique`
+retains its existing warning behavior, without adding a schema option.
+
+Directed candidates score `0.80` with `caller_label_match` or
+`header_label_match`; residuals score `0.30` with `residual_text`. Possible names
+also carry `caller_person_name`. These fixed heuristics are not probabilities.
+All detected, assigned and unassigned copies preserve source references. Unused
+labels, punctuation and unresolved hypotheses remain visible to source coverage
+and review; a successful exit is not approval. See the [additive tag migration](#contextual-textname-migration-13).
 
 ## Field candidate
 

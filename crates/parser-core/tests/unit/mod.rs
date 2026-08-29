@@ -2,6 +2,7 @@ use super::*;
 
 mod email_boundaries;
 mod file_validation_errors;
+mod text_names;
 
 #[test]
 fn error_report_discards_forged_outer_messages_and_canonicalizes_from_payload() {

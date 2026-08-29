@@ -81,6 +81,18 @@ references resolve to stored values; `parse.review` flags record-level reasons
 for review. Neither `draft` nor `needs_review` means approval. See the
 [source-coordinate and compatibility contract](docs/data-contracts.md#source-evidence-extension-and-compatibility).
 
+For caller-directed multiword text, use a schema that requests it:
+
+```bash
+cargo run -p parser-cli -- parse fixtures/csv/comma.csv --schema fixtures/schema/contact_with_text.json
+printf 'name: Ada Lovelace\n' | cargo run -p parser-cli -- parse --stdin --schema fixtures/schema/contact_with_text.json
+```
+
+The CSV header and literal `name:` label direct assignment. Unlabeled residual
+names/notes stay unresolved, and missing required fields still warn. Possible
+`person_name` fields use the same caller direction with a conservative alphabetic
+guard. See [text/name semantics and limits](docs/data-contracts.md#contextual-text-and-possible-person-names).
+
 Use `cargo run -p parser-cli -- --help` for command syntax. Schema validation
 accepts a path, stdin, or inline text; `--compact <path>` emits one JSON line.
 Arguments are exact: unknown, duplicate, misplaced or extra tokens fail with
@@ -93,8 +105,8 @@ cargo run -p parser-cli -- inspect fixtures/text/simple.txt --max-bytes 4096 --e
 
 These options never limit schema, CSV/XLSX, stdin or inline input. See the
 [CLI grammar and compatibility notes](docs/integration-strategy.md#cli-grammar-and-validation-options).
-Validation accepts more field types than parsing: `text`, `person_name`, and
-`datetime` are rejected by `parse` with `schema_field_type_unsupported`.
+Validation accepts more field types than parsing: `datetime` is still rejected
+by `parse` with `schema_field_type_unsupported`.
 Parsing uses the same executable schema compiler available to Rust callers.
 Only permissive `allow_unknown_fields=true` is supported; unknown schema members,
 inapplicable constraints and unsupported enum definitions fail explicitly.

@@ -65,7 +65,7 @@ fn supported_profiles_preserve_full_cli_and_library_output() {
     }
 }
 
-fn field(name: &str, kind: Value) -> Value {
+pub(super) fn field(name: &str, kind: Value) -> Value {
     json!({"name":name,"field_type":kind,"required":true,"multiple":false,"aliases":[],"constraints":[]})
 }
 
@@ -76,7 +76,7 @@ fn enumeration(name: &str, canonical: &str, aliases: &[&str]) -> Value {
     )
 }
 
-fn schema(fields: Vec<Value>) -> Value {
+pub(super) fn schema(fields: Vec<Value>) -> Value {
     json!({"schema_version":"0.1","record_name":"synthetic","fields":fields,"options":{"allow_unknown_fields":true}})
 }
 
@@ -142,7 +142,7 @@ fn unknown_execution_properties_are_not_silently_discarded() {
 fn old_schema_input_and_capability_failure_precedence_is_preserved() {
     let directory = support::TestDirectory::new();
     let missing = directory.0.join("missing.txt");
-    let profile = schema(vec![field("private", json!("text"))]);
+    let profile = schema(vec![field("private", json!("datetime"))]);
     let path = directory.file("schema.json", profile.to_string().as_bytes());
     let args = [
         "parse",

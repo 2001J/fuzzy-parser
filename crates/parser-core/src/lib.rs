@@ -6,6 +6,7 @@ pub use errors::*;
 mod plan;
 use plan::{DetectionRules, EnumDefinitions};
 pub use plan::{ParsePlan, PlanField, parse_document_with_plan};
+mod text_fields;
 
 pub const CONTRACT_VERSION: &str = "0.1";
 
@@ -237,6 +238,8 @@ pub enum CandidateType {
     Date,
     Currency,
     Enum,
+    Text,
+    PersonName,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -333,7 +336,34 @@ fn parse_text_record(
             });
         }
     }
-    let assignment = assign_candidates_inner(text, &candidates, fields, None, rules.scoped());
+    let mut assignment = assign_scalar_candidates(text, &candidates, fields, None, rules.scoped());
+    let sources = if source.is_none_or(|(_, value)| matches!(value, RawValue::Text(_))) {
+        vec![text_fields::TextSource {
+            span: TextSpan {
+                byte_start: 0,
+                byte_end: text.len(),
+            },
+            reference: source.map(|(block_index, value)| SourceReference {
+                block_index,
+                coordinate_space: SourceCoordinateSpace::for_value(value),
+                span: TextSpan {
+                    byte_start: 0,
+                    byte_end: text.len(),
+                },
+            }),
+            column: None,
+        }]
+    } else {
+        Vec::new()
+    };
+    text_fields::complete(
+        text,
+        &mut candidates,
+        fields,
+        None,
+        &sources,
+        &mut assignment,
+    );
     finish_text_parse(text, candidates, assignment)
 }
 
@@ -694,6 +724,7 @@ fn parse_row_group(
 ) -> TableRowParseResult {
     let mut row_text = String::new();
     let mut candidates = Vec::new();
+    let mut text_sources = Vec::new();
 
     for cell in &row.cells {
         let cell_text = cell.value.to_text();
@@ -706,6 +737,25 @@ fn parse_row_group(
         }
         let offset = row_text.len();
         row_text.push_str(trimmed);
+
+        if matches!(cell.value, RawValue::Text(_)) {
+            let trim_offset = cell_text.len() - cell_text.trim_start().len();
+            text_sources.push(text_fields::TextSource {
+                span: TextSpan {
+                    byte_start: offset,
+                    byte_end: offset + trimmed.len(),
+                },
+                reference: cell.source_block_index.map(|block_index| SourceReference {
+                    block_index,
+                    coordinate_space: SourceCoordinateSpace::RawTextUtf8,
+                    span: TextSpan {
+                        byte_start: trim_offset,
+                        byte_end: trim_offset + trimmed.len(),
+                    },
+                }),
+                column: Some(cell.source_column),
+            });
+        }
 
         for mut candidate in collect_field_candidates(trimmed, rules) {
             let trim_offset = cell_text.len() - cell_text.trim_start().len();
@@ -725,8 +775,16 @@ fn parse_row_group(
         }
     }
 
-    let assignment =
-        assign_candidates_inner(&row_text, &candidates, fields, header, rules.scoped());
+    let mut assignment =
+        assign_scalar_candidates(&row_text, &candidates, fields, header, rules.scoped());
+    text_fields::complete(
+        &row_text,
+        &mut candidates,
+        fields,
+        header,
+        &text_sources,
+        &mut assignment,
+    );
     TableRowParseResult {
         source_row: row.source_row,
         source_block_ids: row.source_block_ids.clone(),
@@ -956,12 +1014,27 @@ fn assign_candidates_inner(
     header: Option<&TableHeaderContext>,
     enum_definitions: Option<&[EnumDefinitions]>,
 ) -> AssignmentResult {
+    let mut result = assign_scalar_candidates(text, candidates, fields, header, enum_definitions);
+    text_fields::assign_supplied(text, candidates, fields, header, &mut result);
+    result
+}
+
+fn assign_scalar_candidates(
+    text: &str,
+    candidates: &[FieldCandidate],
+    fields: &[AssignmentField],
+    header: Option<&TableHeaderContext>,
+    enum_definitions: Option<&[EnumDefinitions]>,
+) -> AssignmentResult {
     let mut assigned = vec![false; candidates.len()];
     let mut result_fields = Vec::new();
     let (owners, mut warnings) =
         plan::enum_ownership(text, candidates, fields, header, enum_definitions);
 
     for (field_index, field) in fields.iter().enumerate() {
+        if text_fields::is_text(&field.candidate_type) {
+            continue;
+        }
         let matching_indices = candidates
             .iter()
             .enumerate()

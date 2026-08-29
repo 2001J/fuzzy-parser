@@ -124,7 +124,14 @@ Each candidate records:
 
 Multiple candidates of the same type are valid.
 
-The current assignment slice matches candidate types against caller-provided field definitions and uses nearby canonical or caller-provided labels, source-column metadata, or detected table-header labels as context. Integer and length constraints filter incompatible candidates before selection. Single-value fields prefer a context-matched candidate, then select the highest-confidence match and report ambiguity when multiple matches remain; multiple-value fields retain all compatible matches, narrowed to header-matching columns when a header context exists and at least one column matches. Required fields without a compatible candidate and candidates left unassigned are reported without fabricating values.
+Scalar assignment matches candidate types against caller-provided field definitions and uses nearby canonical or caller-provided labels, source-column metadata, or detected table-header labels as context. Integer and length constraints filter incompatible candidates before selection. Single-value fields prefer a context-matched candidate, then select the highest-confidence match and report ambiguity when multiple matches remain; multiple-value fields retain all compatible matches, narrowed to header-matching columns when a header context exists and at least one column matches. Required fields without a compatible candidate and candidates left unassigned are reported without fabricating values.
+
+Requested text/name fields run after scalar/enum assignment, using private
+directed regions within original Text blocks/cells. They preserve exact strings,
+exclude assigned intervals, resolve ownership before constraints, and never
+assign residual hypotheses. Their detection is absent from the header heuristic.
+See [contextual text/name contracts](data-contracts.md#contextual-text-and-possible-person-names)
+for literal boundaries, ambiguity, typed-cell guards and fixed scores.
 
 For tabular documents, `group_document_rows` groups blocks carrying row provenance into per-sheet rows. Blocks without row metadata are excluded from grouping with a warning; their raw values remain only in the input document. `detect_table_headers` requires at least two rows and at least two non-empty text cells in the first row without strongly typed values. Rejections carry `header_not_detected_*` codes, but an all-text data row can still be mistaken for a header. `parse_document_rows_with_assignment` composes grouping, header detection, per-row detection with one-based source columns, and assignment that records `header_label_match`. Explicit header/selection control is planned in [#16](https://github.com/2001J/fuzzy-parser/issues/16).
 

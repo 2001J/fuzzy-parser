@@ -203,10 +203,49 @@ const schema = profiles[1];
 const schemaJson = JSON.stringify(schema);
 await parserFailure('invalid-schema-json', 'text', Buffer.from('42 true'), '{', 'schema_parse_error');
 await parserFailure('unsupported-schema-version', 'text', Buffer.from('42 true'), JSON.stringify({ ...schema, schema_version: '999' }), 'schema_validation_error');
-for (const type of ['text', 'person_name', 'datetime']) {
+for (const type of ['datetime']) {
   const unsupported = structuredClone(schema);
   unsupported.fields[0].field_type = type;
   await parserFailure(`unsupported-${type}`, 'text', Buffer.from('42 true'), JSON.stringify(unsupported), 'schema_field_type_unsupported');
+}
+// #13 capability migration: text/name now succeed, with residual uncertainty
+// visible. This remains evaluation tooling, not a runtime adapter.
+for (const type of ['text', 'person_name']) {
+  const profile = { schema_version: '0.1', record_name: 'synthetic', options: { allow_unknown_fields: true }, fields: [
+    { name: 'value', field_type: type, required: true, multiple: false, aliases: [], constraints: [] },
+  ] };
+  const bytes = Buffer.from('value: Zoe\u0301  東京\nAda Lovelace\n');
+  await prepared('text', bytes, JSON.stringify(profile), async (context) => {
+    const baseline = direct(context);
+    const result = await invoke(context);
+    const repeated = await invoke(context);
+    for (const output of [baseline, result, repeated]) {
+      assert.equal(output.code, 0);
+      assert.equal(output.stderr.length, 0);
+      assert.deepEqual(output.stdout, baseline.stdout);
+    }
+    assert.equal(result.failure, null);
+    assert.equal(repeated.failure, null);
+    const response = JSON.parse(result.stdout);
+    const records = parses(response);
+    assert.equal(records.length, 2);
+    const candidate = records[0].assignment.fields[0].candidates[0];
+    assert.equal(candidate.candidate_type, type);
+    assert.equal(candidate.raw_value, 'Zoe\u0301  東京');
+    assert.equal(candidate.normalized_value, candidate.raw_value);
+    assert.equal(candidate.confidence, 0.8);
+    assert(candidate.reasons.some((reason) => reason.code === 'caller_label_match'));
+    assert.equal(records[1].assignment.fields.length, 0);
+    assert(records[1].assignment.warnings.some((warning) => warning.code === 'required_field_missing'));
+    assert(records[1].assignment.unassigned_candidates.some((value) => value.candidate_type === type && value.confidence === 0.3 && value.raw_value === 'Ada Lovelace'));
+    assert.equal(records[1].review.status, 'needs_review');
+    const inspected = direct(context, ['inspect', ...context.inputArgs]);
+    assert.equal(inspected.code, 0);
+    assert.equal(inspected.stderr.length, 0);
+    assert.deepEqual(response.source_evidence.document, JSON.parse(inspected.stdout));
+    checkSources(response);
+    report.cases.push({ name: `contextual-${type}/text`, inputBytes: bytes.length, outputBytes: result.stdout.length, records: records.length, milliseconds: [result.elapsedMs, repeated.elapsedMs] });
+  });
 }
 await parserFailure('invalid-utf8', 'txt', Buffer.from([0xff]), schemaJson, 'invalid_utf8');
 await parserFailure('invalid-csv', 'csv', Buffer.from('Name,Count\n"unclosed,42'), schemaJson, 'invalid_csv');

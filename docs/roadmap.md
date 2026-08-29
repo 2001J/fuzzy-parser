@@ -58,7 +58,7 @@ selected independently.
 | [#6 Strict CLI dispatch and arguments](https://github.com/2001J/fuzzy-parser/issues/6) | Exact OS argument grammar, explicit routing and TXT-only overrides independently reviewed, locally integrated and verified on macOS/Linux; closed |
 | [#7 Complete TXT subprocess matrix](https://github.com/2001J/fuzzy-parser/issues/7) | #2/#4/#5/#6 complete; test-only fixture matrix approved for next dispatch |
 | [#12 Shared schema compilation/capability validation](https://github.com/2001J/fuzzy-parser/issues/12) | Shared compiler/core plan independently reviewed, locally integrated and verified on macOS/Linux; closed |
-| [#13 Caller-directed text and name fields](https://github.com/2001J/fuzzy-parser/issues/13) | #10/#12 complete; scoped directed-extraction/residual-abstention implementation active, not yet reviewed |
+| [#13 Caller-directed text and name fields](https://github.com/2001J/fuzzy-parser/issues/13) | Contextual extraction/residual abstention implemented and independently reviewed; combined integration verification pending, issue remains open |
 | [#14 Compose text normalization/segmentation](https://github.com/2001J/fuzzy-parser/issues/14) | #10/#12 complete; ready, not assigned |
 | [#15 Delimiter-adjacent email regression](https://github.com/2001J/fuzzy-parser/issues/15) | Independently reviewed, locally integrated and verified with core/CLI source-span regressions |
 | [#16 Explicit table headers/selection/provenance](https://github.com/2001J/fuzzy-parser/issues/16) | #10/#12 complete; ready, not assigned; coordinate bounds with #17 |
@@ -120,8 +120,8 @@ and #7 retains the wider TXT subprocess coverage.
 | 0.3 Pasted text/dispatch | Text/stdin exist; #5 validates TXT paths, #6 explicit routing independently reviewed and verified |
 | 0.4 CSV / 0.5 XLSX | Adapters exist; table compatibility and limits remain #16/#17/#20 |
 | 0.6 Normalization / 0.7 Segmentation | Separate library stages exist; document composition remains #14 |
-| 0.8 Schema | Model/validation and shared compiler exist; text/name capability remains #13 |
-| 0.9 Detection / 0.10 Assignment | Partial implementation including scoped enums; gaps go to #13/#14/#16 and later coverage |
+| 0.8 Schema | Model/validation and shared compiler exist; contextual text/name extension in #13 is independently reviewed, with combined checks pending |
+| 0.9 Detection / 0.10 Assignment | Scoped enums and local contextual text/name support; composition/options and later coverage remain |
 | 0.11 Explainable result | Canonical source/review extension implemented and independently verified in #10; broader engine-readiness gates remain open |
 | 0.12 Standalone / 0.13 WASM | Standalone tooling remains later; WASM is a candidate in #11's open backend decision, not a separate version or mandatory second adapter |
 | 0.14 Reliability | Required safety/regressions move into readiness tickets; broad fuzzing/benchmarks follow |

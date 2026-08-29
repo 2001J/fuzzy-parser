@@ -5,7 +5,7 @@ use parser_core::{
 };
 use serde_json::{Value, json};
 
-fn field(name: &str, kind: Value) -> Value {
+pub(super) fn field(name: &str, kind: Value) -> Value {
     json!({"name":name,"field_type":kind,"required":true,"multiple":false,"aliases":[],"constraints":[]})
 }
 
@@ -16,11 +16,11 @@ fn enumeration(name: &str, canonical: &str, aliases: &[&str]) -> Value {
     )
 }
 
-fn profile(fields: Vec<Value>) -> Value {
+pub(super) fn profile(fields: Vec<Value>) -> Value {
     json!({"schema_version":"0.1","record_name":"synthetic","fields":fields,"options":{"allow_unknown_fields":true}})
 }
 
-fn document(text: &str) -> RawDocument {
+pub(super) fn document(text: &str) -> RawDocument {
     RawDocument::new(
         "synthetic",
         SourceMetadata {
@@ -38,7 +38,7 @@ fn document(text: &str) -> RawDocument {
     )
 }
 
-fn parse(profile: &Value, document: &RawDocument) -> parser_core::ParseResponse {
+pub(super) fn parse(profile: &Value, document: &RawDocument) -> parser_core::ParseResponse {
     let plan = compile_schema_json(&profile.to_string()).unwrap();
     let response = parse_document_with_plan(document, &plan);
     let typed = TargetSchema::from_json(&profile.to_string()).unwrap();
@@ -55,7 +55,7 @@ fn parse(profile: &Value, document: &RawDocument) -> parser_core::ParseResponse 
     response
 }
 
-fn parses(response: &parser_core::ParseResponse) -> Vec<&parser_core::TextParseResult> {
+pub(super) fn parses(response: &parser_core::ParseResponse) -> Vec<&parser_core::TextParseResult> {
     match &response.content {
         ParseContent::Text { records } => records.iter().map(|r| &r.parse).collect(),
         ParseContent::Table { sheets } => sheets
@@ -385,6 +385,8 @@ fn constraint_applicability_matrix_and_unsupported_types_are_explicit() {
         json!("email"),
         json!("phone_number"),
         json!("date"),
+        json!("text"),
+        json!("person_name"),
         json!({"enum":{"values":[]}}),
     ] {
         for constraint in [
@@ -399,7 +401,12 @@ fn constraint_applicability_matrix_and_unsupported_types_are_explicit() {
             let applicable = if constraint.ends_with("integer") {
                 kind == "integer"
             } else {
-                kind == "email" || kind == "phone_number" || kind == "date" || kind.is_object()
+                kind == "email"
+                    || kind == "phone_number"
+                    || kind == "date"
+                    || kind == "text"
+                    || kind == "person_name"
+                    || kind.is_object()
             };
             if applicable {
                 assert!(result.is_ok());
@@ -411,20 +418,14 @@ fn constraint_applicability_matrix_and_unsupported_types_are_explicit() {
             }
         }
     }
-    for (kind, expected) in [
-        ("text", parser_core::UnsupportedFieldType::Text),
-        ("person_name", parser_core::UnsupportedFieldType::PersonName),
-        ("datetime", parser_core::UnsupportedFieldType::Datetime),
-    ] {
-        assert_eq!(
-            compile_schema_json(&profile(vec![field("value", json!(kind))]).to_string())
-                .unwrap_err()
-                .kind,
-            FailureKind::SchemaFieldTypeUnsupported {
-                field_type: expected
-            }
-        );
-    }
+    assert_eq!(
+        compile_schema_json(&profile(vec![field("value", json!("datetime"))]).to_string())
+            .unwrap_err()
+            .kind,
+        FailureKind::SchemaFieldTypeUnsupported {
+            field_type: parser_core::UnsupportedFieldType::Datetime
+        }
+    );
 }
 
 #[test]
@@ -780,7 +781,7 @@ fn existing_type_capability_errors_precede_new_compilation_failures() {
         assert_eq!(
             compile_schema_json(&raw.to_string()).unwrap_err().kind,
             FailureKind::SchemaFieldTypeUnsupported {
-                field_type: parser_core::UnsupportedFieldType::Text
+                field_type: parser_core::UnsupportedFieldType::Datetime
             }
         );
     }

@@ -41,6 +41,8 @@ pub fn compile_schema(schema: &TargetSchema) -> Result<parser_core::ParsePlan, F
                             | CandidateType::PhoneNumber
                             | CandidateType::Date
                             | CandidateType::Enum
+                            | CandidateType::Text
+                            | CandidateType::PersonName
                     )
                 }
             };
@@ -104,8 +106,8 @@ fn candidate_type(field: &crate::FieldDefinition) -> Result<parser_core::Candida
         FieldType::Currency => return Ok(CandidateType::Currency),
         FieldType::Enum { .. } => return Ok(CandidateType::Enum),
         FieldType::Datetime => UnsupportedFieldType::Datetime,
-        FieldType::Text => UnsupportedFieldType::Text,
-        FieldType::PersonName => UnsupportedFieldType::PersonName,
+        FieldType::Text => return Ok(CandidateType::Text),
+        FieldType::PersonName => return Ok(CandidateType::PersonName),
     };
     Err(field_failure(
         FailureKind::SchemaFieldTypeUnsupported { field_type },

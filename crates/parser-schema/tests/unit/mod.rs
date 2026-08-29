@@ -1,6 +1,7 @@
 use super::*;
 
 mod compilation;
+mod text_names;
 
 #[test]
 fn all_validation_causes_have_exact_private_reports_and_opt_in_context() {

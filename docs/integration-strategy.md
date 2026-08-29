@@ -158,8 +158,11 @@ draft/review reasons. Its [additive compatibility contract](data-contracts.md#so
 distinguishes cell/string coordinates from original file bytes and legacy
 responses without evidence. This does not establish complete integration
 readiness. The reviewed [#12 shared schema compiler](data-contracts.md#executable-schema)
-now supplies the same executable core plan to CLI and Rust callers; text/name
-and datetime types are still unsupported, and runtime/independence gates remain open.
+now supplies the same executable core plan to CLI and Rust callers. The local
+[#13 text/name extension](data-contracts.md#contextual-textname-migration-13)
+adds contextual fields and unresolved residuals. It has passed independent
+source review; combined integration checks remain pending. Datetime remains
+unsupported, and runtime/independence gates remain open.
 
 ## Proposed library caller experience
 
