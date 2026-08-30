@@ -36,6 +36,8 @@ pub struct DiagnosticContext {
     pub version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sheet: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -106,6 +108,21 @@ pub enum OutputTarget {
     RawDocument,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TableSelectionReason {
+    UnsupportedSource,
+    EmptySheetSelection,
+    DuplicateSheetSelection,
+    MissingSheet,
+    SheetIndexOutOfRange,
+    InvalidRowRange,
+    OverlappingRowRange,
+    RowNotFound,
+    HeaderNotFound,
+    HeaderConflict,
+}
+
 /// Safe metadata only. User strings belong in explicitly requested diagnostics.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "code")]
@@ -158,6 +175,8 @@ pub enum FailureKind {
     SchemaSerialization { cause: SchemaFailureCause },
     #[serde(rename = "output_serialization_error")]
     OutputSerialization { target: OutputTarget },
+    #[serde(rename = "table_selection_error")]
+    TableSelection { reason: TableSelectionReason },
 }
 
 impl fmt::Display for FailureKind {
@@ -219,6 +238,26 @@ impl fmt::Display for FailureKind {
             Self::OutputSerialization {
                 target: OutputTarget::RawDocument,
             } => f.write_str("could not serialize raw document"),
+            Self::TableSelection { reason } => f.write_str(match reason {
+                TableSelectionReason::UnsupportedSource => {
+                    "table selection is not supported for this source"
+                }
+                TableSelectionReason::EmptySheetSelection => "sheet selection must not be empty",
+                TableSelectionReason::DuplicateSheetSelection => {
+                    "the same sheet was selected more than once"
+                }
+                TableSelectionReason::MissingSheet => "selected sheet was not found",
+                TableSelectionReason::SheetIndexOutOfRange => {
+                    "selected sheet index is out of range"
+                }
+                TableSelectionReason::InvalidRowRange => "row range is invalid",
+                TableSelectionReason::OverlappingRowRange => "row ranges overlap",
+                TableSelectionReason::RowNotFound => "selected row was not found",
+                TableSelectionReason::HeaderNotFound => "selected header row was not found",
+                TableSelectionReason::HeaderConflict => {
+                    "header selection conflicts with row selection"
+                }
+            }),
         }
     }
 }

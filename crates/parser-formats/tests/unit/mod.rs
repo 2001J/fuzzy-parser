@@ -174,6 +174,71 @@ fn supports_semicolon_and_multiline_quoted_cells() {
 }
 
 #[test]
+fn table_companion_retains_blank_csv_rows_and_multiline_coordinates() {
+    let bytes = b"Email,Note\r\n\r\nada@example.test,\"line one\r\nline two\"\r\n\r\n";
+    let table =
+        read_csv_table_bytes(Some("rows.csv"), bytes, "rows.csv", CsvOptions::default()).unwrap();
+    assert_eq!(table.manifest.len(), 1);
+    let rows = &table.manifest[0].rows;
+    assert_eq!(rows.len(), 4);
+    assert_eq!(
+        rows.iter().map(|row| row.blank).collect::<Vec<_>>(),
+        vec![false, true, false, true]
+    );
+    assert!(rows[1].block_indices.is_empty());
+    assert!(rows[3].block_indices.is_empty());
+    assert_eq!((rows[2].line_start, rows[2].line_end), (Some(3), Some(4)));
+    assert_eq!(table.document.blocks.len(), 4);
+    assert_eq!(table.document.blocks[2].location.row, Some(3));
+    assert_eq!(
+        table.document.blocks[3].value,
+        RawValue::text("line one\r\nline two")
+    );
+    for (index, block) in table.document.blocks.iter().enumerate() {
+        assert!(rows.iter().any(|row| row.block_indices.contains(&index)));
+        assert!(block.location.row.is_some());
+    }
+}
+
+#[test]
+fn explicit_blank_csv_header_is_retained_without_fabricating_cells() {
+    use parser_core::{
+        HeaderSelection, ParseContent, ParsePlan, RowSelection, SheetSelection, TableRowRole,
+        TableSelectionOptions,
+    };
+    let table = read_csv_table_bytes(
+        None,
+        b"preamble\n\nada@example.test\n",
+        "blank-header.csv",
+        CsvOptions::default(),
+    )
+    .unwrap();
+    let response = parse_extracted_table_with_plan(
+        &table,
+        &ParsePlan::new(Vec::new(), None),
+        &TableSelectionOptions {
+            header: HeaderSelection::Row(2),
+            rows: RowSelection::default(),
+            sheets: SheetSelection::All,
+        },
+    )
+    .unwrap();
+    let ParseContent::Table { sheets } = &response.content else {
+        panic!("expected table content");
+    };
+    let header = sheets[0].header.context().unwrap();
+    assert_eq!(header.source_row, 2);
+    assert!(header.labels.is_empty());
+    assert!(header.source_block_ids.is_empty());
+    assert_eq!(sheets[0].records[0].source_row, 3);
+    let rows = &response.source_evidence.unwrap().table.unwrap().sheets[0].rows;
+    assert_eq!(rows[0].role, TableRowRole::Preamble);
+    assert_eq!(rows[1].role, TableRowRole::Header);
+    assert!(rows[1].blank);
+    assert!(rows[1].block_indices.is_empty());
+}
+
+#[test]
 fn supports_explicit_delimiter_override() {
     let document = read_csv_bytes(
         None,
@@ -225,6 +290,97 @@ fn reads_xlsx_fixture_with_typed_cells_and_sheet_provenance() {
     assert_eq!(document.blocks[5].location.sheet.as_deref(), Some("Data"));
     assert_eq!(document.blocks[5].location.row, Some(2));
     assert_eq!(document.blocks[5].location.column, Some(2));
+}
+
+#[test]
+fn xlsx_table_companion_matches_legacy_document_and_marks_merges_unsupported() {
+    let bytes = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/xlsx/sample.xlsx"
+    ));
+    let table = read_xlsx_table_bytes(Some("sample.xlsx"), bytes).unwrap();
+    assert_eq!(
+        table.document,
+        read_xlsx_bytes(Some("sample.xlsx"), bytes).unwrap()
+    );
+    assert_eq!(table.manifest.len(), 1);
+    assert_eq!(table.manifest[0].original_index, 1);
+    assert_eq!(table.manifest[0].name.as_deref(), Some("Data"));
+    assert_eq!(table.manifest[0].rows.len(), 3);
+    assert!(matches!(
+        table.manifest[0].unsupported_metadata.as_slice(),
+        [UnsupportedMetadata::MergedRegion {
+            start_row: 3,
+            start_column: 2,
+            end_row: 3,
+            end_column: 3
+        }]
+    ));
+}
+
+#[test]
+fn xlsx_table_file_and_byte_readers_match_and_opt_in_warns_without_interpreting_merges() {
+    use parser_core::{
+        AssignmentField, CandidateType, ParsePlan, PlanField, TableSelectionOptions,
+        UnsupportedTableMetadata,
+    };
+    let bytes = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/xlsx/sample.xlsx"
+    ));
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/xlsx/sample.xlsx");
+    let from_file = read_xlsx_table(&path).unwrap();
+    let from_bytes = read_xlsx_table_bytes(Some("sample.xlsx"), bytes).unwrap();
+    assert_eq!(from_file, from_bytes);
+    let plan = ParsePlan::new(
+        vec![PlanField::new(
+            AssignmentField {
+                name: "Count".to_owned(),
+                aliases: Vec::new(),
+                candidate_type: CandidateType::Decimal,
+                required: false,
+                multiple: false,
+                unique: false,
+                constraints: Vec::new(),
+                expected_column: None,
+            },
+            Vec::new(),
+        )],
+        None,
+    );
+    let response =
+        parse_extracted_table_with_plan(&from_bytes, &plan, &TableSelectionOptions::default())
+            .unwrap();
+    assert!(
+        response
+            .warnings
+            .iter()
+            .any(|warning| warning.code == "merged_regions_unsupported")
+    );
+    assert!(matches!(
+        response
+            .source_evidence
+            .as_ref()
+            .unwrap()
+            .table
+            .as_ref()
+            .unwrap()
+            .sheets[0]
+            .unsupported_metadata
+            .as_slice(),
+        [UnsupportedTableMetadata::MergedRegion { .. }]
+    ));
+}
+
+#[test]
+fn xlsx_table_companion_keeps_stored_formula_cache_and_typed_date_values_only() {
+    let table = read_xlsx_table_bytes(None, &unicode_xlsx_bytes()).unwrap();
+    assert_eq!(table.document.blocks[5].value, RawValue::Decimal(42.0));
+    assert_eq!(table.document.blocks[7].value, RawValue::DateTime(45943.5));
+    assert_eq!(
+        table.document,
+        read_xlsx_bytes(None, &unicode_xlsx_bytes()).unwrap()
+    );
 }
 
 fn expected_xlsx_sample() -> RawDocument {
@@ -308,6 +464,113 @@ fn unicode_xlsx_bytes() -> Vec<u8> {
     .split_ascii_whitespace()
     .map(|byte| u8::from_str_radix(byte, 16).expect("fixture contains hex bytes"))
     .collect()
+}
+
+fn table_selection_xlsx_bytes() -> Vec<u8> {
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/xlsx/table-selection.xlsx.hex"
+    ))
+    .split_ascii_whitespace()
+    .flat_map(|line| line.as_bytes().chunks_exact(2))
+    .map(|pair| {
+        u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16)
+            .expect("fixture contains hex bytes")
+    })
+    .collect()
+}
+
+#[test]
+fn xlsx_table_companion_retains_original_order_and_empty_sheets() {
+    let table = read_xlsx_table_bytes(Some("selection.xlsx"), &table_selection_xlsx_bytes())
+        .expect("synthetic workbook should be readable");
+    assert_eq!(
+        table
+            .manifest
+            .iter()
+            .map(|sheet| (
+                sheet.original_index,
+                sheet.name.as_deref(),
+                sheet.rows.len()
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (1, Some("Zulu"), 2),
+            (2, Some("Empty 東京"), 0),
+            (3, Some("Alpha"), 2),
+        ]
+    );
+    assert!(table.manifest[1].rows.is_empty());
+    assert!(
+        table
+            .document
+            .blocks
+            .iter()
+            .all(|block| block.location.sheet.as_deref() != Some("Empty 東京"))
+    );
+}
+
+#[test]
+fn extracted_table_parse_keeps_request_order_empty_sheets_and_block_references() {
+    use parser_core::{
+        AssignmentField, CandidateType, HeaderSelection, ParseContent, ParsePlan, PlanField,
+        RowSelection, SheetSelection, SheetSelector, TableSelectionOptions,
+    };
+    let table = read_xlsx_table_bytes(None, &table_selection_xlsx_bytes()).unwrap();
+    let plan = ParsePlan::new(
+        vec![PlanField::new(
+            AssignmentField {
+                name: "email".to_owned(),
+                aliases: Vec::new(),
+                candidate_type: CandidateType::Email,
+                required: false,
+                multiple: false,
+                unique: false,
+                constraints: Vec::new(),
+                expected_column: None,
+            },
+            Vec::new(),
+        )],
+        None,
+    );
+    let response = parse_extracted_table_with_plan(
+        &table,
+        &plan,
+        &TableSelectionOptions {
+            header: HeaderSelection::SchemaSearch { max_rows: 1 },
+            rows: RowSelection::default(),
+            sheets: SheetSelection::Selected(vec![
+                SheetSelector::Name("Empty 東京".to_owned()),
+                SheetSelector::Index(3),
+            ]),
+        },
+    )
+    .unwrap();
+    let ParseContent::Table { sheets } = &response.content else {
+        panic!("expected table content");
+    };
+    assert_eq!(sheets[0].sheet.as_deref(), Some("Empty 東京"));
+    assert!(sheets[0].records.is_empty());
+    assert_eq!(sheets[1].sheet.as_deref(), Some("Alpha"));
+    let candidate = &sheets[1].records[0].parse.candidates[0];
+    let evidence = response.source_evidence.as_ref().unwrap();
+    assert_eq!(
+        candidate
+            .source_reference
+            .as_ref()
+            .unwrap()
+            .resolve(&evidence.document)
+            .as_deref(),
+        Some("alpha@example.test")
+    );
+    assert_eq!(
+        evidence.table.as_ref().unwrap().sheets[1].selection_order,
+        Some(1)
+    );
+    assert_eq!(
+        evidence.table.as_ref().unwrap().sheets[2].selection_order,
+        Some(2)
+    );
 }
 
 #[test]

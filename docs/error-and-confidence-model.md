@@ -20,6 +20,9 @@ serialized shapes and [current state](current-state.md) for implementation gaps.
   caller values and opaque upstream prose. Explicit detailed reports may expose
   allowlisted caller context with JSON escaping; they are potentially sensitive,
   as are raw in-process cause fields and `Debug`. Do not send them to public logs.
+- Semantic table-selection failures use `table_selection_error` with a typed
+  safe reason and fixed message. Sheet names are absent by default and available
+  only in explicitly requested allowlisted diagnostics.
 - Assignment warnings include `required_field_missing` and
   `multiple_candidates_ambiguous`; separate segmentation APIs have boundary
   warnings. The document response now forwards input warnings before row-grouping
@@ -57,6 +60,7 @@ Required categories (some remain unimplemented at the shared boundary):
 - File exceeds a configured hard limit.
 - Invalid or unsupported encoding.
 - Corrupt CSV or spreadsheet that cannot be safely extracted.
+- Invalid or contradictory explicit table selection.
 - Invalid schema.
 - Internal invariant failure.
 
@@ -85,6 +89,10 @@ Examples of intended warning categories (not an implemented-code inventory):
 - Conflicting field values.
 - Locale-dependent date ambiguity.
 - Possible duplicate.
+
+Implemented table-selection warnings include `header_search_no_match`,
+`header_search_ambiguous`, and `merged_regions_unsupported`. They preserve
+uncertainty or unsupported metadata rather than guessing.
 
 Warnings must not be represented only as prose. Use stable codes and structured metadata.
 

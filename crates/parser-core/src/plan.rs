@@ -40,6 +40,18 @@ impl ParsePlan {
             record_name,
         }
     }
+
+    pub(super) fn fields(&self) -> &[AssignmentField] {
+        &self.fields
+    }
+
+    pub(super) fn enum_definitions(&self) -> &[EnumDefinitions] {
+        &self.enum_definitions
+    }
+
+    pub(super) fn record_name(&self) -> Option<String> {
+        self.record_name.clone()
+    }
 }
 
 /// Parse a canonical document with field-scoped enum instructions and full evidence.

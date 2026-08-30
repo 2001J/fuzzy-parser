@@ -99,7 +99,7 @@ exactly one of these forms:
 inspect <path> [TXT_OPTIONS]
 inspect --stdin
 inspect --text <content>
-parse <path> --schema <schema-path> [TXT_OPTIONS]
+parse <path> --schema <schema-path> [PATH_OPTIONS]
 parse --stdin --schema <schema-path>
 schema validate <path>
 schema validate --stdin
@@ -134,20 +134,39 @@ TXT calls [`read_txt_with_options`](file-validation.md) directly, validating and
 reading the same handle with metadata and actual-read size/empty checks. No
 preflight/reopen is added. Pasted text and stdin retain their existing defaults.
 
+For `parse` path input only, table options are trailing flag/value pairs in any
+order: one `--header auto|none|row:N|search:N`, one `--include-rows LIST`, one
+`--exclude-rows LIST`, and repeatable mixed `--sheet-name VALUE` /
+`--sheet-index N`. A list is strict comma-separated `N` or inclusive `N-M`;
+numbers are one-based ASCII decimal integers. Sheet names are exact Unicode
+matches and selectors retain request order. Header/row options apply to CSV or
+XLSX; sheet selectors apply only to XLSX. TXT, stdin/text and CSV sheet-selector
+uses are usage errors. Duplicate singleton flags, malformed lists/numbers,
+unknown/misplaced tokens and missing values are usage exit `2`, validated before
+I/O. Well-formed semantic conflicts, missing targets and duplicate resolved
+sheets are `table_selection_error` processing exit `1`.
+
+No table option uses the legacy readers and emits byte-identical output. Any
+table option selects the companion reader and adds optional table evidence.
+`parse` precedence remains complete argv syntax/applicability, strict schema
+decode, input extraction, shared compilation, then semantic selection.
+
 Routing selects `.txt`, `.csv` or `.xlsx` case-insensitively on the final
 extension. Unknown, absent and non-UTF-8 extensions fail before filesystem I/O,
 without content sniffing. This deliberately changes missing unknown-extension
 paths from `io_error` to `unsupported_input`, and directories with unsupported
 extensions from `not_regular_file` to `unsupported_input`. Known TXT paths keep
 the library's metadata/open/read order. For `parse`, complete syntax validation
-precedes strict schema decoding, input extraction, then shared compilation;
+precedes strict schema decoding, input extraction, shared compilation, then
+optional semantic table selection;
 an invalid schema can therefore still precede unsupported input routing.
 
 Previously ignored tails in `parse`, schema inline text and schema compact
 commands now fail usage/`2`. Help no longer attempts to open an inspect path.
-These CLI compatibility changes add no error codes or JSON/package versions;
-supported successful output and diagnostic redaction remain unchanged.
-CSV/XLSX still call their existing adapters, without an accidental 1 MiB limit.
+The table-selection extension adds one typed processing-error code and optional
+opt-in success evidence without changing JSON/package versions. Supported
+no-option output and diagnostic redaction remain unchanged. CSV/XLSX table
+options use companion adapters without an accidental 1 MiB limit.
 All-format same-handle validation, CSV/XLSX raw/compressed-byte policy, expanded
 workbook and schema/result limits remain [#17](https://github.com/2001J/fuzzy-parser/issues/17).
 File validation is not a sandbox or a stable snapshot; see its

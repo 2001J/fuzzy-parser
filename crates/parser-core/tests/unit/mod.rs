@@ -2,6 +2,7 @@ use super::*;
 
 mod email_boundaries;
 mod file_validation_errors;
+mod table_selection;
 mod text_names;
 
 #[test]
