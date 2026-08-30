@@ -120,6 +120,11 @@ handoff profile. The coordinator runs the `full` profile once after integration;
 independent review is reserved for semantic, architectural, privacy and
 compatibility judgment rather than repeating deterministic suites.
 
+Workers generate the routine provenance and changed-path portion of a handoff
+with `tools/coordination/handoff-report.sh <expected-base-commit>`. The utility
+is read-only and rejects a missing or divergent base; interpretation of the
+diff, sufficiency of tests and integration risk remains reviewer work.
+
 ## Ownership and dependencies
 
 - #6's complete argument grammar, explicit routing, help and TXT-only overrides
