@@ -419,6 +419,17 @@ pub struct TargetSchema {
     pub options: SchemaOptions,
 }
 
+pub struct SchemaOptions {
+    pub allow_unknown_fields: bool,
+    pub text_pipeline: Option<TextPipelineOptions>,
+}
+
+pub struct TextPipelineOptions {
+    pub normalization: TextNormalizationOptions,
+    pub strategy: TextSegmentationStrategy,
+    pub repeated_identifier_markers: Vec<String>,
+}
+
 pub struct FieldDefinition {
     pub name: String,
     pub field_type: FieldType,
@@ -505,7 +516,15 @@ aliases supply label/header context.
 `record_name` is echoed only. `allow_unknown_fields=true` preserves all unused
 and unassigned evidence; `false` fails with `schema_option_unsupported` until a
 strict data policy exists. This option concerns input evidence, not unknown JSON
-schema members. Locale, country hints, explicit columns, uniqueness and runtime
+schema members. Optional `text_pipeline` is the only serialized composition
+transport. It supports `one_block_per_record`, `join_indented_continuations` and
+`split_repeated_identifiers`; normalization contains the existing five explicit
+booleans. Repeated splitting requires nonempty, case-insensitively unique,
+trimmed caller markers ending in `:` or `=`. Markers on another strategy and
+invalid marker sets fail compilation with `schema_option_unsupported`. Unknown
+nested properties retain `schema_property_unsupported`. The join separator is
+always one newline; no generic production markers or row strategy are exposed.
+Locale, country hints, explicit columns, uniqueness and runtime
 limits are not executable schema properties. Low-level `AssignmentField.unique`
 still only warns when more than one candidate was selected; it is not deduplication
 or database uniqueness, and compilation sets it to false.
@@ -532,7 +551,10 @@ Other candidate types keep their independent detections and assignment behavior.
 Existing `parse_document_with_assignment`, `parse_text_with_assignment`, table and
 standalone assignment APIs retain their signatures and legacy caller-supplied
 global enum semantics. Use the compiled plan for field-scoped schema execution.
-Both routes share core internals; neither composes normalization/segmentation yet.
+`ParsePlan::new` remains default-off; parser-schema uses its deliberate non-wire
+builder to attach validated core options. The default routes share the old
+internals byte-for-byte. Only an opted-in compiled plan composes normalization
+and text segmentation.
 
 ### Contextual text and possible person names
 
@@ -604,7 +626,9 @@ pub struct FieldCandidate {
 
 Candidates are evidence. They are not automatically assignments.
 `source_span` is a zero-based, end-exclusive byte range in the detector's input
-text. In table mode, that input is the concatenation of trimmed non-empty cells
+text. In opt-in text composition, that input is the record's `composed_text`;
+`source_reference` still resolves the exact original canonical substring. In
+table mode, the input is the concatenation of trimmed non-empty cells
 with spaces. This legacy span remains unchanged for assignment compatibility;
 it is not an original-cell or file-byte offset. `source_column` identifies the
 cell column. The new `source_reference` resolves to a stored canonical value:
@@ -742,18 +766,46 @@ pub enum ParseContent {
 pub struct TextRecordParseResult {
     pub source_block_id: String,
     pub parse: TextParseResult,
+    pub composition: Option<TextRecordComposition>,
 }
 ```
 
 `parse_document_with_plan` and `parse_document_with_assignment` choose table mode
-when any blocks have row provenance, otherwise one text record per raw block.
-Neither runs the separate
-normalization/segmentation APIs. The CLI emits this envelope directly.
+when any blocks have row provenance. With no compiled text option, both retain one
+text record per raw block and omit `composition`. The CLI emits this envelope directly.
+
+An explicitly composed text record includes a deterministic `record_id`, exact
+`composed_text`, canonical applied options, boundary confidence/reasons/warnings,
+and ordered tagged segments. Source segments carry an authoritative
+`SourceReference` membership, a composed span and mapping runs. Synthetic
+separator segments carry only their composed span and never count as source
+coverage. Runs partition each source membership and composed source span in
+order; zero-length composed spans represent removals. Their typed operations are
+`unchanged`, `line_ending_fold`, `punctuation_replacement`, `trim` and
+`whitespace_collapse`. All raw and composed ends are valid UTF-8 boundaries.
+Joined segments are separated by a fixed source-less newline; no detector, label
+window, enum decision or text region crosses it. Repeated splits may reference
+disjoint spans of one raw block. `source_block_id` remains the first participating
+block ID for compatibility but is non-authoritative; composition block indexes
+disambiguate repeated IDs.
+
+Scalar candidate `raw_value` is re-sliced from the original source after mapping;
+its normalized value may come from detection on composed text. Text and
+`person_name` keep both values equal to the exact original substring, including
+interior whitespace. A non-contiguous mapping cannot be assigned and produces
+`source_mapping_unresolved`. Boundary warnings appear only in composition and add
+one generic `composition_boundary_warnings` review reason. Detailed boundary
+warnings are not duplicated in assignment or top-level warnings.
+
+On a table document, valid text options do not change content or source evidence.
+The normal table path runs and one deterministic `text_pipeline_not_applied`
+warning is appended after existing input/table warnings; table records omit
+composition.
 
 The envelope now embeds the unchanged canonical document, including metadata,
 typed values, blank cells/lines, header values, noncandidate text and input
 warnings. Top-level warnings contain input-document warnings first, then row
-grouping warnings. Record assignment warnings remain under
+grouping warnings, then the optional table not-applied warning. Record assignment warnings remain under
 `parse.assignment.warnings`; they are not silently promoted to fatal errors.
 
 ```rust
@@ -792,6 +844,17 @@ extraction contract. Callers needing original files must retain them separately.
 Output now includes potentially sensitive raw input: do not log it by default
 or expose it to readers without permission to inspect the source. Redacted
 output modes and broader resource limits remain future work.
+
+### Additive text-composition migration in contract 0.1
+
+The optional schema property and optional record `composition` field are additive
+within contract/schema `0.1`; package and contract versions do not change. Old
+schemas deserialize with `text_pipeline=None` and reserialize without the member.
+Old responses deserialize with `composition=None`; legacy/default output omits it.
+Typed readers must tolerate the new optional members, new public option/evidence
+types and mapping-operation enum. Rust callers using exhaustive struct literals
+or matches must add the optional field/new enum cases. Opted-in text and table
+responses intentionally differ as documented above; default responses do not.
 
 ## Parsed record — proposed
 

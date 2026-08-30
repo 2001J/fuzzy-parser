@@ -326,6 +326,7 @@ pub(super) fn complete(
     header: Option<&TableHeaderContext>,
     sources: &[TextSource],
     result: &mut AssignmentResult,
+    mut prepare_candidate: Option<&mut dyn FnMut(&mut FieldCandidate)>,
 ) {
     if !fields.iter().any(|field| is_text(&field.candidate_type)) {
         return;
@@ -421,6 +422,11 @@ pub(super) fn complete(
             ) {
                 warning(result, "text_field_ambiguous");
             }
+        }
+    }
+    if let Some(prepare) = &mut prepare_candidate {
+        for index in hypotheses.iter().map(|hypothesis| hypothesis.index) {
+            prepare(&mut candidates[index]);
         }
     }
     select(candidates, fields, hypotheses, result);

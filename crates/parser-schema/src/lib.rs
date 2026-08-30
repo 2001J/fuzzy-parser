@@ -21,14 +21,43 @@ pub struct TargetSchema {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SchemaOptions {
     pub allow_unknown_fields: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_pipeline: Option<TextPipelineOptions>,
 }
 
 impl Default for SchemaOptions {
     fn default() -> Self {
         Self {
             allow_unknown_fields: true,
+            text_pipeline: None,
         }
     }
+}
+
+/// Serialized caller configuration for opt-in text composition.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TextPipelineOptions {
+    pub normalization: TextNormalizationOptions,
+    pub strategy: TextSegmentationStrategy,
+    #[serde(default)]
+    pub repeated_identifier_markers: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TextNormalizationOptions {
+    pub normalize_line_endings: bool,
+    pub trim_whitespace: bool,
+    pub collapse_whitespace: bool,
+    pub normalize_punctuation: bool,
+    pub mark_noise: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TextSegmentationStrategy {
+    OneBlockPerRecord,
+    JoinIndentedContinuations,
+    SplitRepeatedIdentifiers,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

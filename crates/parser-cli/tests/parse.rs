@@ -15,6 +15,9 @@ mod schema_compilation;
 #[path = "parse/text_names.rs"]
 mod text_names;
 
+#[path = "parse/text_pipeline.rs"]
+mod text_pipeline;
+
 fn csv_fixture_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/csv/comma.csv")
 }
