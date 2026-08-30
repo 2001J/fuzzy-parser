@@ -12,6 +12,13 @@ The [dated audit](audits/2026-08-27-backlog.md) records the earlier implementati
 
 This document records only what is implemented in the repository now. It must not describe planned behavior as complete.
 
+Resource-limit options now cover CSV bytes/rows/cells, XLSX compressed bytes,
+sheets and extracted cells, schema bytes/fields/aliases/nesting, and parse
+records and response bytes. Ordinary successful output remains unchanged.
+XLSX expanded worksheet memory is checked only after calamine materializes a
+range, and response limits are checked after constructing the response; these
+limits are not a sandbox or preallocation guarantee.
+
 ## Repository state
 
 The repository is a Rust workspace at version `0.1.0` using Rust edition 2024.
@@ -42,7 +49,7 @@ The workspace currently contains four crates:
 - `parser-schema` provides serializable generic target-schema models for fields, enum values, aliases, and basic constraints, plus structural validation for supported versions and ambiguous labels.
 - `parser-schema` compiles executable schemas into a reusable core `ParsePlan`; CLI and Rust callers use the same detector/assignment pipeline. Strict execution JSON decoding checks unknown properties without changing structural schema validation. Enum values and aliases stay scoped to their field; unresolved ownership warns instead of choosing by schema order. See [capabilities and migration](data-contracts.md#executable-schema). This local #12 implementation is independently reviewed and verified.
 - Format/schema errors share typed reports and safe default JSON/Display in `parser-core`. Explicit library diagnostics and a leading CLI `--diagnostics` expose only allowlisted context, which may be sensitive. The [error contract migration](data-contracts.md#error-contract-01-and-migration-from-unversioned-errors) preserves codes/cause meanings while changing default fields/messages, adding the separate error version and refining invalid-data I/O kinds. Successful output is unchanged.
-- Text input has library-configurable byte and line-length limits. CLI TXT-file inspect/parse accepts trailing byte-limit and empty-policy overrides; defaults remain 1 MiB total, 64 KiB per line and empty acceptance. Stdin/text defaults are unchanged; CSV, XLSX, and schema loading do not have equivalent configurable resource limits. See the [exact grammar and compatibility changes](integration-strategy.md#cli-grammar-and-validation-options).
+- Text input has library-configurable byte and line-length limits. CLI TXT-file inspect/parse accepts trailing byte-limit and empty-policy overrides; defaults remain 1 MiB total, 64 KiB per line and empty acceptance. CSV, XLSX, schema and parsed-response paths now have typed library limits and safe defaults; the CLI applies those defaults without adding new flags. See the [resource-limit contract](data-contracts.md#resource-limits--implemented) and [exact TXT grammar](integration-strategy.md#cli-grammar-and-validation-options).
 - The independently reviewed local [file-validation slice](file-validation.md) checks regular files, enabled extensions, metadata size and explicit empty policy, returning an opened handle. TXT paths use this helper and bounded reads on the same handle; default empty acceptance and successful raw output remain unchanged. The helper's CSV/XLSX eligibility does not integrate those readers.
 - The CLI supports root/subcommand help, explicit TXT/CSV/XLSX path routing, `inspect --stdin`, `inspect --text <content>`, schema validation from path/stdin/text (compact output for files only), and positional file/stdin parsing with `--schema`. It validates the entire OS argument list before I/O, recognizes diagnostics only at the start, and preserves the 0/1/2 data/processing/usage boundary. Permanent subprocess tests cover grammar, precedence, TXT overrides and the full synthetic TXT fixture matrix; this does not establish wider engine readiness.
 - The CLI `parse` command uses shared schema decoding/compilation and the versioned `ParseResponse` pipeline. `datetime` retains `schema_field_type_unsupported`; unsupported options, constraints and enum definitions fail explicitly using the existing safe error boundary. Historical unsupported text/name error payloads remain readable and render unchanged.
@@ -55,7 +62,7 @@ The workspace currently contains four crates:
 
 ## Known limitations
 
-- Shared validation and CLI overrides integrate TXT only. CSV/XLSX still use their existing adapters; all-format same-handle validation and CSV/XLSX/schema/result limits remain #17. File validation is neither content detection nor a sandbox or stable snapshot; see its [race limits](file-validation.md#compatibility-and-limits).
+- CLI byte/empty overrides still apply only to TXT. CSV and XLSX file readers bound reads on the opened handle, but they do not provide an immutable file snapshot; metadata is only an initial size observation. Schema nesting is bounded before JSON materialization, while schema field/alias counts, CSV rows/cells, XLSX cells, parsed records and serialized response bytes are necessarily checked after their documented intermediate representation exists. See the [resource-limit contract](data-contracts.md#resource-limits--implemented).
 - Raw in-process cause data and `Debug`, explicit diagnostics, and successful source-backed output remain potentially sensitive. Default error redaction does not add success-output redaction, uniform resource limits, or a general diagnostics framework.
 - Normalization and segmentation are opt-in through `SchemaOptions.text_pipeline`; schemas without it retain independent raw-block text records. The composed path supports fixed-newline one-block, indented-continuation and caller-marker repeated-identifier strategies only. It deliberately does not expose table-row segmentation, production marker defaults or cross-segment candidates.
 - Email detection retains its existing limited ASCII pattern and edge-period trimming; it is not full email syntax validation. Unsupported punctuation inside a token is not treated as a boundary. Other detectors keep their existing tokenization, and `--stdin` is text, not a tabular auto-detection mode.

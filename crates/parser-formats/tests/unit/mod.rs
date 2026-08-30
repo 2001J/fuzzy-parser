@@ -2,6 +2,7 @@ use super::*;
 use parser_core::RawValue;
 use std::{io::Cursor, path::PathBuf};
 
+mod resource_limits;
 pub(crate) mod txt_fixtures;
 
 #[test]

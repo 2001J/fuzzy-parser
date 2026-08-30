@@ -166,11 +166,11 @@ commands now fail usage/`2`. Help no longer attempts to open an inspect path.
 The table-selection extension adds one typed processing-error code and optional
 opt-in success evidence without changing JSON/package versions. Supported
 no-option output and diagnostic redaction remain unchanged. CSV/XLSX table
-options use companion adapters without an accidental 1 MiB limit.
-All-format same-handle validation, CSV/XLSX raw/compressed-byte policy, expanded
-workbook and schema/result limits remain [#17](https://github.com/2001J/fuzzy-parser/issues/17).
-File validation is not a sandbox or a stable snapshot; see its
-[filesystem limits](file-validation.md#compatibility-and-limits).
+CSV/XLSX path readers now apply their format-specific byte limits to bounded
+same-handle reads; schema reads and parse/CLI result serialization are bounded as
+described in the [resource-limit contract](data-contracts.md#resource-limits--implemented).
+Post-materialization row/cell/result checks do not make file validation a sandbox
+or stable snapshot; see its [filesystem limits](file-validation.md#compatibility-and-limits).
 
 `ParseResponse` now includes canonical source evidence, unused content and
 draft/review reasons. Its [additive compatibility contract](data-contracts.md#source-evidence-extension-and-compatibility)

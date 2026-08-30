@@ -102,7 +102,7 @@ is still required and validated. Generated safe/detailed envelopes retain exact
 round trips; forged or stale outer messages intentionally do not. Explicit
 diagnostics inside `ErrorPayload` are preserved, not redacted by decoding.
 
-All thirteen previous codes retain their meanings. The table lists default
+Existing codes retain their meanings. The table lists default
 metadata beyond `code` and `error_contract_version`; private context is absent:
 
 | Code | Default metadata |
@@ -124,6 +124,7 @@ metadata beyond `code` and `error_contract_version`; private context is absent:
 | `schema_serialization_error` | Typed `cause`: `{"kind":"json"}` or `{"kind":"validation","reason":...}` |
 | `output_serialization_error` (new) | Fixed `target`: `parse_result` or `raw_document` |
 | `table_selection_error` (#16) | Typed `reason`; fixed messages, no sheet name or input value |
+| `resource_limit` (#17) | Typed `resource`, `limit`, and observed `actual` |
 | `not_regular_file` (#5) | None |
 | `empty_input` (#5) | None |
 | `file_too_large` (#5) | Exact `u64` metadata byte counts: `limit`, `actual` |
@@ -140,6 +141,12 @@ Table-selection reasons are `unsupported_source`, `empty_sheet_selection`,
 `invalid_row_range`, `overlapping_row_range`, `row_not_found`,
 `header_not_found`, and `header_conflict`. These are processing failures and
 the CLI exits `1`; malformed or inapplicable argv remains usage exit `2`.
+
+Resource names are fixed wire values, independent of Rust `Debug` names:
+`csv_bytes`, `csv_rows`, `csv_cells`, `xlsx_bytes`, `xlsx_sheets`,
+`xlsx_cells`, `schema_bytes`, `schema_fields`, `schema_aliases`,
+`schema_nesting`, `records`, and `response_bytes`. The safe message is
+`resource limit <resource> exceeded: limit <limit>, actual <actual>`.
 
 `IoErrorKind` now has the Rust variant `InvalidData` / JSON `invalid_data`.
 Conversion from `std::io::ErrorKind::InvalidData` deliberately refines its old
@@ -269,6 +276,55 @@ pub enum ParserInput {
 
 A public API may represent files differently for browser or service use, but every surface must converge on the same canonical document model.
 
+## Resource limits — implemented
+
+The library exposes typed limits at the stage that owns each resource. Defaults
+are 16 MiB/100,000 logical rows/1,000,000 parsed cells for CSV;
+64 MiB compressed archive bytes/256 workbook sheets/5,000,000 extracted range
+cells for XLSX; 1 MiB/1,024 fields/8,192 combined field and enum aliases/32 JSON
+container levels for schemas; and 100,000 logical output records/16 MiB compact
+JSON for parse responses. Exact limits succeed; the first observed value above a
+limit fails with `resource_limit`. Bounded streaming reads may report
+`limit + 1` rather than the total unread size.
+
+CSV path and byte APIs share `CsvLimits`. Path reads check regular-file metadata,
+then read at most one byte beyond the limit from the same handle. Row limits count
+logical CSV records, including blank records and quoted multiline records; cells
+count parsed cells. Delimiter candidate parsing is still materialized within the
+already bounded byte input before row/cell counts are known.
+
+XLSX path, byte, document and table-manifest APIs share `XlsxLimits`. A path read
+checks metadata and performs a bounded read on the same handle; byte callers have
+already materialized their borrowed archive. Both then use the same in-memory
+calamine extraction path. Compressed source bytes are checked before archive
+decode, sheet names (including empty sheets) before worksheet ranges, and cells
+before conversion to canonical blocks. Calamine materializes each worksheet
+range before its cells can be counted, so these limits do not bound decompressed
+ZIP expansion, worksheet-range allocation or all dependency work. They are not a
+ZIP-bomb sandbox.
+
+`SchemaLimits` applies to strict execution decoding and structural validation.
+The CLI reads schema files/stdin through the same 1 MiB bounded reader before
+UTF-8 conversion. A string/escape-aware scan checks JSON container nesting before
+`serde_json::Value` materialization; field and combined alias counts follow that
+materialization. Braces or brackets inside JSON strings do not increase depth.
+
+`ParseLimits` counts records from the completed `ParseResponse`: text record
+count, or the sum of table sheet record counts. It then counts compact serialized
+JSON bytes without allocating a second response buffer. Table-selection parsing
+uses the same check. The CLI additionally bounds the actual pretty JSON written
+for parse and inspect output, including its trailing newline, buffering at most
+`limit + 1` so a limit failure does not emit partial success output.
+
+These are defensive process limits, not stable file snapshots or preallocation
+guarantees. A file can change after metadata inspection; the same-handle bounded
+read detects growth past the byte limit but cannot make the source immutable.
+Record and response limits occur after parsing/response construction, and CLI
+pretty-output counting occurs after the response exists. Successful responses
+within limits retain their existing JSON shapes and values; `resource_limit` is
+an additive failure variant under error contract `0.1`, so exhaustive Rust/error
+readers must handle it.
+
 ## XLSX library input — implemented
 
 [`parser-formats`](../crates/parser-formats/src/lib.rs) exposes two entry points:
@@ -289,9 +345,8 @@ line spans without fabricated cells.
 The byte API borrows an XLSX archive and reads it in memory. `file_name` is opaque
 caller metadata, never a path to open; it is preserved verbatim, including
 Unicode, or remains `None`/JSON `null`. It does not create files, access networks
-or evaluate formulas, macros or external links. The existing path API still
-uses calamine's buffered file reader, without copying the entire archive into
-a byte vector. Both use one cell-extraction/mapping path.
+or evaluate formulas, macros or external links. The existing path API performs
+a bounded read into memory before using that same byte extraction path.
 
 With equivalent filename metadata, both return identical canonical documents
 and JSON: `xlsx` source type, workbook byte size, XLSX MIME type, no delimiter,
@@ -312,10 +367,11 @@ the empty internal path is absent even from explicit diagnostics.
 
 This additive library API does not change CLI commands or JSON/package versions.
 The local [#22](https://github.com/2001J/fuzzy-parser/issues/22) implementation and
-file-reader parity are independently verified. Workbook/decompression/cell/output limits remain
-[#17](https://github.com/2001J/fuzzy-parser/issues/17); WASM/JS execution and runtime
-packaging remain separate capabilities. [Compiled plan execution](#executable-schema)
-accepts canonical documents from either XLSX input API.
+file-reader parity are independently verified. The [resource-limit contract](#resource-limits--implemented)
+bounds compressed input, sheets and extracted cells while explicitly retaining
+calamine's post-materialization limitation. WASM/JS execution and runtime packaging
+remain separate capabilities. [Compiled plan execution](#executable-schema) accepts
+canonical documents from either XLSX input API.
 
 ## Canonical raw document
 
@@ -918,7 +974,8 @@ CSV quoting and XLSX styles outside their existing
 extraction contract. Callers needing original files must retain them separately.
 Output now includes potentially sensitive raw input: do not log it by default
 or expose it to readers without permission to inspect the source. Redacted
-output modes and broader resource limits remain future work.
+output modes remain future work. The implemented resource limits do not redact
+successful source-backed output.
 
 ### Additive text-composition migration in contract 0.1
 

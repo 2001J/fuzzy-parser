@@ -1,6 +1,7 @@
 use super::*;
 
 mod compilation;
+mod resource_limits;
 mod text_names;
 mod text_pipeline;
 

@@ -15,6 +15,9 @@ mod conformance;
 #[path = "parse/schema_compilation.rs"]
 mod schema_compilation;
 
+#[path = "parse/resource_limits.rs"]
+mod resource_limits;
+
 #[path = "parse/table_selection.rs"]
 mod table_selection;
 

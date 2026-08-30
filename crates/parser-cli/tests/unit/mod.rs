@@ -1,5 +1,7 @@
 use super::*;
 
+mod resource_limits;
+
 #[test]
 fn empty_cli_test() {
     assert_eq!(2 + 2, 4);

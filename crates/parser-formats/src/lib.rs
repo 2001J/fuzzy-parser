@@ -1,8 +1,8 @@
-use calamine::{Data, Reader, Xlsx, XlsxError, open_workbook, open_workbook_from_rs};
+use calamine::{Data, Reader, Xlsx, XlsxError, open_workbook_from_rs};
 use parser_core::{
     Failure, ParsePlan, ParseResponse, ParserError, RawBlock, RawDocument, RawValue,
-    SourceLocation, SourceMetadata, SourceType, TableByteSpan, TableInventory, TableInventoryRow,
-    TableInventorySheet, TableSelectionOptions, UnsupportedTableMetadata,
+    ResourceLimitKind, SourceLocation, SourceMetadata, SourceType, TableByteSpan, TableInventory,
+    TableInventoryRow, TableInventorySheet, TableSelectionOptions, UnsupportedTableMetadata,
 };
 use std::{
     fs,
@@ -110,6 +110,22 @@ pub fn parse_extracted_table_with_plan(
         &table.inventory(),
         options,
     )
+}
+
+pub fn parse_extracted_table_with_plan_and_limits(
+    table: &ExtractedTable,
+    plan: &ParsePlan,
+    options: &TableSelectionOptions,
+    limits: parser_core::ParseLimits,
+) -> Result<ParseResponse, Failure> {
+    let response = parser_core::parse_document_with_plan_and_table_selection(
+        &table.document,
+        plan,
+        &table.inventory(),
+        options,
+    )?;
+    parser_core::enforce_parse_response_limits(&response, limits)?;
+    Ok(response)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -251,12 +267,33 @@ impl CsvDelimiter {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct CsvOptions {
     pub delimiter: Option<CsvDelimiter>,
+    pub limits: CsvLimits,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CsvLimits {
+    pub max_bytes: u64,
+    pub max_rows: usize,
+    pub max_cells: usize,
+}
+impl Default for CsvLimits {
+    fn default() -> Self {
+        Self {
+            max_bytes: 16 * 1024 * 1024,
+            max_rows: 100_000,
+            max_cells: 1_000_000,
+        }
+    }
+}
 impl CsvOptions {
     pub const fn with_delimiter(delimiter: CsvDelimiter) -> Self {
         Self {
             delimiter: Some(delimiter),
+            limits: CsvLimits {
+                max_bytes: 16 * 1024 * 1024,
+                max_rows: 100_000,
+                max_cells: 1_000_000,
+            },
         }
     }
 }
@@ -271,10 +308,12 @@ pub fn read_csv_with_options(
 ) -> Result<RawDocument, ParserError> {
     let path = path.as_ref();
     let path_display = path.to_string_lossy().into_owned();
-    let bytes = fs::read(path).map_err(|error| ParserError::Io {
-        path: path_display.clone(),
-        kind: error.kind().into(),
-    })?;
+    let bytes = read_bounded_file(
+        path,
+        &path_display,
+        options.limits.max_bytes,
+        ResourceLimitKind::CsvBytes,
+    )?;
     let file_name = path
         .file_name()
         .map(|name| name.to_string_lossy().into_owned());
@@ -292,10 +331,12 @@ pub fn read_csv_table_with_options(
 ) -> Result<ExtractedTable, ParserError> {
     let path = path.as_ref();
     let path_display = path.to_string_lossy().into_owned();
-    let bytes = fs::read(path).map_err(|error| ParserError::Io {
-        path: path_display.clone(),
-        kind: error.kind().into(),
-    })?;
+    let bytes = read_bounded_file(
+        path,
+        &path_display,
+        options.limits.max_bytes,
+        ResourceLimitKind::CsvBytes,
+    )?;
     let file_name = path
         .file_name()
         .map(|name| name.to_string_lossy().into_owned());
@@ -308,10 +349,13 @@ pub fn read_csv_bytes(
     source_path: &str,
     options: CsvOptions,
 ) -> Result<RawDocument, ParserError> {
+    check_csv_limits(bytes, options.limits, source_path)?;
     let (delimiter, records) = match options.delimiter {
         Some(delimiter) => (delimiter, parse_csv_records(bytes, source_path, delimiter)?),
         None => detect_delimiter(bytes, source_path)?,
     };
+    let logical_rows = csv_logical_rows(bytes, delimiter.byte()).len();
+    check_record_limits(&records, logical_rows, options.limits)?;
 
     let blocks = records
         .into_iter()
@@ -350,11 +394,13 @@ pub fn read_csv_table_bytes(
     source_path: &str,
     options: CsvOptions,
 ) -> Result<ExtractedTable, ParserError> {
+    check_csv_limits(bytes, options.limits, source_path)?;
     let (delimiter, records) = match options.delimiter {
         Some(delimiter) => (delimiter, parse_csv_records(bytes, source_path, delimiter)?),
         None => detect_delimiter(bytes, source_path)?,
     };
     let logical_rows = csv_logical_rows(bytes, delimiter.byte());
+    check_record_limits(&records, logical_rows.len(), options.limits)?;
     let mut records = records.into_iter();
     let mut blocks = Vec::new();
     let mut rows = Vec::new();
@@ -648,47 +694,25 @@ fn validate_csv_quotes(bytes: &[u8], source_path: &str, delimiter: u8) -> Result
 }
 
 pub fn read_xlsx(path: impl AsRef<Path>) -> Result<RawDocument, ParserError> {
-    let path = path.as_ref();
-    let path_display = path.to_string_lossy().into_owned();
-    let size_bytes = fs::metadata(path)
-        .map_err(|error| ParserError::Io {
-            path: path_display.clone(),
-            kind: error.kind().into(),
-        })?
-        .len();
-    let workbook: Xlsx<_> =
-        open_workbook(path).map_err(|error| xlsx_error(Some(&path_display), None, error))?;
-    let file_name = path
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned());
-    extract_xlsx(
-        workbook,
-        file_name.as_deref(),
-        size_bytes,
-        Some(&path_display),
-    )
+    read_xlsx_with_limits(path, XlsxLimits::default())
+}
+
+pub fn read_xlsx_with_limits(
+    path: impl AsRef<Path>,
+    limits: XlsxLimits,
+) -> Result<RawDocument, ParserError> {
+    Ok(read_xlsx_table_path_with_limits(path.as_ref(), limits)?.document)
+}
+
+pub fn read_xlsx_table_with_limits(
+    path: impl AsRef<Path>,
+    limits: XlsxLimits,
+) -> Result<ExtractedTable, ParserError> {
+    read_xlsx_table_path_with_limits(path.as_ref(), limits)
 }
 
 pub fn read_xlsx_table(path: impl AsRef<Path>) -> Result<ExtractedTable, ParserError> {
-    let path = path.as_ref();
-    let path_display = path.to_string_lossy().into_owned();
-    let size_bytes = fs::metadata(path)
-        .map_err(|error| ParserError::Io {
-            path: path_display.clone(),
-            kind: error.kind().into(),
-        })?
-        .len();
-    let workbook: Xlsx<_> =
-        open_workbook(path).map_err(|error| xlsx_error(Some(&path_display), None, error))?;
-    let file_name = path
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned());
-    extract_xlsx_table(
-        workbook,
-        file_name.as_deref(),
-        size_bytes,
-        Some(&path_display),
-    )
+    read_xlsx_table_with_limits(path, XlsxLimits::default())
 }
 
 /// Reads borrowed XLSX bytes without filesystem or network access.
@@ -697,29 +721,82 @@ pub fn read_xlsx_table(path: impl AsRef<Path>) -> Result<ExtractedTable, ParserE
 /// values are read without evaluating formulas, macros or external links.
 /// Invalid input returns `InvalidXlsx` with an empty `path` and a generic
 /// message; filename and workbook contents are not copied into diagnostics.
-/// This API does not yet impose workbook/decompression/cell limits.
 pub fn read_xlsx_bytes(file_name: Option<&str>, bytes: &[u8]) -> Result<RawDocument, ParserError> {
-    let workbook: Xlsx<_> =
-        open_workbook_from_rs(Cursor::new(bytes)).map_err(|error| xlsx_error(None, None, error))?;
-    extract_xlsx(workbook, file_name, bytes.len() as u64, None)
+    read_xlsx_bytes_with_limits(file_name, bytes, XlsxLimits::default())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct XlsxLimits {
+    pub max_bytes: u64,
+    pub max_sheets: usize,
+    pub max_cells: usize,
+}
+impl Default for XlsxLimits {
+    fn default() -> Self {
+        Self {
+            max_bytes: 64 * 1024 * 1024,
+            max_sheets: 256,
+            max_cells: 5_000_000,
+        }
+    }
+}
+
+pub fn read_xlsx_bytes_with_limits(
+    file_name: Option<&str>,
+    bytes: &[u8],
+    limits: XlsxLimits,
+) -> Result<RawDocument, ParserError> {
+    Ok(read_xlsx_table_bytes_with_limits(file_name, bytes, limits)?.document)
 }
 
 pub fn read_xlsx_table_bytes(
     file_name: Option<&str>,
     bytes: &[u8],
 ) -> Result<ExtractedTable, ParserError> {
-    let workbook: Xlsx<_> =
-        open_workbook_from_rs(Cursor::new(bytes)).map_err(|error| xlsx_error(None, None, error))?;
-    extract_xlsx_table(workbook, file_name, bytes.len() as u64, None)
+    read_xlsx_table_bytes_with_limits(file_name, bytes, XlsxLimits::default())
 }
 
-fn extract_xlsx<RS: Read + Seek>(
-    workbook: Xlsx<RS>,
+pub fn read_xlsx_table_bytes_with_limits(
     file_name: Option<&str>,
-    size_bytes: u64,
+    bytes: &[u8],
+    limits: XlsxLimits,
+) -> Result<ExtractedTable, ParserError> {
+    read_xlsx_table_bytes_inner(file_name, bytes, None, limits)
+}
+
+fn read_xlsx_table_path_with_limits(
+    path: &Path,
+    limits: XlsxLimits,
+) -> Result<ExtractedTable, ParserError> {
+    let source = path.to_string_lossy().into_owned();
+    let bytes = read_bounded_file(
+        path,
+        &source,
+        limits.max_bytes,
+        ResourceLimitKind::XlsxBytes,
+    )?;
+    let file_name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned());
+    read_xlsx_table_bytes_inner(file_name.as_deref(), &bytes, Some(&source), limits)
+}
+
+fn read_xlsx_table_bytes_inner(
+    file_name: Option<&str>,
+    bytes: &[u8],
     source_path: Option<&str>,
-) -> Result<RawDocument, ParserError> {
-    extract_xlsx_table(workbook, file_name, size_bytes, source_path).map(|table| table.document)
+    limits: XlsxLimits,
+) -> Result<ExtractedTable, ParserError> {
+    if bytes.len() as u64 > limits.max_bytes {
+        return Err(ParserError::ResourceLimit {
+            resource: ResourceLimitKind::XlsxBytes,
+            limit: limits.max_bytes,
+            actual: bytes.len() as u64,
+        });
+    }
+    let workbook: Xlsx<_> = open_workbook_from_rs(Cursor::new(bytes))
+        .map_err(|error| xlsx_error(source_path, None, error))?;
+    extract_xlsx_table(workbook, file_name, bytes.len() as u64, source_path, limits)
 }
 
 fn extract_xlsx_table<RS: Read + Seek>(
@@ -727,10 +804,19 @@ fn extract_xlsx_table<RS: Read + Seek>(
     file_name: Option<&str>,
     size_bytes: u64,
     source_path: Option<&str>,
+    limits: XlsxLimits,
 ) -> Result<ExtractedTable, ParserError> {
     let mut blocks = Vec::new();
     let mut manifest = Vec::new();
-    for (sheet_index, sheet_name) in workbook.sheet_names().into_iter().enumerate() {
+    let sheet_names = workbook.sheet_names();
+    if sheet_names.len() > limits.max_sheets {
+        return Err(ParserError::ResourceLimit {
+            resource: ResourceLimitKind::XlsxSheets,
+            limit: limits.max_sheets as u64,
+            actual: sheet_names.len() as u64,
+        });
+    }
+    for (sheet_index, sheet_name) in sheet_names.into_iter().enumerate() {
         let merged_regions = workbook
             .merge_cells_by_sheet_name(&sheet_name)
             .map_err(|error| xlsx_error(source_path, Some(&sheet_name), error))?;
@@ -743,6 +829,14 @@ fn extract_xlsx_table<RS: Read + Seek>(
                 let source_row = start_row as usize + row_offset + 1;
                 let block_start = blocks.len();
                 let blank = row.iter().all(|cell| matches!(cell, Data::Empty));
+                let observed_cells = blocks.len().saturating_add(row.len());
+                if observed_cells > limits.max_cells {
+                    return Err(ParserError::ResourceLimit {
+                        resource: ResourceLimitKind::XlsxCells,
+                        limit: limits.max_cells as u64,
+                        actual: observed_cells as u64,
+                    });
+                }
                 for (column_offset, cell) in row.iter().enumerate() {
                     blocks.push(RawBlock {
                         id: format!(
@@ -853,6 +947,84 @@ fn read_limited(
     }
 
     Ok(bytes)
+}
+
+fn read_bounded_file(
+    path: &Path,
+    source: &str,
+    max_bytes: u64,
+    resource: ResourceLimitKind,
+) -> Result<Vec<u8>, ParserError> {
+    let mut file = fs::File::open(path).map_err(|error| ParserError::Io {
+        path: source.to_owned(),
+        kind: error.kind().into(),
+    })?;
+    let metadata = file.metadata().map_err(|error| ParserError::Io {
+        path: source.to_owned(),
+        kind: error.kind().into(),
+    })?;
+    if !metadata.is_file() {
+        return Err(ParserError::NotRegularFile {
+            path: source.to_owned(),
+        });
+    }
+    if metadata.len() > max_bytes {
+        return Err(ParserError::ResourceLimit {
+            resource,
+            limit: max_bytes,
+            actual: metadata.len(),
+        });
+    }
+    let mut bytes = Vec::new();
+    file.by_ref()
+        .take(max_bytes.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(|error| ParserError::Io {
+            path: source.to_owned(),
+            kind: error.kind().into(),
+        })?;
+    if bytes.len() as u64 > max_bytes {
+        return Err(ParserError::ResourceLimit {
+            resource,
+            limit: max_bytes,
+            actual: bytes.len() as u64,
+        });
+    }
+    Ok(bytes)
+}
+
+fn check_csv_limits(bytes: &[u8], limits: CsvLimits, _source: &str) -> Result<(), ParserError> {
+    if bytes.len() as u64 > limits.max_bytes {
+        return Err(ParserError::ResourceLimit {
+            resource: ResourceLimitKind::CsvBytes,
+            limit: limits.max_bytes,
+            actual: bytes.len() as u64,
+        });
+    }
+    Ok(())
+}
+
+fn check_record_limits(
+    records: &[Vec<String>],
+    logical_rows: usize,
+    limits: CsvLimits,
+) -> Result<(), ParserError> {
+    if logical_rows > limits.max_rows {
+        return Err(ParserError::ResourceLimit {
+            resource: ResourceLimitKind::CsvRows,
+            limit: limits.max_rows as u64,
+            actual: logical_rows as u64,
+        });
+    }
+    let cells = records.iter().map(Vec::len).sum::<usize>();
+    if cells > limits.max_cells {
+        return Err(ParserError::ResourceLimit {
+            resource: ResourceLimitKind::CsvCells,
+            limit: limits.max_cells as u64,
+            actual: cells as u64,
+        });
+    }
+    Ok(())
 }
 
 fn document_from_bytes(

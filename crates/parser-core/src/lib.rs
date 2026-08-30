@@ -5,7 +5,10 @@ mod errors;
 pub use errors::*;
 mod plan;
 use plan::{DetectionRules, EnumDefinitions};
-pub use plan::{ParsePlan, PlanField, parse_document_with_plan};
+pub use plan::{
+    ParseLimits, ParsePlan, PlanField, enforce_parse_response_limits, parse_document_with_plan,
+    parse_document_with_plan_with_limits,
+};
 mod table_selection;
 pub use table_selection::*;
 mod text_fields;
@@ -2423,6 +2426,12 @@ pub enum ParserError {
     },
     #[serde(rename = "invalid_xlsx")]
     InvalidXlsx { path: String, message: String },
+    #[serde(rename = "resource_limit")]
+    ResourceLimit {
+        resource: ResourceLimitKind,
+        limit: u64,
+        actual: u64,
+    },
 }
 
 impl ParserError {
@@ -2438,6 +2447,7 @@ impl ParserError {
             Self::LineTooLong { .. } => "line_too_long",
             Self::InvalidCsv { .. } => "invalid_csv",
             Self::InvalidXlsx { .. } => "invalid_xlsx",
+            Self::ResourceLimit { .. } => "resource_limit",
         }
     }
 }

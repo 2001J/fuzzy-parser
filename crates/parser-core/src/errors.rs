@@ -123,6 +123,42 @@ pub enum TableSelectionReason {
     HeaderConflict,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ResourceLimitKind {
+    CsvBytes,
+    CsvRows,
+    CsvCells,
+    XlsxBytes,
+    XlsxSheets,
+    XlsxCells,
+    SchemaBytes,
+    SchemaFields,
+    SchemaAliases,
+    SchemaNesting,
+    Records,
+    ResponseBytes,
+}
+
+impl fmt::Display for ResourceLimitKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::CsvBytes => "csv_bytes",
+            Self::CsvRows => "csv_rows",
+            Self::CsvCells => "csv_cells",
+            Self::XlsxBytes => "xlsx_bytes",
+            Self::XlsxSheets => "xlsx_sheets",
+            Self::XlsxCells => "xlsx_cells",
+            Self::SchemaBytes => "schema_bytes",
+            Self::SchemaFields => "schema_fields",
+            Self::SchemaAliases => "schema_aliases",
+            Self::SchemaNesting => "schema_nesting",
+            Self::Records => "records",
+            Self::ResponseBytes => "response_bytes",
+        })
+    }
+}
+
 /// Safe metadata only. User strings belong in explicitly requested diagnostics.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "code")]
@@ -177,6 +213,12 @@ pub enum FailureKind {
     OutputSerialization { target: OutputTarget },
     #[serde(rename = "table_selection_error")]
     TableSelection { reason: TableSelectionReason },
+    #[serde(rename = "resource_limit")]
+    ResourceLimit {
+        resource: ResourceLimitKind,
+        limit: u64,
+        actual: u64,
+    },
 }
 
 impl fmt::Display for FailureKind {
@@ -258,6 +300,14 @@ impl fmt::Display for FailureKind {
                     "header selection conflicts with row selection"
                 }
             }),
+            Self::ResourceLimit {
+                resource,
+                limit,
+                actual,
+            } => write!(
+                f,
+                "resource limit {resource} exceeded: limit {limit}, actual {actual}"
+            ),
         }
     }
 }
@@ -447,6 +497,15 @@ impl From<&ParserError> for Failure {
                 context.path = nonempty(path);
                 FailureKind::InvalidXlsx
             }
+            ParserError::ResourceLimit {
+                resource,
+                limit,
+                actual,
+            } => FailureKind::ResourceLimit {
+                resource: *resource,
+                limit: *limit,
+                actual: *actual,
+            },
         };
         Self::new(kind).with_context(context)
     }

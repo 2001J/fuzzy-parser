@@ -1,12 +1,13 @@
 use parser_core::{DiagnosticsMode, Failure, FailureKind, OutputTarget};
 use parser_formats::{
     CsvOptions, ExtractedTable, FileFormat, InputSource, TextLimits, TxtOptions,
-    parse_extracted_table_with_plan, read_csv_table_with_options, read_csv_with_options,
+    parse_extracted_table_with_plan_and_limits, read_csv_table_with_options, read_csv_with_options,
     read_input, read_txt_with_options, read_xlsx, read_xlsx_table,
 };
 use std::{
-    env, fs,
-    io::{self, Read},
+    env,
+    fs::File,
+    io::{self, Read, Write},
     path::PathBuf,
     process,
 };
@@ -92,14 +93,6 @@ fn inspect_text(content: &str, diagnostics: DiagnosticsMode) -> i32 {
     )
 }
 
-fn schema_failure(error: &parser_schema::SchemaParseError, path: Option<&PathBuf>) -> Failure {
-    let failure = Failure::from(error);
-    match path {
-        Some(path) => failure.with_path(&path.to_string_lossy()),
-        None => failure,
-    }
-}
-
 fn schema_io_failure(error: &io::Error, path: Option<&PathBuf>) -> Failure {
     let failure = Failure::new(FailureKind::SchemaIo {
         kind: error.kind().into(),
@@ -111,10 +104,13 @@ fn schema_io_failure(error: &io::Error, path: Option<&PathBuf>) -> Failure {
 }
 
 fn load_schema_file(path: PathBuf) -> Result<parser_schema::TargetSchema, Failure> {
-    let input =
-        fs::read_to_string(&path).map_err(|error| schema_io_failure(&error, Some(&path)))?;
-    parser_schema::decode_execution_schema(&input)
-        .map_err(|error| error.with_path(&path.to_string_lossy()))
+    let file = File::open(&path).map_err(|error| schema_io_failure(&error, Some(&path)))?;
+    let input = read_schema_input(file, Some(&path))?;
+    parser_schema::decode_execution_schema_with_limits(
+        &input,
+        parser_schema::SchemaLimits::default(),
+    )
+    .map_err(|error| error.with_path(&path.to_string_lossy()))
 }
 
 fn parse_path(
@@ -136,7 +132,12 @@ fn parse_path(
             Ok(plan) => plan,
             Err(error) => return report_failure(error, diagnostics),
         };
-        match parse_extracted_table_with_plan(&table, &plan, &table_options) {
+        match parse_extracted_table_with_plan_and_limits(
+            &table,
+            &plan,
+            &table_options,
+            parser_core::ParseLimits::default(),
+        ) {
             Ok(response) => write_response(&response, diagnostics),
             Err(error) => report_failure(error, diagnostics),
         }
@@ -185,38 +186,145 @@ fn parse_with_schema(
         Ok(spec) => spec,
         Err(error) => return report_failure(error, diagnostics),
     };
-    let response = parser_core::parse_document_with_plan(&document, &spec);
-    write_response(&response, diagnostics)
+    match parser_core::parse_document_with_plan_with_limits(
+        &document,
+        &spec,
+        parser_core::ParseLimits::default(),
+    ) {
+        Ok(response) => write_response(&response, diagnostics),
+        Err(error) => report_failure(error, diagnostics),
+    }
 }
 
 fn write_response(response: &parser_core::ParseResponse, diagnostics: DiagnosticsMode) -> i32 {
-    match serde_json::to_string_pretty(response) {
-        Ok(json) => {
-            println!("{json}");
-            0
+    write_bounded_json(OutputTarget::ParseResult, diagnostics, |writer| {
+        serde_json::to_writer_pretty(writer, response)
+    })
+}
+
+fn write_bounded_json(
+    target: OutputTarget,
+    diagnostics: DiagnosticsMode,
+    encode: impl FnOnce(&mut BoundedOutput) -> serde_json::Result<()>,
+) -> i32 {
+    let limit = parser_core::ParseLimits::default().max_response_bytes;
+    match encode_pretty_bounded(limit, target, encode) {
+        Ok(bytes) => match io::stdout().lock().write_all(&bytes) {
+            Ok(()) => 0,
+            Err(_) => report_failure(
+                Failure::new(FailureKind::OutputSerialization { target }),
+                diagnostics,
+            ),
+        },
+        Err(error) => report_failure(error, diagnostics),
+    }
+}
+
+fn encode_pretty_bounded(
+    limit: usize,
+    target: OutputTarget,
+    encode: impl FnOnce(&mut BoundedOutput) -> serde_json::Result<()>,
+) -> Result<Vec<u8>, Failure> {
+    let mut output = BoundedOutput::new(limit);
+    let serialized = encode(&mut output);
+    if output.exceeded {
+        return Err(output.limit_failure());
+    }
+    serialized.map_err(|_| Failure::new(FailureKind::OutputSerialization { target }))?;
+    if output.write_all(b"\n").is_err() {
+        return if output.exceeded {
+            Err(output.limit_failure())
+        } else {
+            Err(Failure::new(FailureKind::OutputSerialization { target }))
+        };
+    }
+    Ok(output.bytes)
+}
+
+struct BoundedOutput {
+    bytes: Vec<u8>,
+    limit: usize,
+    exceeded: bool,
+}
+
+impl BoundedOutput {
+    fn new(limit: usize) -> Self {
+        Self {
+            bytes: Vec::new(),
+            limit,
+            exceeded: false,
         }
-        Err(_) => report_failure(
-            Failure::new(FailureKind::OutputSerialization {
-                target: OutputTarget::ParseResult,
-            }),
-            diagnostics,
-        ),
+    }
+
+    fn limit_failure(&self) -> Failure {
+        Failure::new(FailureKind::ResourceLimit {
+            resource: parser_core::ResourceLimitKind::ResponseBytes,
+            limit: self.limit as u64,
+            actual: self.bytes.len() as u64,
+        })
+    }
+}
+
+impl Write for BoundedOutput {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        let observed_cap = self.limit.saturating_add(1);
+        let available = observed_cap.saturating_sub(self.bytes.len());
+        let accepted = available.min(buffer.len());
+        self.bytes.extend_from_slice(&buffer[..accepted]);
+        if accepted < buffer.len() || self.bytes.len() > self.limit {
+            self.exceeded = true;
+            return Err(io::Error::other(
+                "serialized response exceeded its byte limit",
+            ));
+        }
+        Ok(accepted)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
     }
 }
 
 fn validate_schema_path(path: PathBuf, pretty: bool, diagnostics: DiagnosticsMode) -> i32 {
-    match fs::read_to_string(&path) {
+    match File::open(&path)
+        .map_err(|error| schema_io_failure(&error, Some(&path)))
+        .and_then(|file| read_schema_input(file, Some(&path)))
+    {
         Ok(input) => validate_schema_input(&input, pretty, diagnostics, Some(&path)),
-        Err(error) => report_failure(schema_io_failure(&error, Some(&path)), diagnostics),
+        Err(error) => report_failure(error, diagnostics),
     }
 }
 
 fn validate_schema_stdin(diagnostics: DiagnosticsMode) -> i32 {
-    let mut input = String::new();
-    match io::stdin().read_to_string(&mut input) {
-        Ok(_) => validate_schema_input(&input, true, diagnostics, None),
-        Err(error) => report_failure(schema_io_failure(&error, None), diagnostics),
+    match read_schema_input(io::stdin().lock(), None) {
+        Ok(input) => validate_schema_input(&input, true, diagnostics, None),
+        Err(error) => report_failure(error, diagnostics),
     }
+}
+
+fn read_schema_input(mut reader: impl Read, path: Option<&PathBuf>) -> Result<String, Failure> {
+    let limits = parser_schema::SchemaLimits::default();
+    let mut bytes = Vec::new();
+    reader
+        .by_ref()
+        .take(limits.max_bytes.saturating_add(1) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|error| schema_io_failure(&error, path))?;
+    if bytes.len() > limits.max_bytes {
+        let failure = Failure::new(FailureKind::ResourceLimit {
+            resource: parser_core::ResourceLimitKind::SchemaBytes,
+            limit: limits.max_bytes as u64,
+            actual: bytes.len() as u64,
+        });
+        return Err(match path {
+            Some(path) => failure.with_path(&path.to_string_lossy()),
+            None => failure,
+        });
+    }
+    String::from_utf8(bytes).map_err(|_| {
+        let error = io::Error::new(io::ErrorKind::InvalidData, "schema is not valid UTF-8");
+        schema_io_failure(&error, path)
+    })
 }
 
 fn validate_schema_input(
@@ -225,7 +333,7 @@ fn validate_schema_input(
     diagnostics: DiagnosticsMode,
     path: Option<&PathBuf>,
 ) -> i32 {
-    match parser_schema::TargetSchema::from_json(input) {
+    match parser_schema::decode_schema_with_limits(input, parser_schema::SchemaLimits::default()) {
         Ok(schema) => match schema.to_json() {
             Ok(json) => {
                 if pretty {
@@ -246,7 +354,12 @@ fn validate_schema_input(
                 report_failure(failure, diagnostics)
             }
         },
-        Err(error) => report_failure(schema_failure(&error, path), diagnostics),
+        Err(mut failure) => {
+            if let Some(path) = path {
+                failure = failure.with_path(&path.to_string_lossy());
+            }
+            report_failure(failure, diagnostics)
+        }
     }
 }
 
@@ -264,18 +377,9 @@ fn inspect_result(
     diagnostics: DiagnosticsMode,
 ) -> i32 {
     match result {
-        Ok(document) => match serde_json::to_string_pretty(&document) {
-            Ok(json) => {
-                println!("{json}");
-                0
-            }
-            Err(_) => report_failure(
-                Failure::new(FailureKind::OutputSerialization {
-                    target: OutputTarget::RawDocument,
-                }),
-                diagnostics,
-            ),
-        },
+        Ok(document) => write_bounded_json(OutputTarget::RawDocument, diagnostics, |writer| {
+            serde_json::to_writer_pretty(writer, &document)
+        }),
         Err(error) => report_failure(Failure::from(&error), diagnostics),
     }
 }

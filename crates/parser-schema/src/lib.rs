@@ -10,6 +10,153 @@ pub const SCHEMA_VERSION: &str = "0.1";
 mod compile;
 pub use compile::{compile_schema, compile_schema_json, decode_execution_schema};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SchemaLimits {
+    pub max_bytes: usize,
+    pub max_fields: usize,
+    pub max_aliases: usize,
+    pub max_nesting: usize,
+}
+impl Default for SchemaLimits {
+    fn default() -> Self {
+        Self {
+            max_bytes: 1024 * 1024,
+            max_fields: 1024,
+            max_aliases: 8192,
+            max_nesting: 32,
+        }
+    }
+}
+
+pub fn decode_execution_schema_with_limits(
+    input: &str,
+    limits: SchemaLimits,
+) -> Result<TargetSchema, Failure> {
+    check_schema_limits(input, limits)?;
+    decode_execution_schema(input)
+}
+
+/// Structural schema decoding with the same resource contract as execution.
+pub fn decode_schema_with_limits(
+    input: &str,
+    limits: SchemaLimits,
+) -> Result<TargetSchema, Failure> {
+    check_schema_limits(input, limits)?;
+    TargetSchema::from_json(input).map_err(|error| Failure::from(&error))
+}
+
+fn check_schema_limits(input: &str, limits: SchemaLimits) -> Result<(), Failure> {
+    if input.len() > limits.max_bytes {
+        return Err(Failure::new(FailureKind::ResourceLimit {
+            resource: parser_core::ResourceLimitKind::SchemaBytes,
+            limit: limits.max_bytes as u64,
+            actual: input.len() as u64,
+        }));
+    }
+    let nesting = schema_nesting(input);
+    if nesting > limits.max_nesting {
+        return Err(Failure::new(FailureKind::ResourceLimit {
+            resource: parser_core::ResourceLimitKind::SchemaNesting,
+            limit: limits.max_nesting as u64,
+            actual: nesting as u64,
+        }));
+    }
+    let value: serde_json::Value =
+        serde_json::from_str(input).map_err(|_| Failure::new(FailureKind::SchemaParse))?;
+    let fields_value = schema_member(&value, "fields", 2);
+    let fields = fields_value
+        .and_then(serde_json::Value::as_array)
+        .map_or(0, Vec::len);
+    if fields > limits.max_fields {
+        return Err(Failure::new(FailureKind::ResourceLimit {
+            resource: parser_core::ResourceLimitKind::SchemaFields,
+            limit: limits.max_fields as u64,
+            actual: fields as u64,
+        }));
+    }
+    let aliases = fields_value
+        .and_then(serde_json::Value::as_array)
+        .map_or(0, |fields| {
+            fields.iter().fold(0usize, |total, field| {
+                total
+                    .saturating_add(alias_count(schema_member(field, "aliases", 4)))
+                    .saturating_add(enum_alias_count(field))
+            })
+        });
+    if aliases > limits.max_aliases {
+        return Err(Failure::new(FailureKind::ResourceLimit {
+            resource: parser_core::ResourceLimitKind::SchemaAliases,
+            limit: limits.max_aliases as u64,
+            actual: aliases as u64,
+        }));
+    }
+    Ok(())
+}
+
+fn schema_nesting(input: &str) -> usize {
+    let mut depth = 0usize;
+    let mut maximum = 0;
+    let mut in_string = false;
+    let mut escaped = false;
+    for byte in input.bytes() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match byte {
+            b'"' => in_string = true,
+            b'{' | b'[' => {
+                depth = depth.saturating_add(1);
+                maximum = maximum.max(depth);
+            }
+            b'}' | b']' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    maximum
+}
+
+fn schema_member<'a>(
+    value: &'a serde_json::Value,
+    key: &str,
+    index: usize,
+) -> Option<&'a serde_json::Value> {
+    match value {
+        serde_json::Value::Object(object) => object.get(key),
+        serde_json::Value::Array(array) => array.get(index),
+        _ => None,
+    }
+}
+
+fn alias_count(value: Option<&serde_json::Value>) -> usize {
+    value
+        .and_then(serde_json::Value::as_array)
+        .map_or(0, Vec::len)
+}
+
+fn enum_alias_count(field: &serde_json::Value) -> usize {
+    let Some(field_type) = schema_member(field, "field_type", 1) else {
+        return 0;
+    };
+    let Some(enumeration) = field_type.get("enum") else {
+        return 0;
+    };
+    let Some(values) =
+        schema_member(enumeration, "values", 0).and_then(serde_json::Value::as_array)
+    else {
+        return 0;
+    };
+    values.iter().fold(0usize, |total, value| {
+        total.saturating_add(alias_count(schema_member(value, "aliases", 1)))
+    })
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TargetSchema {
     pub schema_version: String,

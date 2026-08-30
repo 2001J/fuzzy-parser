@@ -78,6 +78,88 @@ pub fn parse_document_with_plan(document: &RawDocument, plan: &ParsePlan) -> Par
     )
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParseLimits {
+    pub max_records: usize,
+    pub max_response_bytes: usize,
+}
+impl Default for ParseLimits {
+    fn default() -> Self {
+        Self {
+            max_records: 100_000,
+            max_response_bytes: 16 * 1024 * 1024,
+        }
+    }
+}
+
+pub fn parse_document_with_plan_with_limits(
+    document: &RawDocument,
+    plan: &ParsePlan,
+    limits: ParseLimits,
+) -> Result<ParseResponse, Failure> {
+    let response = parse_document_with_plan(document, plan);
+    enforce_parse_response_limits(&response, limits)?;
+    Ok(response)
+}
+
+/// Shared post-parse limit enforcement for core and formats-owned orchestration.
+///
+/// The response already exists when these two derived properties become known;
+/// serialization is counted without allocating a second response buffer.
+#[doc(hidden)]
+pub fn enforce_parse_response_limits(
+    response: &ParseResponse,
+    limits: ParseLimits,
+) -> Result<(), Failure> {
+    let records = match &response.content {
+        ParseContent::Text { records } => records.len(),
+        ParseContent::Table { sheets } => sheets.iter().fold(0usize, |count, sheet| {
+            count.saturating_add(sheet.records.len())
+        }),
+    };
+    if records > limits.max_records {
+        return Err(Failure::new(FailureKind::ResourceLimit {
+            resource: ResourceLimitKind::Records,
+            limit: limits.max_records as u64,
+            actual: records as u64,
+        }));
+    }
+
+    let mut counter = CountingWriter::default();
+    serde_json::to_writer(&mut counter, response).map_err(|_| {
+        Failure::new(FailureKind::OutputSerialization {
+            target: OutputTarget::ParseResult,
+        })
+    })?;
+    if counter.bytes > limits.max_response_bytes {
+        return Err(Failure::new(FailureKind::ResourceLimit {
+            resource: ResourceLimitKind::ResponseBytes,
+            limit: limits.max_response_bytes as u64,
+            actual: counter.bytes as u64,
+        }));
+    }
+    Ok(())
+}
+
+#[derive(Default)]
+struct CountingWriter {
+    bytes: usize,
+}
+
+impl std::io::Write for CountingWriter {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        self.bytes = self
+            .bytes
+            .checked_add(buffer.len())
+            .ok_or_else(|| std::io::Error::other("serialized response size overflow"))?;
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(super) enum DetectionRules<'a> {
     Legacy(&'a [(String, Vec<String>)]),
