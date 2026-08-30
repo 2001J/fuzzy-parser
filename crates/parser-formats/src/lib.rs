@@ -1,6 +1,8 @@
 use calamine::{Data, Reader, Xlsx, XlsxError, open_workbook, open_workbook_from_rs};
 use parser_core::{
-    ParserError, RawBlock, RawDocument, RawValue, SourceLocation, SourceMetadata, SourceType,
+    Failure, ParsePlan, ParseResponse, ParserError, RawBlock, RawDocument, RawValue,
+    SourceLocation, SourceMetadata, SourceType, TableByteSpan, TableInventory, TableInventoryRow,
+    TableInventorySheet, TableSelectionOptions, UnsupportedTableMetadata,
 };
 use std::{
     fs,
@@ -15,6 +17,100 @@ pub use file_validation::{
 
 pub const DEFAULT_MAX_TEXT_BYTES: usize = 1024 * 1024;
 pub const DEFAULT_MAX_LINE_BYTES: usize = 64 * 1024;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UnsupportedMetadata {
+    MergedRegion {
+        start_row: usize,
+        start_column: usize,
+        end_row: usize,
+        end_column: usize,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExtractedRow {
+    pub source_row: usize,
+    pub block_indices: Vec<usize>,
+    pub blank: bool,
+    pub byte_span: Option<TableByteSpan>,
+    pub line_start: Option<usize>,
+    pub line_end: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExtractedSheet {
+    pub original_index: usize,
+    pub name: Option<String>,
+    pub rows: Vec<ExtractedRow>,
+    pub unsupported_metadata: Vec<UnsupportedMetadata>,
+}
+
+/// Extraction companion for opt-in table selection. It intentionally has no
+/// serde implementation; the canonical document remains the wire source model.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExtractedTable {
+    pub document: RawDocument,
+    pub manifest: Vec<ExtractedSheet>,
+}
+
+impl ExtractedTable {
+    fn inventory(&self) -> TableInventory {
+        TableInventory {
+            source_type: self.document.source.source_type.clone(),
+            sheets: self
+                .manifest
+                .iter()
+                .map(|sheet| TableInventorySheet {
+                    original_index: sheet.original_index,
+                    name: sheet.name.clone(),
+                    rows: sheet
+                        .rows
+                        .iter()
+                        .map(|row| TableInventoryRow {
+                            source_row: row.source_row,
+                            block_indices: row.block_indices.clone(),
+                            blank: row.blank,
+                            byte_span: row.byte_span,
+                            line_start: row.line_start,
+                            line_end: row.line_end,
+                        })
+                        .collect(),
+                    unsupported_metadata: sheet
+                        .unsupported_metadata
+                        .iter()
+                        .map(|metadata| match metadata {
+                            UnsupportedMetadata::MergedRegion {
+                                start_row,
+                                start_column,
+                                end_row,
+                                end_column,
+                            } => UnsupportedTableMetadata::MergedRegion {
+                                start_row: *start_row,
+                                start_column: *start_column,
+                                end_row: *end_row,
+                                end_column: *end_column,
+                            },
+                        })
+                        .collect(),
+                })
+                .collect(),
+        }
+    }
+}
+
+pub fn parse_extracted_table_with_plan(
+    table: &ExtractedTable,
+    plan: &ParsePlan,
+    options: &TableSelectionOptions,
+) -> Result<ParseResponse, Failure> {
+    parser_core::parse_document_with_plan_and_table_selection(
+        &table.document,
+        plan,
+        &table.inventory(),
+        options,
+    )
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TextLimits {
@@ -186,6 +282,26 @@ pub fn read_csv_with_options(
     read_csv_bytes(file_name.as_deref(), &bytes, &path_display, options)
 }
 
+pub fn read_csv_table(path: impl AsRef<Path>) -> Result<ExtractedTable, ParserError> {
+    read_csv_table_with_options(path, CsvOptions::default())
+}
+
+pub fn read_csv_table_with_options(
+    path: impl AsRef<Path>,
+    options: CsvOptions,
+) -> Result<ExtractedTable, ParserError> {
+    let path = path.as_ref();
+    let path_display = path.to_string_lossy().into_owned();
+    let bytes = fs::read(path).map_err(|error| ParserError::Io {
+        path: path_display.clone(),
+        kind: error.kind().into(),
+    })?;
+    let file_name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned());
+    read_csv_table_bytes(file_name.as_deref(), &bytes, &path_display, options)
+}
+
 pub fn read_csv_bytes(
     file_name: Option<&str>,
     bytes: &[u8],
@@ -226,6 +342,155 @@ pub fn read_csv_bytes(
         },
         blocks,
     ))
+}
+
+pub fn read_csv_table_bytes(
+    file_name: Option<&str>,
+    bytes: &[u8],
+    source_path: &str,
+    options: CsvOptions,
+) -> Result<ExtractedTable, ParserError> {
+    let (delimiter, records) = match options.delimiter {
+        Some(delimiter) => (delimiter, parse_csv_records(bytes, source_path, delimiter)?),
+        None => detect_delimiter(bytes, source_path)?,
+    };
+    let logical_rows = csv_logical_rows(bytes, delimiter.byte());
+    let mut records = records.into_iter();
+    let mut blocks = Vec::new();
+    let mut rows = Vec::new();
+    for row in logical_rows {
+        let block_start = blocks.len();
+        if !row.blank {
+            let record = records.next().ok_or_else(|| ParserError::InvalidCsv {
+                path: source_path.to_owned(),
+                record: Some(row.source_row),
+                message: "CSV row inventory did not match parsed records".to_owned(),
+            })?;
+            for (column_index, value) in record.into_iter().enumerate() {
+                blocks.push(RawBlock {
+                    id: format!("row-{}-column-{}", row.source_row, column_index + 1),
+                    value: RawValue::text(value),
+                    location: SourceLocation {
+                        row: Some(row.source_row),
+                        column: Some(column_index + 1),
+                        ..SourceLocation::default()
+                    },
+                });
+            }
+        }
+        rows.push(ExtractedRow {
+            source_row: row.source_row,
+            block_indices: (block_start..blocks.len()).collect(),
+            blank: row.blank,
+            byte_span: Some(TableByteSpan {
+                byte_start: row.byte_start,
+                byte_end: row.byte_end,
+            }),
+            line_start: Some(row.line_start),
+            line_end: Some(row.line_end),
+        });
+    }
+    if records.next().is_some() {
+        return Err(ParserError::InvalidCsv {
+            path: source_path.to_owned(),
+            record: None,
+            message: "CSV row inventory did not match parsed records".to_owned(),
+        });
+    }
+    Ok(ExtractedTable {
+        document: RawDocument::new(
+            "csv-document",
+            SourceMetadata {
+                source_type: SourceType::Csv,
+                file_name: file_name.map(str::to_owned),
+                mime_type: Some("text/csv".to_owned()),
+                size_bytes: Some(bytes.len() as u64),
+                delimiter: Some(delimiter.symbol().to_owned()),
+            },
+            blocks,
+        ),
+        manifest: vec![ExtractedSheet {
+            original_index: 1,
+            name: None,
+            rows,
+            unsupported_metadata: Vec::new(),
+        }],
+    })
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CsvLogicalRow {
+    source_row: usize,
+    byte_start: usize,
+    byte_end: usize,
+    line_start: usize,
+    line_end: usize,
+    blank: bool,
+}
+
+fn csv_logical_rows(bytes: &[u8], delimiter: u8) -> Vec<CsvLogicalRow> {
+    let mut rows = Vec::new();
+    let mut row_start = 0;
+    let mut row_line_start = 1;
+    let mut line = 1;
+    let mut in_quotes = false;
+    let mut field_start = true;
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'"' if in_quotes && bytes.get(index + 1) == Some(&b'"') => index += 2,
+            b'"' if in_quotes => {
+                in_quotes = false;
+                field_start = false;
+                index += 1;
+            }
+            b'"' if field_start => {
+                in_quotes = true;
+                field_start = false;
+                index += 1;
+            }
+            b'\r' | b'\n' => {
+                let crlf = bytes[index] == b'\r' && bytes.get(index + 1) == Some(&b'\n');
+                if in_quotes {
+                    line += 1;
+                    index += if crlf { 2 } else { 1 };
+                    continue;
+                }
+                rows.push(CsvLogicalRow {
+                    source_row: rows.len() + 1,
+                    byte_start: row_start,
+                    byte_end: index,
+                    line_start: row_line_start,
+                    line_end: line,
+                    blank: row_start == index,
+                });
+                line += 1;
+                index += if crlf { 2 } else { 1 };
+                row_start = index;
+                row_line_start = line;
+                field_start = true;
+            }
+            byte if !in_quotes && byte == delimiter => {
+                field_start = true;
+                index += 1;
+            }
+            _ => {
+                field_start = false;
+                index += 1;
+            }
+        }
+    }
+    if row_start < bytes.len() {
+        rows.push(CsvLogicalRow {
+            source_row: rows.len() + 1,
+            byte_start: row_start,
+            byte_end: bytes.len(),
+            line_start: row_line_start,
+            line_end: line,
+            blank: row_start == bytes.len(),
+        });
+    }
+    rows
 }
 
 type DelimiterScore = (usize, usize, usize, usize);
@@ -404,6 +669,28 @@ pub fn read_xlsx(path: impl AsRef<Path>) -> Result<RawDocument, ParserError> {
     )
 }
 
+pub fn read_xlsx_table(path: impl AsRef<Path>) -> Result<ExtractedTable, ParserError> {
+    let path = path.as_ref();
+    let path_display = path.to_string_lossy().into_owned();
+    let size_bytes = fs::metadata(path)
+        .map_err(|error| ParserError::Io {
+            path: path_display.clone(),
+            kind: error.kind().into(),
+        })?
+        .len();
+    let workbook: Xlsx<_> =
+        open_workbook(path).map_err(|error| xlsx_error(Some(&path_display), None, error))?;
+    let file_name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned());
+    extract_xlsx_table(
+        workbook,
+        file_name.as_deref(),
+        size_bytes,
+        Some(&path_display),
+    )
+}
+
 /// Reads borrowed XLSX bytes without filesystem or network access.
 ///
 /// `file_name` is optional caller metadata, never a path to open. Stored cell
@@ -417,58 +704,103 @@ pub fn read_xlsx_bytes(file_name: Option<&str>, bytes: &[u8]) -> Result<RawDocum
     extract_xlsx(workbook, file_name, bytes.len() as u64, None)
 }
 
+pub fn read_xlsx_table_bytes(
+    file_name: Option<&str>,
+    bytes: &[u8],
+) -> Result<ExtractedTable, ParserError> {
+    let workbook: Xlsx<_> =
+        open_workbook_from_rs(Cursor::new(bytes)).map_err(|error| xlsx_error(None, None, error))?;
+    extract_xlsx_table(workbook, file_name, bytes.len() as u64, None)
+}
+
 fn extract_xlsx<RS: Read + Seek>(
-    mut workbook: Xlsx<RS>,
+    workbook: Xlsx<RS>,
     file_name: Option<&str>,
     size_bytes: u64,
     source_path: Option<&str>,
 ) -> Result<RawDocument, ParserError> {
+    extract_xlsx_table(workbook, file_name, size_bytes, source_path).map(|table| table.document)
+}
+
+fn extract_xlsx_table<RS: Read + Seek>(
+    mut workbook: Xlsx<RS>,
+    file_name: Option<&str>,
+    size_bytes: u64,
+    source_path: Option<&str>,
+) -> Result<ExtractedTable, ParserError> {
     let mut blocks = Vec::new();
+    let mut manifest = Vec::new();
     for (sheet_index, sheet_name) in workbook.sheet_names().into_iter().enumerate() {
-        let _merged_regions = workbook
+        let merged_regions = workbook
             .merge_cells_by_sheet_name(&sheet_name)
             .map_err(|error| xlsx_error(source_path, Some(&sheet_name), error))?;
         let range = workbook
             .worksheet_range(&sheet_name)
             .map_err(|error| xlsx_error(source_path, Some(&sheet_name), error))?;
-        let Some((start_row, start_column)) = range.start() else {
-            continue;
-        };
-
-        for (row_offset, row) in range.rows().enumerate() {
-            for (column_offset, cell) in row.iter().enumerate() {
-                blocks.push(RawBlock {
-                    id: format!(
-                        "sheet-{}-row-{}-column-{}",
-                        sheet_index + 1,
-                        start_row as usize + row_offset + 1,
-                        start_column as usize + column_offset + 1
-                    ),
-                    value: raw_xlsx_value(cell),
-                    location: SourceLocation {
-                        row: Some(start_row as usize + row_offset + 1),
-                        column: Some(start_column as usize + column_offset + 1),
-                        sheet: Some(sheet_name.clone()),
-                        ..SourceLocation::default()
-                    },
+        let mut rows = Vec::new();
+        if let Some((start_row, start_column)) = range.start() {
+            for (row_offset, row) in range.rows().enumerate() {
+                let source_row = start_row as usize + row_offset + 1;
+                let block_start = blocks.len();
+                let blank = row.iter().all(|cell| matches!(cell, Data::Empty));
+                for (column_offset, cell) in row.iter().enumerate() {
+                    blocks.push(RawBlock {
+                        id: format!(
+                            "sheet-{}-row-{}-column-{}",
+                            sheet_index + 1,
+                            source_row,
+                            start_column as usize + column_offset + 1
+                        ),
+                        value: raw_xlsx_value(cell),
+                        location: SourceLocation {
+                            row: Some(source_row),
+                            column: Some(start_column as usize + column_offset + 1),
+                            sheet: Some(sheet_name.clone()),
+                            ..SourceLocation::default()
+                        },
+                    });
+                }
+                rows.push(ExtractedRow {
+                    source_row,
+                    block_indices: (block_start..blocks.len()).collect(),
+                    blank,
+                    byte_span: None,
+                    line_start: None,
+                    line_end: None,
                 });
             }
         }
+        manifest.push(ExtractedSheet {
+            original_index: sheet_index + 1,
+            name: Some(sheet_name),
+            rows,
+            unsupported_metadata: merged_regions
+                .into_iter()
+                .map(|region| UnsupportedMetadata::MergedRegion {
+                    start_row: region.start.0 as usize + 1,
+                    start_column: region.start.1 as usize + 1,
+                    end_row: region.end.0 as usize + 1,
+                    end_column: region.end.1 as usize + 1,
+                })
+                .collect(),
+        });
     }
-
-    Ok(RawDocument::new(
-        "xlsx-document",
-        SourceMetadata {
-            source_type: SourceType::Xlsx,
-            file_name: file_name.map(str::to_owned),
-            mime_type: Some(
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".to_owned(),
-            ),
-            size_bytes: Some(size_bytes),
-            delimiter: None,
-        },
-        blocks,
-    ))
+    Ok(ExtractedTable {
+        document: RawDocument::new(
+            "xlsx-document",
+            SourceMetadata {
+                source_type: SourceType::Xlsx,
+                file_name: file_name.map(str::to_owned),
+                mime_type: Some(
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".to_owned(),
+                ),
+                size_bytes: Some(size_bytes),
+                delimiter: None,
+            },
+            blocks,
+        ),
+        manifest,
+    })
 }
 
 fn xlsx_error(path: Option<&str>, sheet: Option<&str>, error: XlsxError) -> ParserError {

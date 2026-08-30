@@ -12,6 +12,9 @@ mod email_boundaries;
 #[path = "parse/schema_compilation.rs"]
 mod schema_compilation;
 
+#[path = "parse/table_selection.rs"]
+mod table_selection;
+
 #[path = "parse/text_names.rs"]
 mod text_names;
 

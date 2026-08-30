@@ -288,6 +288,14 @@ cargo build --workspace
 - Exit-code assertions.
 - stdout/stderr assertions.
 
+The #16 table-selection regressions cover default byte parity, headerless and
+preamble layouts, explicit/blank/typed/duplicate headers, bounded-search
+match/no-match/tie behavior, inclusive include/exclude precedence and conflicts,
+quote-aware CRLF/multiline blank CSV rows, Unicode selectors, empty and
+unselected XLSX sheets, original/request order, typed/date/formula-cache values,
+uninterpreted merged metadata, exact block references/coverage, every typed
+selection reason, safe/detailed reports, and usage/processing exits.
+
 The nested [argument regression module](../crates/parser-cli/tests/inspect/arguments.rs)
 executes the real binary for all nine CLI forms, root/subcommand help, exact
 arity, duplicate/malformed/misplaced flags, native OS arguments, leading-only

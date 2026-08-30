@@ -1,4 +1,7 @@
-use parser_core::DiagnosticsMode;
+use parser_core::{
+    DiagnosticsMode, HeaderSelection, InclusiveRowRange, SheetSelection, SheetSelector,
+    TableSelectionOptions,
+};
 use parser_formats::{EmptyFilePolicy, FileFormat, TxtOptions};
 use std::{
     ffi::OsString,
@@ -21,7 +24,7 @@ pub enum Command {
     ParsePath {
         path: PathBuf,
         schema: PathBuf,
-        options: TxtOptions,
+        options: ParsePathOptions,
     },
     ParseStdin {
         schema: PathBuf,
@@ -32,6 +35,11 @@ pub enum Command {
     },
     SchemaStdin,
     SchemaText(OsString),
+}
+
+pub struct ParsePathOptions {
+    pub txt: TxtOptions,
+    pub table: Option<TableSelectionOptions>,
 }
 
 /// Parse the entire invocation before any I/O. Values are never scanned for flags.
@@ -68,7 +76,8 @@ pub fn parse(arguments: Vec<OsString>) -> Result<Invocation, ()> {
         }
         [command, input, flag, schema, tail @ ..] if command == "parse" && flag == "--schema" => {
             let schema = path_argument(schema)?;
-            let (path, options) = file_options(input, tail)?;
+            let path = path_argument(input)?;
+            let options = parse_path_options(&path, tail)?;
             Command::ParsePath {
                 path,
                 schema,
@@ -105,6 +114,135 @@ pub fn parse(arguments: Vec<OsString>) -> Result<Invocation, ()> {
         diagnostics,
         command,
     })
+}
+
+fn parse_path_options(path: &Path, tail: &[OsString]) -> Result<ParsePathOptions, ()> {
+    let mut txt = TxtOptions::default();
+    let mut table = TableSelectionOptions::default();
+    let mut has_max_bytes = false;
+    let mut has_empty = false;
+    let mut has_header = false;
+    let mut has_include = false;
+    let mut has_exclude = false;
+    let mut has_table = false;
+    let mut selectors = Vec::new();
+    let mut index = 0;
+    while index < tail.len() {
+        let flag = tail[index].to_str().ok_or(())?;
+        let value = tail.get(index + 1).ok_or(())?;
+        match flag {
+            "--max-bytes" if !has_max_bytes => {
+                let value = ascii_usize(value, true)?;
+                txt.limits.max_bytes = value;
+                has_max_bytes = true;
+            }
+            "--empty" if !has_empty => {
+                txt.empty_policy = match value.to_str() {
+                    Some("accept") => EmptyFilePolicy::Accept,
+                    Some("reject") => EmptyFilePolicy::Reject,
+                    _ => return Err(()),
+                };
+                has_empty = true;
+            }
+            "--header" if !has_header => {
+                table.header = parse_header(value)?;
+                has_header = true;
+                has_table = true;
+            }
+            "--include-rows" if !has_include => {
+                table.rows.include = parse_row_ranges(value)?;
+                has_include = true;
+                has_table = true;
+            }
+            "--exclude-rows" if !has_exclude => {
+                table.rows.exclude = parse_row_ranges(value)?;
+                has_exclude = true;
+                has_table = true;
+            }
+            "--sheet-name" => {
+                selectors.push(SheetSelector::Name(value.to_str().ok_or(())?.to_owned()));
+                has_table = true;
+            }
+            "--sheet-index" => {
+                selectors.push(SheetSelector::Index(ascii_usize(value, false)?));
+                has_table = true;
+            }
+            _ => return Err(()),
+        }
+        index += 2;
+    }
+    if !selectors.is_empty() {
+        table.sheets = SheetSelection::Selected(selectors);
+    }
+    match file_format(path) {
+        Some(FileFormat::Txt) if has_table => return Err(()),
+        Some(FileFormat::Csv) if !matches!(table.sheets, SheetSelection::All) => return Err(()),
+        Some(FileFormat::Csv | FileFormat::Xlsx) if has_max_bytes || has_empty => return Err(()),
+        _ => {}
+    }
+    Ok(ParsePathOptions {
+        txt,
+        table: has_table.then_some(table),
+    })
+}
+
+fn ascii_usize(value: &std::ffi::OsStr, allow_zero: bool) -> Result<usize, ()> {
+    let value = value.to_str().ok_or(())?;
+    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(());
+    }
+    let parsed = value.parse().map_err(|_| ())?;
+    if !allow_zero && parsed == 0 {
+        return Err(());
+    }
+    Ok(parsed)
+}
+
+fn parse_header(value: &std::ffi::OsStr) -> Result<HeaderSelection, ()> {
+    let value = value.to_str().ok_or(())?;
+    match value {
+        "auto" => Ok(HeaderSelection::Automatic),
+        "none" => Ok(HeaderSelection::None),
+        _ => {
+            let (kind, number) = value.split_once(':').ok_or(())?;
+            let number = ascii_usize(std::ffi::OsStr::new(number), false)?;
+            match kind {
+                "row" => Ok(HeaderSelection::Row(number)),
+                "search" => Ok(HeaderSelection::SchemaSearch { max_rows: number }),
+                _ => Err(()),
+            }
+        }
+    }
+}
+
+fn parse_row_ranges(value: &std::ffi::OsStr) -> Result<Vec<InclusiveRowRange>, ()> {
+    let value = value.to_str().ok_or(())?;
+    if value.is_empty() {
+        return Err(());
+    }
+    value
+        .split(',')
+        .map(|part| {
+            if part.is_empty() {
+                return Err(());
+            }
+            match part.split_once('-') {
+                Some((start, end))
+                    if !start.is_empty() && !end.is_empty() && !end.contains('-') =>
+                {
+                    Ok(InclusiveRowRange::new(
+                        ascii_usize(std::ffi::OsStr::new(start), false)?,
+                        ascii_usize(std::ffi::OsStr::new(end), false)?,
+                    ))
+                }
+                None => {
+                    let row = ascii_usize(std::ffi::OsStr::new(part), false)?;
+                    Ok(InclusiveRowRange::new(row, row))
+                }
+                _ => Err(()),
+            }
+        })
+        .collect()
 }
 
 fn is_help(value: &std::ffi::OsStr) -> bool {
@@ -171,7 +309,7 @@ pub const HELP: &str = "usage: parser-cli [--diagnostics] <command>
   inspect <path> [TXT_OPTIONS]
   inspect --stdin
   inspect --text <content>
-  parse <path> --schema <schema-path> [TXT_OPTIONS]
+  parse <path> --schema <schema-path> [PATH_OPTIONS]
   parse --stdin --schema <schema-path>
   schema validate <path>
   schema validate --stdin
@@ -184,6 +322,12 @@ TXT_OPTIONS (TXT file input only, trailing, either order, each at most once):
   --empty accept|reject Zero-byte policy; default accept. Whitespace is nonempty.
 TXT line limit remains 65536 bytes. Overrides never affect schema files, stdin,
 inline text, CSV or XLSX. CSV/XLSX readers do not have these byte limits.
+TABLE_OPTIONS (parse path only; CSV/XLSX, sheet selectors XLSX only):
+  --header auto|none|row:N|search:N
+  --include-rows N[,N-M...]   --exclude-rows N[,N-M...]
+  --sheet-name VALUE          --sheet-index N (repeatable, mixed order retained)
+Rows and sheet indexes are one-based. Header/row flags apply independently to
+every selected sheet. Selection failures are processing errors.
 Use ./-name or an absolute path for names beginning '-'; no -- terminator.
 --diagnostics is allowed only once, before the command; it may expose private context.
 -h/--help alone works at root, inspect, parse, schema and schema validate.

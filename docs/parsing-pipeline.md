@@ -133,7 +133,14 @@ assign residual hypotheses. Their detection is absent from the header heuristic.
 See [contextual text/name contracts](data-contracts.md#contextual-text-and-possible-person-names)
 for literal boundaries, ambiguity, typed-cell guards and fixed scores.
 
-For tabular documents, `group_document_rows` groups blocks carrying row provenance into per-sheet rows. Blocks without row metadata are excluded from grouping with a warning; their raw values remain only in the input document. `detect_table_headers` requires at least two rows and at least two non-empty text cells in the first row without strongly typed values. Rejections carry `header_not_detected_*` codes, but an all-text data row can still be mistaken for a header. `parse_document_rows_with_assignment` composes grouping, header detection, per-row detection with one-based source columns, and assignment that records `header_label_match`. Explicit header/selection control is planned in [#16](https://github.com/2001J/fuzzy-parser/issues/16).
+For tabular documents, `group_document_rows` groups blocks carrying row provenance into per-sheet rows. Blocks without row metadata are excluded from grouping with a warning; their raw values remain only in the input document. `detect_table_headers` requires at least two rows and at least two non-empty text cells in the first row without strongly typed values. Rejections carry `header_not_detected_*` codes, but an all-text data row can still be mistaken for a header. `parse_document_rows_with_assignment` keeps this legacy behavior.
+
+The opt-in #16 path consumes the formats-owned `ExtractedTable` companion and
+core-owned `TableSelectionOptions`. It selects sheets without reindexing the
+document, applies one header/row policy independently per selected sheet, parses
+only post-header included rows, and constructs table evidence for empty/blank,
+preamble, header, excluded and unselected rows. Bounded schema search chooses
+only a unique positive best header and retains all rows on a tie or no match.
 
 `parse_text_with_assignment` provides the deterministic composition point for a text record: it runs the built-in detectors, applies caller-defined enum definitions, and returns both the complete candidate evidence and the assignment result. Callers can still invoke each stage independently when they need custom ordering or format-specific provenance.
 

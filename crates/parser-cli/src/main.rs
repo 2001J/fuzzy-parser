@@ -1,7 +1,8 @@
 use parser_core::{DiagnosticsMode, Failure, FailureKind, OutputTarget};
 use parser_formats::{
-    CsvOptions, FileFormat, InputSource, TextLimits, TxtOptions, read_csv_with_options, read_input,
-    read_txt_with_options, read_xlsx,
+    CsvOptions, ExtractedTable, FileFormat, InputSource, TextLimits, TxtOptions,
+    parse_extracted_table_with_plan, read_csv_table_with_options, read_csv_with_options,
+    read_input, read_txt_with_options, read_xlsx, read_xlsx_table,
 };
 use std::{
     env, fs,
@@ -119,14 +120,42 @@ fn load_schema_file(path: PathBuf) -> Result<parser_schema::TargetSchema, Failur
 fn parse_path(
     input_path: PathBuf,
     schema_path: PathBuf,
-    options: TxtOptions,
+    options: arguments::ParsePathOptions,
     diagnostics: DiagnosticsMode,
 ) -> i32 {
     let schema = match load_schema_file(schema_path) {
         Ok(schema) => schema,
         Err(error) => return report_failure(error, diagnostics),
     };
-    parse_with_schema(read_document(&input_path, options), schema, diagnostics)
+    if let Some(table_options) = options.table {
+        let table = match read_table(&input_path) {
+            Ok(table) => table,
+            Err(error) => return report_failure(Failure::from(&error), diagnostics),
+        };
+        let plan = match parser_schema::compile_schema(&schema) {
+            Ok(plan) => plan,
+            Err(error) => return report_failure(error, diagnostics),
+        };
+        match parse_extracted_table_with_plan(&table, &plan, &table_options) {
+            Ok(response) => write_response(&response, diagnostics),
+            Err(error) => report_failure(error, diagnostics),
+        }
+    } else {
+        parse_with_schema(read_document(&input_path, options.txt), schema, diagnostics)
+    }
+}
+
+fn read_table(path: &std::path::Path) -> Result<ExtractedTable, parser_core::ParserError> {
+    match arguments::file_format(path) {
+        Some(FileFormat::Csv) => read_csv_table_with_options(path, CsvOptions::default()),
+        Some(FileFormat::Xlsx) => read_xlsx_table(path),
+        _ => Err(parser_core::ParserError::UnsupportedInput {
+            source_type: path
+                .extension()
+                .map(|value| value.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+        }),
+    }
 }
 
 fn parse_stdin(schema_path: PathBuf, diagnostics: DiagnosticsMode) -> i32 {
@@ -157,7 +186,11 @@ fn parse_with_schema(
         Err(error) => return report_failure(error, diagnostics),
     };
     let response = parser_core::parse_document_with_plan(&document, &spec);
-    match serde_json::to_string_pretty(&response) {
+    write_response(&response, diagnostics)
+}
+
+fn write_response(response: &parser_core::ParseResponse, diagnostics: DiagnosticsMode) -> i32 {
+    match serde_json::to_string_pretty(response) {
         Ok(json) => {
             println!("{json}");
             0

@@ -47,6 +47,7 @@ Owns generic parsing behavior and shared runtime models:
 - Generic field candidates.
 - Candidate assignment.
 - Parse orchestration and the runtime-only `ParsePlan`.
+- Runtime-only table-selection options, validation and evidence construction.
 - Confidence components and explanations.
 - Warnings, rejected fragments, and parse statistics.
 - Shared typed failures, versioned error payloads and safe message rendering.
@@ -62,6 +63,8 @@ Owns source-specific extraction:
 - TXT.
 - CSV and delimiter detection.
 - XLSX workbook and cell extraction.
+- Non-wire table manifests for original sheet/row inventory and unsupported
+  source metadata; these accompany rather than replace canonical documents.
 - Future PDF-text or OCR adapters.
 
 The output of every adapter is a canonical document. Adapters preserve source metadata and must not overwrite raw values with normalized values.

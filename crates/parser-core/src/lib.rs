@@ -6,6 +6,8 @@ pub use errors::*;
 mod plan;
 use plan::{DetectionRules, EnumDefinitions};
 pub use plan::{ParsePlan, PlanField, parse_document_with_plan};
+mod table_selection;
+pub use table_selection::*;
 mod text_fields;
 
 pub const CONTRACT_VERSION: &str = "0.1";
@@ -834,6 +836,9 @@ pub struct SourceEvidence {
     /// Not an archive of original TXT line separators or CSV/XLSX file bytes.
     pub document: RawDocument,
     pub blocks: Vec<SourceBlockCoverage>,
+    /// Present only for the opt-in table-selection path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub table: Option<TableSourceEvidence>,
 }
 
 impl SourceEvidence {
@@ -903,6 +908,7 @@ impl SourceEvidence {
         Self {
             document: document.clone(),
             blocks,
+            table: None,
         }
     }
 }

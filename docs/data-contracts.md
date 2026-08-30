@@ -123,6 +123,7 @@ metadata beyond `code` and `error_contract_version`; private context is absent:
 | `schema_enum_definition_ambiguous`, `schema_enum_definition_unsupported` | None; executable enum definition failures |
 | `schema_serialization_error` | Typed `cause`: `{"kind":"json"}` or `{"kind":"validation","reason":...}` |
 | `output_serialization_error` (new) | Fixed `target`: `parse_result` or `raw_document` |
+| `table_selection_error` (#16) | Typed `reason`; fixed messages, no sheet name or input value |
 | `not_regular_file` (#5) | None |
 | `empty_input` (#5) | None |
 | `file_too_large` (#5) | Exact `u64` metadata byte counts: `limit`, `actual` |
@@ -133,6 +134,12 @@ Validation reasons are `empty_schema_version`, `unsupported_schema_version`,
 `invalid_integer_range`, and `invalid_length_range`. Numeric metadata is not
 new validation policy. Bounded reads can report the observed `limit + 1` bytes
 rather than the complete size of an unread remainder.
+
+Table-selection reasons are `unsupported_source`, `empty_sheet_selection`,
+`duplicate_sheet_selection`, `missing_sheet`, `sheet_index_out_of_range`,
+`invalid_row_range`, `overlapping_row_range`, `row_not_found`,
+`header_not_found`, and `header_conflict`. These are processing failures and
+the CLI exits `1`; malformed or inapplicable argv remains usage exit `2`.
 
 `IoErrorKind` now has the Rust variant `InvalidData` / JSON `invalid_data`.
 Conversion from `std::io::ErrorKind::InvalidData` deliberately refines its old
@@ -146,8 +153,9 @@ Schema UTF-8 failures retain `schema_io_error`, not `schema_parse_error`.
 through `error.report(DiagnosticsMode::Detailed)`. The CLI equivalent is a single
 leading `--diagnostics` before the command (see [usage](integration-strategy.md#current-cli-boundary)).
 Only this opt-in can add `error.diagnostics`. It contains available, typed,
-allowlisted context: `path`, `source`, `field`, `value`, `alias`, `version`, or
-`source_type`. Absent context stays absent. An empty byte-XLSX error path does not
+allowlisted context: `path`, `source`, `field`, `value`, `alias`, `version`,
+`source_type`, or `sheet`. Absent context stays absent. Sheet names are available
+only for explicitly requested table-selection diagnostics. An empty byte-XLSX error path does not
 become a fabricated path or filename. Duplicate field labels use `value` because
 the existing cause does not distinguish a field name from an alias.
 
@@ -180,7 +188,8 @@ source-backed results also remain sensitive; this is not success-output redactio
   unknown failure variants and unknown diagnostic keys. Unknown outer payload
   keys are ignored, not retained; this is not arbitrary-JSON round-trip support.
 - Update strict JSON consumers for the version field, typed schema metadata and
-  additive output-serialization code. Usage failures remain plain stderr/exit
+  additive output-serialization and table-selection codes, plus the additive
+  `sheet` diagnostic key. Usage failures remain plain stderr/exit
   `2`, including non-UTF-8 `inspect --text` OS arguments. No command-routing or
   extra-argument cleanup is included.
 
@@ -238,7 +247,8 @@ fixes the extended envelope's shape. `inspect` and canonical raw JSON are unchan
 
 Rust function signatures remain unchanged, but manual struct literals need the
 new optional fields: `FieldCandidate.source_reference`, `TextParseResult.review`,
-`ParseResponse.source_evidence`, and `TableCell.source_block_index`. Use `None`
+`ParseResponse.source_evidence`, `TableCell.source_block_index`, and
+`SourceEvidence.table`. Use `None`
 when no evidence exists; do not invent references. Parsing entry points populate
 these fields. This is JSON compatibility, not a claim that old Rust struct
 literals compile unchanged.
@@ -268,6 +278,14 @@ pub fn read_xlsx(path: impl AsRef<Path>) -> Result<RawDocument, ParserError>;
 pub fn read_xlsx_bytes(file_name: Option<&str>, bytes: &[u8]) -> Result<RawDocument, ParserError>;
 ```
 
+#16 adds companion path/byte readers returning `ExtractedTable`. The existing
+readers above and their serialized `RawDocument` output are unchanged.
+`ExtractedTable` is a Rust-only, non-serialized value containing the full
+document plus original sheet order, empty sheets, source-row inventory, stable
+document block indices and narrowly typed unsupported metadata. CSV has matching
+`read_csv_table*` companion readers; blank logical rows carry byte and physical
+line spans without fabricated cells.
+
 The byte API borrows an XLSX archive and reads it in memory. `file_name` is opaque
 caller metadata, never a path to open; it is preserved verbatim, including
 Unicode, or remains `None`/JSON `null`. It does not create files, access networks
@@ -278,8 +296,10 @@ a byte vector. Both use one cell-extraction/mapping path.
 With equivalent filename metadata, both return identical canonical documents
 and JSON: `xlsx` source type, workbook byte size, XLSX MIME type, no delimiter,
 ordered block IDs, stored typed values, blank cells, worksheet coordinates and
-warnings. Cached formula values are read without recalculation. This does not
-add original-file byte offsets, displayed formatting or new table-selection rules.
+warnings. Cached formula values are read without recalculation. The legacy document
+readers do not add original-file byte offsets, displayed formatting or table-selection
+behavior; table selection is available only through the additive companion readers and
+opt-in parse API described below.
 
 Missing files and invalid file reads preserve the existing in-process error
 categories, supplied paths and cause data. Invalid byte input returns `InvalidXlsx`
@@ -342,8 +362,10 @@ globally unique import identifier.
 TXT lines and table row/column coordinates are one-based. TXT block byte ranges
 are zero-based, end-exclusive and exclude line terminators; blank lines are
 blocks, a final terminator adds no extra block, and an empty file has zero blocks.
-CSV coordinates describe parsed records/cells, not original file byte offsets;
-CSV blank physical lines are not represented. XLSX uses worksheet coordinates
+Legacy CSV readers use dense parsed-record coordinates and do not represent
+blank physical lines. The opt-in CSV companion uses original logical-row
+coordinates, inventories blank rows with byte/line evidence, and creates no
+sentinel block. XLSX uses worksheet coordinates
 within extracted ranges, with stored typed values, not a complete display/style
 model. Canonical extracted values do not preserve every byte of the original
 CSV/XLSX file. Callers needing exact original files must retain them safely.
@@ -718,6 +740,49 @@ pub enum HeaderExtraction {
 assignment behavior. The lower-level table result does not embed its input;
 the document-level response below retains header, parsed and excluded blocks.
 
+### Explicit table selection (#16)
+
+The core-owned, Rust-only invocation model is additive:
+
+```rust
+pub struct TableSelectionOptions {
+    pub header: HeaderSelection,
+    pub rows: RowSelection,
+    pub sheets: SheetSelection,
+}
+
+pub enum HeaderSelection {
+    Automatic,
+    None,
+    Row(usize),
+    SchemaSearch { max_rows: usize },
+}
+
+pub struct InclusiveRowRange { pub start: usize, pub end: usize }
+pub enum SheetSelection { All, Selected(Vec<SheetSelector>) }
+pub enum SheetSelector { Name(String), Index(usize) }
+```
+
+Rows and indexes are one-based; ranges are inclusive. One header and row policy
+is applied independently to each selected sheet. `Automatic` is the exact legacy
+heuristic. `None` retains every row. `Row(N)` accepts blank, duplicate and typed
+cells verbatim as header labels and treats earlier rows as preamble.
+`SchemaSearch` examines at most the first `max_rows`, scores distinct schema
+field-name/alias matches, and selects only one uniquely best positive row. A tie
+or no match keeps all rows and emits `header_search_ambiguous` or
+`header_search_no_match`; it never falls back by schema order.
+
+Empty include ranges mean all post-header rows. Exclusion wins over inclusion;
+invalid or internally overlapping ranges fail. An explicit header row appearing
+in row selection is a `header_conflict`. `All` retains the legacy lexicographic
+sheet output order. Explicit exact-name/original-index selectors retain request
+order and reject missing, out-of-range or duplicate targets, including a mixed
+name/index duplicate.
+
+`parser-formats::parse_extracted_table_with_plan` consumes `ExtractedTable`, a
+compiled `ParsePlan`, and these options, returning `Result<ParseResponse,
+Failure>`. Existing parse entry points remain infallible and unchanged.
+
 ## Versioned parse result
 
 The document-level entry point returns one versioned envelope that covers both tabular and unstructured inputs.
@@ -760,6 +825,7 @@ grouping warnings. Record assignment warnings remain under
 pub struct SourceEvidence {
     pub document: RawDocument,
     pub blocks: Vec<SourceBlockCoverage>,
+    pub table: Option<TableSourceEvidence>,
 }
 
 pub struct SourceBlockCoverage {
@@ -786,8 +852,17 @@ There is exactly one coverage entry per block in original order:
 
 Header/excluded entries have no unused spans because their role accounts for
 the entire value. There is no new business rejection policy or hidden deletion.
-Every canonical value is retained; adapters still omit details such as CSV
-blank physical lines, original quoting and XLSX styles outside their existing
+`SourceEvidence.table` is omitted on every legacy path and present only for the
+opt-in #16 path. It records every manifest sheet in original order, optional
+selection order, empty sheets, every row and its `parsed`, `header`, `preamble`,
+`excluded`, or `unselected` role, blank status, block indices, available CSV
+byte/line spans, reasons and unsupported merged-region coordinates. Per-block
+coverage remains authoritative for actual blocks; the manifest never invents
+cells. Strict JSON readers must accept this optional key, and Rust struct
+literals must initialize it. The contract remains `0.1`.
+
+Every canonical value is retained; adapters still omit details such as original
+CSV quoting and XLSX styles outside their existing
 extraction contract. Callers needing original files must retain them separately.
 Output now includes potentially sensitive raw input: do not log it by default
 or expose it to readers without permission to inspect the source. Redacted
