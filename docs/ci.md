@@ -61,6 +61,20 @@ The advisory job covers Rust dependencies, not operating-system image packages.
 From the repository root with Rust 1.96.0 and Node 22 available:
 
 ```bash
+tools/ci/verify-local.sh quick
+tools/ci/verify-local.sh full
+```
+
+`quick` runs the locked Rust formatting, lint, test and workspace-build checks.
+`full` adds the reusable-library WASM compilation check, release CLI, Node guard
+tests and native invocation/parity evaluation. The script never installs a
+toolchain or target, runs Docker, mutates Git, publishes or deploys. Set
+`FP_VERIFY_EXPECTED_RUST` only when deliberately verifying with a different
+already-active Rust version; the script does not select or download one.
+
+The equivalent individual commands are:
+
+```bash
 cargo +1.96.0 fmt --check
 cargo +1.96.0 clippy --workspace --all-targets --locked -- -D warnings
 cargo +1.96.0 test --workspace --locked
