@@ -140,6 +140,25 @@ pub enum ResourceLimitKind {
     ResponseBytes,
 }
 
+impl fmt::Display for ResourceLimitKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::CsvBytes => "csv_bytes",
+            Self::CsvRows => "csv_rows",
+            Self::CsvCells => "csv_cells",
+            Self::XlsxBytes => "xlsx_bytes",
+            Self::XlsxSheets => "xlsx_sheets",
+            Self::XlsxCells => "xlsx_cells",
+            Self::SchemaBytes => "schema_bytes",
+            Self::SchemaFields => "schema_fields",
+            Self::SchemaAliases => "schema_aliases",
+            Self::SchemaNesting => "schema_nesting",
+            Self::Records => "records",
+            Self::ResponseBytes => "response_bytes",
+        })
+    }
+}
+
 /// Safe metadata only. User strings belong in explicitly requested diagnostics.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "code")]
@@ -285,9 +304,10 @@ impl fmt::Display for FailureKind {
                 resource,
                 limit,
                 actual,
-            } => {
-                write!(f, "{resource:?} exceeds the {limit}-unit limit ({actual})")
-            }
+            } => write!(
+                f,
+                "resource limit {resource} exceeded: limit {limit}, actual {actual}"
+            ),
         }
     }
 }

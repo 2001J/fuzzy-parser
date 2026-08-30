@@ -55,13 +55,17 @@ cover strict TXT extensions, directory errors, metadata oversize, and empty
 rejection. The original #5 change rejected the CLI's TXT fallback through its
 existing library call. The subsequent [CLI contract](integration-strategy.md#cli-grammar-and-validation-options)
 now routes extensions explicitly and exposes TXT-only trailing byte/empty
-overrides. It calls `read_txt_with_options` directly; CSV/XLSX readers remain
-unchanged and wider same-handle validation remains #17.
+overrides. It calls `read_txt_with_options` directly. CSV/XLSX path readers now
+perform their own regular-file check and bounded read on the opened handle under
+the [resource-limit contract](data-contracts.md#resource-limits--implemented);
+TXT CLI overrides do not configure those limits.
 
 Extensions are eligibility hints, not MIME verification or content sniffing.
 CSV/XLSX eligibility in this helper does not integrate their current readers,
-make zero-byte workbooks valid, or bound expanded workbook contents. Row, cell,
-schema and output limits remain #17. No malware scanning is performed.
+make zero-byte workbooks valid, or bound expanded workbook contents. Implemented
+row, cell, schema and output limits have the documented post-materialization
+boundaries and are not total process-memory guarantees. No malware scanning is
+performed.
 
 Symlinks are followed, including symlinks outside a caller's directory. The
 supplied path's extension/name is used, and the target must be regular. The

@@ -111,6 +111,25 @@ with a Unicode sheet name, Unicode/whitespace cell content and a formula `1+1`
 whose cached value is deliberately `42`; the reader must preserve `42` rather
 than evaluate the formula. No new ZIP-writing test dependency is needed.
 
+The nested `resource_limits` modules exercise exact and one-over boundaries
+without adding Cargo targets. Core tests cover every fixed resource wire name,
+logical text/table record counts and compact serialized response bytes. Schema
+tests cover bytes, fields, combined field/enum aliases, object and positional
+encodings, string-safe nesting and structural/execution parity. Formats tests
+cover CSV file/byte/document/table paths, blank logical rows, XLSX
+file/byte/document/table paths, empty sheets, extracted cells and table-selection
+record/response limits. CLI unit and subprocess tests cover bounded pretty JSON
+including the trailing newline, schema file/stdin reads, processing exit `1`,
+safe stderr and schema-before-input failure precedence.
+
+These regressions deliberately test the contract boundaries without claiming
+preallocation safety. CSV delimiter candidates exist before row/cell checks,
+calamine worksheet ranges exist before XLSX cell checks, schema values exist
+before field/alias checks, and parse responses exist before record/response-byte
+checks. Tests assert the typed failure and observed count at those boundaries;
+they do not claim ZIP expansion, dependency allocation or total process memory is
+bounded by the corresponding configured value.
+
 Current fixtures include the TXT inventory above, `csv/comma.csv`, `csv/messy.csv`,
 `xlsx/sample.xlsx`, and schemas in `schema/`. The tree below illustrates desired
 coverage and includes files not yet present; it is not acceptance evidence:

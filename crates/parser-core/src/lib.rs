@@ -6,7 +6,7 @@ pub use errors::*;
 mod plan;
 use plan::{DetectionRules, EnumDefinitions};
 pub use plan::{
-    ParseLimits, ParsePlan, PlanField, parse_document_with_plan,
+    ParseLimits, ParsePlan, PlanField, enforce_parse_response_limits, parse_document_with_plan,
     parse_document_with_plan_with_limits,
 };
 mod table_selection;
