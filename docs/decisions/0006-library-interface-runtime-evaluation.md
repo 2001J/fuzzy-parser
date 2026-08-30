@@ -128,7 +128,7 @@ and output budgets before #18 advertises supported sizes.
 
 | Gate | Owner and acceptance |
 | --- | --- |
-| Generic engine prerequisites | #2/#12 safe errors and shared schema compiler are delivered; #17 enforced resource limits remain open. #13/#14/#16 remain required for final capability parity; #15 is delivered |
+| Generic engine prerequisites | #2/#12 safe errors and shared schema compiler plus #13/#14/#15/#16 capability slices are delivered; #17 enforced resource limits remain open |
 | One backend selected | Completed in #11: Node WASM with Worker isolation after independently reviewed CJS/ESM runtime parity and source/error checks |
 | Package installation | #18: test an installable local package with QualEvents absent and no consumer build-time Rust toolchain; verify artifact/contract identity and missing/wrong artifact failures. For CLI, prove OS/architecture/ABI and executable mode. For WASM, prove emitted module/glue loading and byte/source parity. Implement only the selected branch |
 | Runtime lifecycle | #18: true in-call cancellation/deadline policy, bounded memory/output, malformed output/version mismatch, concurrent calls and no input/credential leakage. #11 evidences Worker entry/termination only; it does not claim interruption of a synchronous call |

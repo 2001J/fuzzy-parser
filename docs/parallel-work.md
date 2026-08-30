@@ -1,6 +1,6 @@
 # Parallel work board
 
-Coordinator snapshot: 2026-08-29. This document tracks assigned work and local
+Coordinator snapshot: 2026-08-30. This document tracks assigned work and local
 integration, not automatic live monitoring. GitHub issues retain acceptance
 criteria; [current state](current-state.md) describes implemented capabilities
 and [the roadmap](roadmap.md) owns development order.
@@ -16,11 +16,11 @@ the applications. See [integration strategy](integration-strategy.md).
 
 | Owner | Assignment | Current state | Review and integration |
 | --- | --- | --- | --- |
-| Existing parser worker | Independent #6 CLI review; [#11 JS/WASM preparation](https://github.com/2001J/fuzzy-parser/issues/11) | Review and preparation complete; stopped, no experiment dispatched | Medium reasoning; original checkout remains coordinator-owned |
-| Schema worker (previously email) | [#13 Caller-directed text and name fields](https://github.com/2001J/fuzzy-parser/issues/13) | Complete; independently reviewed, integrated and closed | High reasoning for source ownership and abstention |
-| Validation worker (previously TXT tests) | [#7 TXT subprocess matrix](https://github.com/2001J/fuzzy-parser/issues/7) | Complete; independently reviewed, integrated and closed | Medium reasoning; no production behavior changed |
+| Runtime worker | [#11 Node WASM boundary evaluation](https://github.com/2001J/fuzzy-parser/issues/11) | Complete; corrected, independently reviewed, integrated and closed | Selected one Node WASM package with Worker isolation; #18 owns production packaging |
+| Text pipeline worker | [#14 Reversible text composition](https://github.com/2001J/fuzzy-parser/issues/14) | Complete; independently reviewed, locally integrated and closed | High reasoning for source mapping and boundary abstention |
+| Table worker | [#16 Explicit table selection and provenance](https://github.com/2001J/fuzzy-parser/issues/16) | Complete; independently reviewed, locally integrated and closed | Medium/high reasoning for selectors, typed values and source manifests |
 | QualEvents preparation / privacy reviewer | Host compatibility report and #2 message-invariant re-review | Complete; stopped | Read-only host work; no integration or runtime approval claimed |
-| Coordinator | Assignments, independent review, integration and reporting | #2/#15/#4/#5/#12/#6/#7/#13 locally integrated and closed | Sole integration owner; new dispatches use the final reviewed combined baseline |
+| Coordinator | Independent review, integration and reporting | #2/#4–#7/#10–#16/#21/#22 locally integrated; no new slice assigned | Sole integration owner; paused for user direction after final verification |
 
 An assigned task must not silently expand into another ticket.
 
@@ -34,18 +34,21 @@ uniformly or add idle workers merely to increase headcount.
 
 ### Verified task locations
 
-- **Align Fuzzy Parser roadmap for QualEvents** (#2 and reviews complete; #11 preparation only)
+- **Align Fuzzy Parser roadmap for QualEvents** (#2 and reviews complete; #11/#14/#16 integration owner)
   - Task: `01a04432-a13b-7471-a1f2-3adcd2e634c7`.
   - Branch: `codex/align-fuzzy-parser-roadmap-for`.
   - Folder: `/Users/josephkoyi/Desktop/bonkers/fuzzy-parser`.
-- **Fix FP-15 email boundaries** (#15/#12/#13 complete)
+- **Text and schema worktree** (#15/#12/#13/#14 complete)
   - Task: `01a0478b-75ed-73f0-b3eb-d5a3d3b52cb4`.
-  - Current branch: `codex/fp-13-text-name-fields`; completed branches retained: `codex/fp-12-schema-compilation`, `codex/fp-15-email-boundaries`.
+  - Current branch: `codex/fp-14-compose-text-pipeline`; completed branches retained: `codex/fp-13-text-name-fields`, `codex/fp-12-schema-compilation`, `codex/fp-15-email-boundaries`.
   - Folder: `/Users/josephkoyi/.codex/worktrees/c5ad/fuzzy-parser`.
-- **Complete FP-4 TXT regression fixtures** (#4/#5/#6/#7 complete)
+- **Format/runtime worktree** (#4/#5/#6/#7/#11 complete)
   - Task: `01a0478b-7750-7203-a772-356b98192ad9`.
-  - Current branch: `codex/fp-7-txt-subprocess-matrix`; completed branches retained: `codex/fp-6-cli-contract`, `codex/fp-5-file-validation`, `codex/fp-4-txt-fixtures`.
+  - Current branch: `codex/fp-11-wasm-runtime-evaluation`; completed branches retained: `codex/fp-7-txt-subprocess-matrix`, `codex/fp-6-cli-contract`, `codex/fp-5-file-validation`, `codex/fp-4-txt-fixtures`.
   - Folder: `/Users/josephkoyi/.codex/worktrees/fb3f/fuzzy-parser`.
+- **FP-16 table-selection worktree** (#16 complete)
+  - Branch: `codex/fp-16-table-selection`.
+  - Folder: `/Users/josephkoyi/.codex/worktrees/2420/fuzzy-parser`.
 - **Prepare QualEvents parser integration** (preparation and privacy re-review complete; read-only)
   - Task: `01a0478b-7dac-7910-a1e1-3b0973c88f5c`.
   - Branch: `codex/qualevents-parser-preparation`.
@@ -66,8 +69,10 @@ startup at its documentation follow-up `d757e28413d91aeb1aa3e75373268199cd29ee8a
 #6 is now committed at `e594794408741c9210d0529e3e41e0e71a2a24da` and integrated
 at `21cc208dc06b6cd594c247cbd2626f69e0e4bf68`. #13 is committed at
 `5ad64ef` and integrated at `31e41dd`; #7 is committed at `166f6e4` and integrated
-at `c1c8845`. The coordinator explicitly reconciled shared #6/#7/#13 tests and
-documentation instead of trusting clean automatic merges.
+at `c1c8845`. #11 is committed at `cfaff1a` and integrated at `894765b`; #16 is
+committed at `82dec74` and integrated at `406fc14`; #14 is committed at `8985434`
+and integrated at `a364839`. The coordinator explicitly reconciled shared tests,
+source paths and documentation instead of trusting clean automatic merges.
 
 ## Branches and working folders
 
@@ -78,8 +83,8 @@ temporary publishing clones.
 
 - Original Fuzzy Parser checkout: `/Users/josephkoyi/Desktop/bonkers/fuzzy-parser`.
 - Current local integration branch: `codex/align-fuzzy-parser-roadmap-for`.
-- Last reviewed combined implementation baseline:
-  `c1c8845`.
+- Current reviewed combined implementation baseline: `a364839` before the final
+  documentation/verification follow-up.
 - The original checkout is clean and coordinator-owned again. Future parser
   implementations use their assigned worktrees; no worker starts another slice
   in this checkout without an explicit assignment.
@@ -105,17 +110,18 @@ credentials, Docker, or machine resources.
   Wider same-handle validation and resource policy remain #17.
 - #13 delivered caller-directed text/name extraction through #12's shared plan.
   Unlabeled residual text remains unresolved evidence, not an inferred identity.
-  New assignments cannot overlap existing assigned evidence. Preserve all old
-  supported profiles; #14 segmentation and #16 table options remain separate.
+  New assignments cannot overlap existing assigned evidence. #14 now composes
+  reversible opt-in text normalization/segmentation, while #16 adds opt-in table
+  selectors and manifests; both preserve the legacy path when not requested.
 - Both preserve #2 privacy, #10 source evidence, #15 email behavior and #12
   schema compilation. #13 does not rewrite #6 CLI argument handling. #7 does
   not inspect #13's draft or expand into parser capability tests.
 - The coordinator reconciles shared test modules and current-state/roadmap
   documentation. A clean Git merge alone does not establish semantic safety.
-- #11's bounded JS/WASM preparation is complete, but no binding, tool download,
-  experiment or production adapter is dispatched by this board. #12 and #22
-  prerequisites are delivered; JS execution, packaging and lifecycle evidence
-  remain open. Do not invent competing schema/runtime interfaces.
+- #11's corrected bounded CJS/ESM WASM experiment is independently reviewed and
+  selects one Node WASM package with Worker isolation. The evaluation binding is
+  not the installable production adapter; #17/#18 retain resource, packaging,
+  lifecycle and framework gates. Do not invent a competing runtime interface.
 - QualEvents preparation may identify caller requirements and migration tests,
   but must not choose a parser backend, introduce domain behavior into Fuzzy
   Parser, create an integration package, or replace working import routes.
@@ -141,8 +147,8 @@ credentials, Docker, or machine resources.
    publication still needs separate authorization.
 
 Completed order: #2, then #15, then #4, then #5, then #12, then #6, then #13,
-then #7, with checks between integrations. Reviewed changes still integrate one
-at a time. Host preparation is a report, not a host code merge.
+then #7, then #11, then #16, then #14, with checks between integrations. Host
+preparation is a report, not a host code merge.
 
 ## Reporting and remaining gates
 
@@ -225,16 +231,32 @@ The Linux test container had no network and mounted only synthetic fixtures
 read-only. No parser evaluation container remains running. These results are
 local verification, not hosted CI, WASM execution, deployment or publication.
 
+The current `a364839` integration adds the independently reviewed #11 runtime
+selection, #16 table selection/provenance and #14 reversible text composition.
+The coordinator resolved the #14/#16 plan and current-state overlaps and added a
+permanent regression proving that combined table selection still emits the
+single ordered `text_pipeline_not_applied` warning. The reusable full local
+profile passed formatting, locked all-target Clippy, all 317 Rust tests across
+the same six Cargo targets, locked workspace build, three-library WASM
+compilation, release CLI build, all 11 Node CI guards and native parity. Native
+parity covers 13 successes, seven expected parser failures, seven controls,
+2,486 source-reference checks and 22 temporary-directory cleanups. The release
+CLI SHA-256 is
+`38ca990dcf658aa6cebb52cb9bf7889bbd648bdc2286510d8c8a50888c0192f0`.
+This combined run did not execute a Linux container, hosted CI, the isolated
+#11 WASM harness, a deployment or publication; those are not implied.
+
 The coordinator reports user-visible outcomes, active tickets, blockers and the
 next milestone. Worker message traffic is not a substitute for that summary.
 Record status and evidence here after meaningful review/integration transitions,
 not after every command.
 
-- #2, #3, #4, #5, #6, #7, #10, #12, #13, #15, #21 and #22 are closed for reviewed delivered work. #8 is superseded,
+- #2, #3, #4, #5, #6, #7, #10, #11, #12, #13, #14, #15, #16, #21 and #22 are closed for reviewed delivered work. #8 is superseded,
   not counted as delivered implementation.
 - [#23 CI](https://github.com/2001J/fuzzy-parser/issues/23) is committed and tested
   locally but remains open for the first authorized GitHub-hosted run.
 - Reviewed parser work remains local only; remote main is still
   `8f878a45d7801ab0ca0a7d10a1b8aca353c7c192`. No feature branch has been pushed.
-- Full engine readiness, runtime selection and actual QualEvents adoption are
-  still open. Parallelism does not relax these gates.
+- Full engine readiness, the selected adapter's #17/#18 limits and packaging,
+  #19 independence conformance and actual QualEvents adoption are still open.
+  Parallelism does not relax these gates.

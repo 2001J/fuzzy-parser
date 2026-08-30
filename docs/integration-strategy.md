@@ -209,14 +209,14 @@ source-backed draft records, warnings and unresolved content. It owns mapping,
 review/correction, export and confirmed persistence; core fixes belong here.
 The interface must also work with unrelated supported profiles and no QualEvents.
 
-## Runtime evaluation — backend decision still open
+## Runtime evaluation — backend selected, adapter gates remain
 
 [ADR 0005](decisions/0005-independent-engine-consumer-validation.md) retains CLI-first but
 supersedes the unconditional process-next sequence in ADR 0004.
 The bounded [#11](https://github.com/2001J/fuzzy-parser/issues/11) evaluation
 retains a successful Node/CLI prototype and a WASM runtime experiment.
 [ADR 0006](decisions/0006-library-interface-runtime-evaluation.md) owns the
-comparison, proposed library boundary and outstanding backend gate. [Dated CLI
+comparison, selected library boundary and remaining adapter gates. [Dated CLI
 evidence](evaluations/2026-08-28-node-cli.md) and [dated WASM evidence](evaluations/2026-08-30-wasm-runtime.md)
 own reproducible
 commands and measured results. No production adapter or Vercel deployment is

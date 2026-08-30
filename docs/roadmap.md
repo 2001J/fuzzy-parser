@@ -22,10 +22,11 @@ independently verified; [data contracts](data-contracts.md) describes the
 canonical source-review extension. The focused fix for
 [#21 — Prevent Unicode label-context slicing from crashing assignment](https://github.com/2001J/fuzzy-parser/issues/21),
 a pre-existing bug found during that review, is also independently verified.
-The bounded [#11](https://github.com/2001J/fuzzy-parser/issues/11) evaluation
-proposes a library caller interface in [ADR 0006](decisions/0006-library-interface-runtime-evaluation.md).
-Node/CLI evidence is independently reviewed; backend selection awaits the
-bounded WASM gate. [#22's generic XLSX byte input](https://github.com/2001J/fuzzy-parser/issues/22)
+The bounded and independently reviewed [#11](https://github.com/2001J/fuzzy-parser/issues/11)
+evaluation selects one Node WASM package with Worker isolation in
+[ADR 0006](decisions/0006-library-interface-runtime-evaluation.md); #18 owns
+the remaining package, limits, lifecycle and framework-integration gates.
+[#22's generic XLSX byte input](https://github.com/2001J/fuzzy-parser/issues/22)
 is implemented and independently verified locally with parity regressions.
 #2's bounded error migration and #12's shared schema compiler are independently
 reviewed, locally integrated and closed, enabling the next text/name and
@@ -50,7 +51,7 @@ selected independently.
 | --- | --- |
 | [#10 Source-complete result and review reasons](https://github.com/2001J/fuzzy-parser/issues/10) | Implemented and independently verified; includes retained raw-model compatibility tests |
 | [#21 Unicode-safe assignment context](https://github.com/2001J/fuzzy-parser/issues/21) | Implemented and independently verified with permanent core/CLI regressions |
-| [#11 Select one reusable runtime boundary](https://github.com/2001J/fuzzy-parser/issues/11) | CLI evidence reviewed; #12/#22 prerequisites complete. JS/WASM comparison prepared, not executed or selected |
+| [#11 Select one reusable runtime boundary](https://github.com/2001J/fuzzy-parser/issues/11) | Independently reviewed CJS/ESM WASM execution and native parity select one Node WASM package with Worker isolation; closed. Packaging/deployment gates remain #18 |
 | [#22 Filesystem-free XLSX byte input](https://github.com/2001J/fuzzy-parser/issues/22) | Implemented and independently verified locally. File/byte canonical parity is tested, not WASM execution or resource safety |
 | [#2 Finish safe structured errors](https://github.com/2001J/fuzzy-parser/issues/2) | Independently reviewed and verified locally; safe error-contract migration and privacy/compatibility regressions |
 | [#4 Permanent TXT adapter edge-case fixtures](https://github.com/2001J/fuzzy-parser/issues/4) | [Fixture coverage](../fixtures/text/README.md) independently reviewed, locally integrated and verified |
@@ -59,10 +60,10 @@ selected independently.
 | [#7 Complete TXT subprocess matrix](https://github.com/2001J/fuzzy-parser/issues/7) | Full synthetic fixture matrix independently reviewed, integrated and verified on macOS/Linux; closed |
 | [#12 Shared schema compilation/capability validation](https://github.com/2001J/fuzzy-parser/issues/12) | Shared compiler/core plan independently reviewed, locally integrated and verified on macOS/Linux; closed |
 | [#13 Caller-directed text and name fields](https://github.com/2001J/fuzzy-parser/issues/13) | Contextual extraction/residual abstention independently reviewed, integrated and verified on macOS/Linux; closed |
-| [#14 Compose text normalization/segmentation](https://github.com/2001J/fuzzy-parser/issues/14) | #10/#12 complete; ready, not assigned |
+| [#14 Compose text normalization/segmentation](https://github.com/2001J/fuzzy-parser/issues/14) | Reversible opt-in composition independently reviewed, locally integrated and verified; closed |
 | [#15 Delimiter-adjacent email regression](https://github.com/2001J/fuzzy-parser/issues/15) | Independently reviewed, locally integrated and verified with core/CLI source-span regressions |
-| [#16 Explicit table headers/selection/provenance](https://github.com/2001J/fuzzy-parser/issues/16) | #10/#12 complete; ready, not assigned; coordinate bounds with #17 |
-| [#17 Bound CSV/XLSX/schema/result resource use](https://github.com/2001J/fuzzy-parser/issues/17) | #2/#5/#12 complete; final table coverage depends on #16. Owns all-format same-handle validation and explicit resource defaults; #6 does not restrict CSV/XLSX sizes |
+| [#16 Explicit table headers/selection/provenance](https://github.com/2001J/fuzzy-parser/issues/16) | Opt-in headers/rows/sheets and table-manifest evidence independently reviewed, locally integrated and verified; closed |
+| [#17 Bound CSV/XLSX/schema/result resource use](https://github.com/2001J/fuzzy-parser/issues/17) | #2/#5/#12/#16 complete. Owns all-format same-handle validation and explicit resource defaults; #6 does not restrict CSV/XLSX sizes |
 | [#18 Implement the selected runtime adapter](https://github.com/2001J/fuzzy-parser/issues/18) | Reviewed single-backend #11 decision, #10, #12, #17 and installation/packaging/lifecycle gates; final parity includes #13–#16 |
 | [#19 Cross-profile conformance and independence](https://github.com/2001J/fuzzy-parser/issues/19) | All preceding engine-readiness work |
 
@@ -117,12 +118,12 @@ tickets are now independently reviewed, integrated and closed.
 | 0.1 Workspace foundation | Implemented workspace and automated checks |
 | 0.2 TXT inspection | Working path; #2 privacy/#4 fixtures/#5 validation/#6 CLI/#7 subprocess matrix independently reviewed and verified |
 | 0.3 Pasted text/dispatch | Text/stdin exist; #5 validates TXT paths, #6 explicit routing independently reviewed and verified |
-| 0.4 CSV / 0.5 XLSX | Adapters exist; table compatibility and limits remain #16/#17/#20 |
-| 0.6 Normalization / 0.7 Segmentation | Separate library stages exist; document composition remains #14 |
+| 0.4 CSV / 0.5 XLSX | Adapters plus opt-in table selection/provenance are delivered; limits and extended formats remain #17/#20 |
+| 0.6 Normalization / 0.7 Segmentation | Separate stages and reversible opt-in document composition are delivered; broader heuristics remain later work |
 | 0.8 Schema | Model/validation, shared compiler and contextual text/name extension are independently reviewed and verified |
 | 0.9 Detection / 0.10 Assignment | Scoped enums and local contextual text/name support; composition/options and later coverage remain |
 | 0.11 Explainable result | Canonical source/review extension implemented and independently verified in #10; broader engine-readiness gates remain open |
-| 0.12 Standalone / 0.13 WASM | Standalone tooling remains later; WASM is a candidate in #11's open backend decision, not a separate version or mandatory second adapter |
+| 0.12 Standalone / 0.13 WASM | #11 selected one Node WASM package with Worker isolation; installable packaging/lifecycle remain #18 and standalone tooling remains later |
 | 0.14 Reliability | Required safety/regressions move into readiness tickets; broad fuzzing/benchmarks follow |
 
 [The dated acceptance audit](audits/2026-08-27-backlog.md) records the code,

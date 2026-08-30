@@ -29,9 +29,10 @@ profile and source-evidence gaps remain in the engine backlog.
   identifiers, imports or dependencies belong in generic engine behavior.
   Synthetic consumer-shaped fixtures must be isolated from implementation.
 - Select one reusable runtime boundary using real deployment constraints,
-  including those of the first consumer. The selection is scheduled in
-  [#11](https://github.com/2001J/fuzzy-parser/issues/11); no transport is chosen
-  by this ADR, and other transports are not prerequisites.
+  including those of the first consumer. This ADR delegated selection to
+  [#11](https://github.com/2001J/fuzzy-parser/issues/11); the reviewed outcome is
+  now recorded in [ADR 0006](0006-library-interface-runtime-evaluation.md), and
+  other transports are not prerequisites.
 - Require a future independence gate: the same unmodified engine/public
   interface processes a synthetic QualEvents-shaped profile and an unrelated
   supported-domain profile using caller configuration only, with QualEvents

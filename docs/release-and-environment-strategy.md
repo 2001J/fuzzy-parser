@@ -88,7 +88,7 @@ CI must:
 
 A future library package or later standalone tooling may need a
 separately authorized preview environment. [Integration strategy](integration-strategy.md)
-links the #11 evaluation and its open backend/deployment gates; no production
+links the #11 runtime selection and its open packaging/deployment gates; no production
 adapter or deployment is established by local testing. The initial integration
 does not require a separately operated service or message queue.
 
