@@ -3,14 +3,17 @@
 ## Status
 
 Library-first direction and bounded evidence independently reviewed, 2026-08-28.
-Backend selection remains open in [#11](https://github.com/2001J/fuzzy-parser/issues/11).
+The 2026-08-30 #11 evaluation recommends Node WASM with Worker isolation,
+pending independent review; [the dated evidence](../evaluations/2026-08-30-wasm-runtime.md)
+records its scope and limits. Backend selection remains open in
+[#11](https://github.com/2001J/fuzzy-parser/issues/11) until that review.
 Proposed caller boundary: **one small generic JavaScript/TypeScript library
 interface, running with the caller and no queue or separately operated service**.
 Simplicity of installation, calling and deployment is an explicit criterion.
-The backend is **not finally selected**: a bundled CLI is the only executed
-prototype; WebAssembly remains a credible embedding candidate with a successful
-Rust compilation check. #11 remains open for the evidence gate below. Neither
-production adapter work nor Vercel deployment readiness is established.
+The corrected #11 evidence recommends **one Node WASM package with Worker
+isolation** as the single backend for #18, pending independent review. #11
+remains open for that review and the gates below. Neither production adapter
+work nor Vercel deployment readiness is established.
 
 This follows the evidence requirement in [ADR 0005](0005-independent-engine-consumer-validation.md).
 It does not reinstate ADR 0004's unconditional sequence of further bindings.
@@ -18,13 +21,13 @@ It does not reinstate ADR 0004's unconditional sequence of further bindings.
 Follow-up, 2026-08-28: [#22's XLSX byte API](../data-contracts.md#xlsx-library-input--implemented)
 is now implemented and independently verified locally. The comparison below
 records the #11 baseline; its path-only XLSX limitation is addressed by that
-separate slice. Backend selection and JS/WASM execution remain unverified.
+separate slice. The bounded JS/WASM runtime evidence is recorded below.
 
 Further follow-up, 2026-08-28: [#12's shared schema compiler and core plan](../data-contracts.md#executable-schema)
 are independently reviewed and locally integrated. The private CLI conversion
 described at the original baseline below has been replaced. Both prerequisite
-APIs are available for a bounded JS/WASM comparison; its read-only preparation
-is complete, but no binding or execution experiment has been dispatched.
+APIs are available and were exercised by the bounded JS/WASM runtime evaluation
+recorded below.
 
 ## Context and comparison
 
@@ -40,8 +43,8 @@ measurements, consumer inspection and dated primary sources.
 
 | Option | Installation, calling and deployment tradeoffs | Evidence and disposition at the #11 baseline |
 | --- | --- | --- |
-| Packaged CLI process | A small JS wrapper can present a library call and reuse all current adapters. It still adds native artifact selection, executable permissions, process startup/reaping, bounded pipes and private temporary files. It is local to the caller, not a remote service or queue. | Only invocation prototype built; exact parity on macOS and isolated emulated Linux. Viable candidate if its packaging burden is acceptable; not a final default |
-| WebAssembly in Node, possibly browsers later | Closest to the requested embedding model: could load a portable module and pass bytes without per-call executables/temp files. Requires JS exports, byte-input parity, memory/copy budgets, initialization and cancellation design. Browser delivery is not an initial requirement. | Core/schema/formats pass a WASM compilation check. TXT/CSV byte APIs exist; XLSX currently exposes only a path API, although its dependency supports in-memory readers. JS execution/package parity remains untested; not rejected |
+| Packaged CLI process (historical baseline) | A small JS wrapper can present a library call and reuse all current adapters. It adds native artifact selection, executable permissions, process startup/reaping, bounded pipes and private temporary files. It is local to the caller, not a remote service or queue. | Historical child-process prototype with stdout/stderr guards and exact parity; retained as comparison evidence, not the selected backend |
+| WebAssembly in Node, possibly browsers later | Closest to the requested embedding model: loads a portable module and passes bytes without per-call executables/temp files. Requires JS exports, byte-input parity, memory/copy budgets, initialization and cancellation design. Browser delivery is not an initial requirement. | #11 exercised TXT/CSV/XLSX bytes through CJS and ESM, exact native parity, source/errors, packaging failures and Worker termination. Recommended as one backend with Worker isolation; deployment and package-install gates remain open |
 | Native Node binding | Could avoid per-call process startup. Node-API offers ABI stability for its own interface, but a new binding still needs platform binaries, cancellation and exact contract tests. No measured throughput requirement justifies it yet. | Deferred; [Node-API documentation](https://nodejs.org/download/release/v22.14.0/docs/api/n-api.html) |
 | Rust HTTP service | Avoids caller-native packaging but adds a separately operated deployment, authentication, networking, retention and operating costs. | Outside the requested initial integration; no service or message queue is authorized or required |
 
@@ -58,7 +61,7 @@ owns an illustrative call, explicitly not an existing npm/package API.
 
 - Accept raw bytes with a declared supported format, caller-owned schema and
   supported options. Original filename metadata must have defined, safe
-  handling; the prototype uses fixed temporary filenames and is not that API.
+  handling; the evaluation passes the optional filename directly to byte readers.
 - Do not require the application to operate parser infrastructure. The package
   owns runtime plumbing; the host owns caller access, its schema/mapping,
   review/correction, export and explicitly confirmed persistence. No raw input
@@ -88,34 +91,33 @@ byte input; it must not introduce a second parser to bypass missing engine APIs.
 The original XLSX path-only API could not work on ordinary `wasm32-unknown-unknown`
 without adaptation; #22 has since added the required byte reader. The historical
 [bounded WASM probe](../evaluations/2026-08-28-node-cli.md#bounded-wasm-feasibility-check)
-records that baseline gap. No WASM binding was implemented here.
+records that baseline gap. The evaluation binding is not a production package
+and must not be treated as one.
 
 There is no new public TypeScript API in this decision. #18 must settle its
 exact types against #12's shared schema contract; the harness is neither an
 installable package nor a production wrapper.
 
-## Backend decision gate — open
+## Backend decision gate — provisional WASM recommendation
 
-Prefer an in-process WASM package **if** the remaining byte-input, contract,
-packaging and resource evidence supports its simpler installation/deployment.
-Keep the measured bundled-process path as a candidate, not a silent runtime
-fallback. No application should have to implement or maintain both.
+The corrected #11 evidence supports an in-process WASM package with Worker
+isolation as the one backend recommendation. Keep the measured bundled-process
+path as evidence only, not a silent runtime fallback. No application should
+implement or maintain both.
 
-Before #18 starts, a separately authorized follow-up to **#11** must test a
-minimal JS/WASM call using the delivered #12 shared schema compiler and
+The corrected follow-up tested the delivered #12 shared schema compiler and
 [#22](https://github.com/2001J/fuzzy-parser/issues/22) generic XLSX byte input.
-Those are completed separate engine slices, not work to duplicate in the
-evaluation or #18. Compare the same four
-input forms, two supported profiles, source/errors, emitted package size,
-initialization, memory copies, cancellation and generic Node/Next.js packaging
-against this retained CLI evidence. Do not build a second production adapter
-or expand #12 in this evaluation. No XLSX byte API is implemented here.
+It compared four input forms, two profiles, source/errors, package size,
+initialization, memory copies and Worker termination against the retained CLI
+evidence. #18 must independently prove package installation, artifact identity,
+resource limits and host packaging before implementation. Do not build a second
+adapter or expand #12 in this evaluation.
 
-Then amend this ADR to select **one** backend. If WASM fails a required gate,
-record the evidence and evaluate whether the process packaging satisfies it.
-If either choice needs another engine capability or target access, keep that
-gate open. The current compilation check cannot settle JS runtime or packaging
-behavior; closing #11 as a completed selection now would overstate the evidence.
+The corrected evidence provisionally selects Node WASM with Worker isolation for
+future #18. The installed-package, #17 resource, true in-call cancellation and
+deadline, artifact identity/public TypeScript API, and Next.js/Vercel/deployment
+gates remain with #18 or separately authorized work. If any required gate fails,
+record that result before implementation; do not add a silent CLI fallback.
 
 ## Budgets and outstanding gates
 
@@ -128,9 +130,9 @@ and output budgets before #18 advertises supported sizes.
 | Gate | Owner and acceptance |
 | --- | --- |
 | Generic engine prerequisites | #2/#12 safe errors and shared schema compiler are delivered; #17 enforced resource limits remain open. #13/#14/#16 remain required for final capability parity; #15 is delivered |
-| One backend selected | #11 follow-up above; reviewed decision required before #18. Current WASM evidence is compilation/source inspection only |
+| One backend selected | #11 recommends Node WASM with Worker isolation after CJS/ESM runtime parity and source/error checks; independent review remains required |
 | Package installation | #18: test an installable local package with QualEvents absent and no consumer build-time Rust toolchain; verify artifact/contract identity and missing/wrong artifact failures. For CLI, prove OS/architecture/ABI and executable mode. For WASM, prove emitted module/glue loading and byte/source parity. Implement only the selected branch |
-| Runtime lifecycle | #18: cancel while processing, deadline enforcement, bounded memory/output, malformed output/version mismatch, concurrent calls and no input/credential leakage. CLI also needs kill escalation/reaping/file cleanup; WASM needs an evidenced interruption/isolation strategy. The prototype covers only a subset |
+| Runtime lifecycle | #18: true in-call cancellation/deadline policy, bounded memory/output, malformed output/version mismatch, concurrent calls and no input/credential leakage. #11 evidences Worker entry/termination only; it does not claim interruption of a synchronous call |
 | Framework packaging | #18: a generic Next.js packaging fixture must retain the selected executable or WASM assets and invoke the installed package. It must not depend on QualEvents. No framework build was performed in #11 |
 | Specific Vercel compatibility claim | Separately authorized nonproduction check: actual Node major, selected artifact loading, request/response limits, cancellation, cold/warm behavior and configured compute settings; for CLI also CPU architecture, dynamic libraries, executable permissions and scratch space. Local Linux is not this proof |
 | Broad independent conformance | #19: full supported capability matrix and two unrelated profiles with the first consumer absent. The narrow #11 experiment is evidence, not completion of this gate |
@@ -142,8 +144,7 @@ is ready. Host adoption, UI, migration and cutover remain external work in
 
 ## Consequences
 
-The useful CLI evidence is retained, but it does not override the user's library
-and deployment simplicity requirement. WASM's apparent packaging advantage is
-a reason to finish its bounded evidence gate, not a claim that it is ready.
-Only one production backend should be implemented after review. No service,
+The useful historical CLI evidence is retained, but Node WASM with Worker
+isolation is the single recommended backend for #18. Only one production backend
+should be implemented after review. No service,
 queue, release, deployment, host migration or publication is authorized here.
