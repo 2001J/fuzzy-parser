@@ -10,6 +10,70 @@ pub const SCHEMA_VERSION: &str = "0.1";
 mod compile;
 pub use compile::{compile_schema, compile_schema_json, decode_execution_schema};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SchemaLimits {
+    pub max_bytes: usize,
+    pub max_fields: usize,
+    pub max_aliases: usize,
+    pub max_nesting: usize,
+}
+impl Default for SchemaLimits {
+    fn default() -> Self {
+        Self {
+            max_bytes: 1024 * 1024,
+            max_fields: 1024,
+            max_aliases: 8192,
+            max_nesting: 32,
+        }
+    }
+}
+
+pub fn decode_execution_schema_with_limits(
+    input: &str,
+    limits: SchemaLimits,
+) -> Result<TargetSchema, Failure> {
+    if input.len() > limits.max_bytes {
+        return Err(Failure::new(FailureKind::ResourceLimit {
+            resource: parser_core::ResourceLimitKind::SchemaBytes,
+            limit: limits.max_bytes as u64,
+            actual: input.len() as u64,
+        }));
+    }
+    let value: serde_json::Value =
+        serde_json::from_str(input).map_err(|_| Failure::new(FailureKind::SchemaParse))?;
+    let fields = value
+        .get("fields")
+        .and_then(|v| v.as_array())
+        .map_or(0, Vec::len);
+    if fields > limits.max_fields {
+        return Err(Failure::new(FailureKind::ResourceLimit {
+            resource: parser_core::ResourceLimitKind::SchemaFields,
+            limit: limits.max_fields as u64,
+            actual: fields as u64,
+        }));
+    }
+    let aliases = value
+        .get("fields")
+        .and_then(|v| v.as_array())
+        .map_or(0, |fs| {
+            fs.iter()
+                .map(|f| {
+                    f.get("aliases")
+                        .and_then(|a| a.as_array())
+                        .map_or(0, Vec::len)
+                })
+                .sum()
+        });
+    if aliases > limits.max_aliases {
+        return Err(Failure::new(FailureKind::ResourceLimit {
+            resource: parser_core::ResourceLimitKind::SchemaAliases,
+            limit: limits.max_aliases as u64,
+            actual: aliases as u64,
+        }));
+    }
+    decode_execution_schema(input)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TargetSchema {
     pub schema_version: String,

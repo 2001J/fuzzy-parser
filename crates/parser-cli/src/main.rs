@@ -1,7 +1,7 @@
 use parser_core::{DiagnosticsMode, Failure, FailureKind, OutputTarget};
 use parser_formats::{
     CsvOptions, ExtractedTable, FileFormat, InputSource, TextLimits, TxtOptions,
-    parse_extracted_table_with_plan, read_csv_table_with_options, read_csv_with_options,
+    parse_extracted_table_with_plan_and_limits, read_csv_table_with_options, read_csv_with_options,
     read_input, read_txt_with_options, read_xlsx, read_xlsx_table,
 };
 use std::{
@@ -113,8 +113,11 @@ fn schema_io_failure(error: &io::Error, path: Option<&PathBuf>) -> Failure {
 fn load_schema_file(path: PathBuf) -> Result<parser_schema::TargetSchema, Failure> {
     let input =
         fs::read_to_string(&path).map_err(|error| schema_io_failure(&error, Some(&path)))?;
-    parser_schema::decode_execution_schema(&input)
-        .map_err(|error| error.with_path(&path.to_string_lossy()))
+    parser_schema::decode_execution_schema_with_limits(
+        &input,
+        parser_schema::SchemaLimits::default(),
+    )
+    .map_err(|error| error.with_path(&path.to_string_lossy()))
 }
 
 fn parse_path(
@@ -136,7 +139,12 @@ fn parse_path(
             Ok(plan) => plan,
             Err(error) => return report_failure(error, diagnostics),
         };
-        match parse_extracted_table_with_plan(&table, &plan, &table_options) {
+        match parse_extracted_table_with_plan_and_limits(
+            &table,
+            &plan,
+            &table_options,
+            parser_core::ParseLimits::default(),
+        ) {
             Ok(response) => write_response(&response, diagnostics),
             Err(error) => report_failure(error, diagnostics),
         }
@@ -185,8 +193,14 @@ fn parse_with_schema(
         Ok(spec) => spec,
         Err(error) => return report_failure(error, diagnostics),
     };
-    let response = parser_core::parse_document_with_plan(&document, &spec);
-    write_response(&response, diagnostics)
+    match parser_core::parse_document_with_plan_with_limits(
+        &document,
+        &spec,
+        parser_core::ParseLimits::default(),
+    ) {
+        Ok(response) => write_response(&response, diagnostics),
+        Err(error) => report_failure(error, diagnostics),
+    }
 }
 
 fn write_response(response: &parser_core::ParseResponse, diagnostics: DiagnosticsMode) -> i32 {
@@ -213,7 +227,10 @@ fn validate_schema_path(path: PathBuf, pretty: bool, diagnostics: DiagnosticsMod
 
 fn validate_schema_stdin(diagnostics: DiagnosticsMode) -> i32 {
     let mut input = String::new();
-    match io::stdin().read_to_string(&mut input) {
+    match io::stdin()
+        .take((parser_schema::SchemaLimits::default().max_bytes + 1) as u64)
+        .read_to_string(&mut input)
+    {
         Ok(_) => validate_schema_input(&input, true, diagnostics, None),
         Err(error) => report_failure(schema_io_failure(&error, None), diagnostics),
     }
@@ -225,6 +242,16 @@ fn validate_schema_input(
     diagnostics: DiagnosticsMode,
     path: Option<&PathBuf>,
 ) -> i32 {
+    if input.len() > parser_schema::SchemaLimits::default().max_bytes {
+        return report_failure(
+            Failure::new(FailureKind::ResourceLimit {
+                resource: parser_core::ResourceLimitKind::SchemaBytes,
+                limit: parser_schema::SchemaLimits::default().max_bytes as u64,
+                actual: input.len() as u64,
+            }),
+            diagnostics,
+        );
+    }
     match parser_schema::TargetSchema::from_json(input) {
         Ok(schema) => match schema.to_json() {
             Ok(json) => {

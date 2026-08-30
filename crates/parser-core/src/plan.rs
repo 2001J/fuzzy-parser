@@ -78,6 +78,48 @@ pub fn parse_document_with_plan(document: &RawDocument, plan: &ParsePlan) -> Par
     )
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParseLimits {
+    pub max_records: usize,
+    pub max_response_bytes: usize,
+}
+impl Default for ParseLimits {
+    fn default() -> Self {
+        Self {
+            max_records: 100_000,
+            max_response_bytes: 16 * 1024 * 1024,
+        }
+    }
+}
+
+pub fn parse_document_with_plan_with_limits(
+    document: &RawDocument,
+    plan: &ParsePlan,
+    limits: ParseLimits,
+) -> Result<ParseResponse, Failure> {
+    if document.blocks.len() > limits.max_records {
+        return Err(Failure::new(FailureKind::ResourceLimit {
+            resource: ResourceLimitKind::Records,
+            limit: limits.max_records as u64,
+            actual: document.blocks.len() as u64,
+        }));
+    }
+    let response = parse_document_with_plan(document, plan);
+    let bytes = serde_json::to_vec(&response).map_err(|_| {
+        Failure::new(FailureKind::OutputSerialization {
+            target: OutputTarget::ParseResult,
+        })
+    })?;
+    if bytes.len() > limits.max_response_bytes {
+        return Err(Failure::new(FailureKind::ResourceLimit {
+            resource: ResourceLimitKind::ResponseBytes,
+            limit: limits.max_response_bytes as u64,
+            actual: bytes.len() as u64,
+        }));
+    }
+    Ok(response)
+}
+
 #[derive(Clone, Copy)]
 pub(super) enum DetectionRules<'a> {
     Legacy(&'a [(String, Vec<String>)]),

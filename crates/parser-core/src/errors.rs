@@ -123,6 +123,23 @@ pub enum TableSelectionReason {
     HeaderConflict,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ResourceLimitKind {
+    CsvBytes,
+    CsvRows,
+    CsvCells,
+    XlsxBytes,
+    XlsxSheets,
+    XlsxCells,
+    SchemaBytes,
+    SchemaFields,
+    SchemaAliases,
+    SchemaNesting,
+    Records,
+    ResponseBytes,
+}
+
 /// Safe metadata only. User strings belong in explicitly requested diagnostics.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "code")]
@@ -177,6 +194,12 @@ pub enum FailureKind {
     OutputSerialization { target: OutputTarget },
     #[serde(rename = "table_selection_error")]
     TableSelection { reason: TableSelectionReason },
+    #[serde(rename = "resource_limit")]
+    ResourceLimit {
+        resource: ResourceLimitKind,
+        limit: u64,
+        actual: u64,
+    },
 }
 
 impl fmt::Display for FailureKind {
@@ -258,6 +281,13 @@ impl fmt::Display for FailureKind {
                     "header selection conflicts with row selection"
                 }
             }),
+            Self::ResourceLimit {
+                resource,
+                limit,
+                actual,
+            } => {
+                write!(f, "{resource:?} exceeds the {limit}-unit limit ({actual})")
+            }
         }
     }
 }
@@ -447,6 +477,15 @@ impl From<&ParserError> for Failure {
                 context.path = nonempty(path);
                 FailureKind::InvalidXlsx
             }
+            ParserError::ResourceLimit {
+                resource,
+                limit,
+                actual,
+            } => FailureKind::ResourceLimit {
+                resource: *resource,
+                limit: *limit,
+                actual: *actual,
+            },
         };
         Self::new(kind).with_context(context)
     }

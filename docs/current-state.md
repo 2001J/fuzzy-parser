@@ -12,6 +12,12 @@ The [dated audit](audits/2026-08-27-backlog.md) records the earlier implementati
 
 This document records only what is implemented in the repository now. It must not describe planned behavior as complete.
 
+Resource-limit options now cover CSV bytes/rows/cells, XLSX compressed bytes,
+sheets and extracted cells, schema bytes/fields/aliases, and parse records and
+response bytes. Legacy defaults remain unchanged. XLSX expanded worksheet
+memory is checked only after calamine materializes a range; this is not a
+sandbox or preallocation guarantee.
+
 ## Repository state
 
 The repository is a Rust workspace at version `0.1.0` using Rust edition 2024.
