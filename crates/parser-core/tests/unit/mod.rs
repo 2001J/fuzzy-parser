@@ -4,6 +4,7 @@ mod email_boundaries;
 mod file_validation_errors;
 mod table_selection;
 mod text_names;
+mod text_pipeline;
 
 #[test]
 fn error_report_discards_forged_outer_messages_and_canonicalizes_from_payload() {
@@ -1367,7 +1368,7 @@ fn assignment_context_window_keeps_only_complete_labels_within_40_bytes() {
             assert_eq!(candidates.len(), 2);
             candidates[1].confidence = 0.8;
             assert_eq!(
-                candidate_score(&text, &candidates[1], &field, None).1,
+                candidate_score(&text, &candidates[1], &field, None, None).1,
                 extra == 0
             );
             let result = assign_candidates(&text, &candidates, std::slice::from_ref(&field));

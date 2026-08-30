@@ -9,11 +9,13 @@ It describes the intended complete pipeline. The current paths are narrower:
 | `normalize_document` / `segment_document` | Separately callable normalization and segmentation APIs |
 | `parse_text_with_assignment` | Detectors → assignment for one supplied text record |
 | CLI `parse` | Strict execution schema decoding → input extraction → shared schema compilation → core plan execution |
-| `parse_document_with_plan` / `parse_document_with_assignment` | Table grouping/header detection/row assignment, or independent raw-block text assignment |
+| `parse_document_with_plan` | Table grouping/header detection/row assignment, independent raw-block text assignment by default, or explicitly configured mapped text composition |
+| `parse_document_with_assignment` | Table grouping/header detection/row assignment, or independent raw-block text assignment |
 
-`parse` does not currently compose normalization or record segmentation.
-[#14](https://github.com/2001J/fuzzy-parser/issues/14) owns that connection;
-the #10 result extension retains canonical source evidence and unused content.
+`parse` composes normalization and segmentation only when the execution schema
+contains `options.text_pipeline`. Absence branches to the legacy path before any
+normalization. The #10 result extension remains authoritative for canonical
+source evidence and unused content.
 Public shapes and coordinate conventions belong in
 [data contracts](data-contracts.md), not this stage description.
 
@@ -94,6 +96,18 @@ Output:
 - Warnings for ambiguous boundaries.
 
 The implemented repeated-identifier strategy uses only strong, configured label markers. It splits a block only when one marker repeats from the beginning with non-empty values; near misses and competing marker sets remain intact, with a warning when the boundary is ambiguous. Heading-marked blocks are preserved as visible boundaries, and indented text after a heading is kept separate with a low-confidence warning because section content is not automatically a record. Segmentation must not fabricate field values.
+
+The schema-compiled text path supports one block, indented continuation and
+caller-supplied repeated identifiers. It uses a fixed synthetic newline between
+joined source segments. Normalization retains a monotone map from every raw
+membership to composed bytes; removals are zero-length composed runs. Detection,
+the 40-byte label window, enum ownership and text/name regions run separately
+inside each source segment, so neither evidence nor context crosses the synthetic
+separator. Candidates are mapped back to one contiguous original reference
+before record-level ownership and cardinality selection. Equally supported
+singular alternatives abstain. Tables keep their existing row path and report
+one top-level `text_pipeline_not_applied` warning when the text-only option was
+explicitly supplied.
 
 ## 5. Field candidate detection
 
@@ -225,7 +239,8 @@ The intended complete result includes:
 No fragment should disappear merely because the parser did not understand it.
 Current `ParseResponse` retains the canonical source document, noncandidate
 content, assigned/unassigned references, header/exclusion evidence, record review
-reasons, and input-document warnings. Shared schema compilation is implemented;
+reasons, and input-document warnings. Opt-in text records additionally retain
+gapless composed segments, mapping operations and boundary evidence. Shared schema compilation is implemented;
 statistics and a serialized parse request remain unimplemented. This does not change extraction,
 header, detection or segmentation heuristics or preserve original file bytes
 that the extraction adapters do not expose.

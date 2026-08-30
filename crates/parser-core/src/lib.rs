@@ -9,6 +9,7 @@ pub use plan::{ParsePlan, PlanField, parse_document_with_plan};
 mod table_selection;
 pub use table_selection::*;
 mod text_fields;
+mod text_pipeline;
 
 pub const CONTRACT_VERSION: &str = "0.1";
 
@@ -103,6 +104,25 @@ pub struct NormalizationOptions {
     pub collapse_whitespace: bool,
     pub normalize_punctuation: bool,
     pub mark_noise: bool,
+}
+
+/// Runtime-only caller instructions for opt-in text composition.
+///
+/// Serialized schemas remain owned by `parser-schema`; this core model is also
+/// echoed in composed parse evidence so callers can reproduce the exact run.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TextPipelineOptions {
+    pub normalization: NormalizationOptions,
+    pub strategy: TextPipelineStrategy,
+    pub repeated_identifier_markers: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TextPipelineStrategy {
+    OneBlockPerRecord,
+    JoinIndentedContinuations,
+    SplitRepeatedIdentifiers,
 }
 
 impl Default for NormalizationOptions {
@@ -338,7 +358,8 @@ fn parse_text_record(
             });
         }
     }
-    let mut assignment = assign_scalar_candidates(text, &candidates, fields, None, rules.scoped());
+    let mut assignment =
+        assign_scalar_candidates(text, &candidates, fields, None, rules.scoped(), None);
     let sources = if source.is_none_or(|(_, value)| matches!(value, RawValue::Text(_))) {
         vec![text_fields::TextSource {
             span: TextSpan {
@@ -365,6 +386,7 @@ fn parse_text_record(
         None,
         &sources,
         &mut assignment,
+        None,
     );
     finish_text_parse(text, candidates, assignment)
 }
@@ -778,7 +800,7 @@ fn parse_row_group(
     }
 
     let mut assignment =
-        assign_scalar_candidates(&row_text, &candidates, fields, header, rules.scoped());
+        assign_scalar_candidates(&row_text, &candidates, fields, header, rules.scoped(), None);
     text_fields::complete(
         &row_text,
         &mut candidates,
@@ -786,6 +808,7 @@ fn parse_row_group(
         header,
         &text_sources,
         &mut assignment,
+        None,
     );
     TableRowParseResult {
         source_row: row.source_row,
@@ -799,6 +822,57 @@ fn parse_row_group(
 pub struct TextRecordParseResult {
     pub source_block_id: String,
     pub parse: TextParseResult,
+    /// Present only when the caller explicitly enabled text composition.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub composition: Option<TextRecordComposition>,
+}
+
+/// Reversible evidence for one opt-in composed text record.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TextRecordComposition {
+    pub record_id: String,
+    pub composed_text: String,
+    pub applied_options: TextPipelineOptions,
+    pub segments: Vec<TextCompositionSegment>,
+    pub boundary: TextBoundaryEvidence,
+}
+
+/// Ordered segments cover `composed_text` fully and without gaps.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TextCompositionSegment {
+    Source {
+        source_reference: SourceReference,
+        composed_span: TextSpan,
+        mapping_runs: Vec<TextMappingRun>,
+    },
+    SyntheticSeparator {
+        composed_span: TextSpan,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TextMappingRun {
+    pub raw_span: TextSpan,
+    pub composed_span: TextSpan,
+    pub operations: Vec<TextMappingOperation>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TextMappingOperation {
+    Unchanged,
+    LineEndingFold,
+    PunctuationReplacement,
+    Trim,
+    WhitespaceCollapse,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TextBoundaryEvidence {
+    pub confidence: Confidence,
+    pub reasons: Vec<Reason>,
+    pub warnings: Vec<ParserWarning>,
 }
 
 /// Mode-specific parse content for a versioned `ParseResponse`.
@@ -946,6 +1020,7 @@ pub fn parse_document_with_assignment(
         fields,
         DetectionRules::Legacy(enum_definitions),
         record_name,
+        None,
     )
 }
 
@@ -954,31 +1029,52 @@ fn parse_document_inner(
     fields: &[AssignmentField],
     rules: DetectionRules<'_>,
     record_name: Option<String>,
+    text_pipeline: Option<&TextPipelineOptions>,
 ) -> ParseResponse {
     let grouped = group_document_rows(document);
     let (content, warnings) = if grouped.rows.is_empty() {
-        let records = document
-            .blocks
-            .iter()
-            .enumerate()
-            .map(|(index, block)| TextRecordParseResult {
-                source_block_id: block.id.clone(),
-                parse: parse_text_record(
-                    &block.value.to_text(),
-                    fields,
-                    rules,
-                    Some((index, &block.value)),
-                ),
-            })
-            .collect();
+        let records = if let Some(options) = text_pipeline {
+            text_pipeline::compose_document(document, options)
+                .into_iter()
+                .map(|record| {
+                    let parse =
+                        text_pipeline::parse_record(document, &record.composition, fields, rules);
+                    TextRecordParseResult {
+                        source_block_id: record.source_block_id,
+                        parse,
+                        composition: Some(record.composition),
+                    }
+                })
+                .collect()
+        } else {
+            document
+                .blocks
+                .iter()
+                .enumerate()
+                .map(|(index, block)| TextRecordParseResult {
+                    source_block_id: block.id.clone(),
+                    parse: parse_text_record(
+                        &block.value.to_text(),
+                        fields,
+                        rules,
+                        Some((index, &block.value)),
+                    ),
+                    composition: None,
+                })
+                .collect()
+        };
         (ParseContent::Text { records }, Vec::new())
     } else {
         let table = parse_document_rows_inner(document, fields, rules);
+        let mut warnings = table.warnings;
+        if text_pipeline.is_some() {
+            warnings.push(text_pipeline::not_applied_warning());
+        }
         (
             ParseContent::Table {
                 sheets: table.sheets,
             },
-            table.warnings,
+            warnings,
         )
     };
 
@@ -1020,7 +1116,8 @@ fn assign_candidates_inner(
     header: Option<&TableHeaderContext>,
     enum_definitions: Option<&[EnumDefinitions]>,
 ) -> AssignmentResult {
-    let mut result = assign_scalar_candidates(text, candidates, fields, header, enum_definitions);
+    let mut result =
+        assign_scalar_candidates(text, candidates, fields, header, enum_definitions, None);
     text_fields::assign_supplied(text, candidates, fields, header, &mut result);
     result
 }
@@ -1031,11 +1128,18 @@ fn assign_scalar_candidates(
     fields: &[AssignmentField],
     header: Option<&TableHeaderContext>,
     enum_definitions: Option<&[EnumDefinitions]>,
+    context_spans: Option<&[TextSpan]>,
 ) -> AssignmentResult {
     let mut assigned = vec![false; candidates.len()];
     let mut result_fields = Vec::new();
-    let (owners, mut warnings) =
-        plan::enum_ownership(text, candidates, fields, header, enum_definitions);
+    let (owners, mut warnings) = plan::enum_ownership(
+        text,
+        candidates,
+        fields,
+        header,
+        enum_definitions,
+        context_spans,
+    );
 
     for (field_index, field) in fields.iter().enumerate() {
         if text_fields::is_text(&field.candidate_type) {
@@ -1075,24 +1179,59 @@ fn assign_scalar_candidates(
         let selected_indices = if field.multiple {
             eligible_indices
         } else {
-            if eligible_indices.len() > 1 {
-                warnings.push(ParserWarning {
-                    code: "multiple_candidates_ambiguous".to_owned(),
-                    message: format!(
-                        "field {} has multiple compatible candidates; the highest-confidence candidate was selected",
-                        field.name
-                    ),
-                    location: None,
-                });
-            }
-            vec![select_highest_confidence(
+            let selected = select_highest_confidence(
                 text,
                 candidates,
                 &eligible_indices,
                 field,
                 header,
-            )]
+                context_spans,
+            );
+            let tied = context_spans.is_some()
+                && eligible_indices
+                    .iter()
+                    .filter(|index| {
+                        candidate_score(text, &candidates[**index], field, header, context_spans)
+                            == candidate_score(
+                                text,
+                                &candidates[selected],
+                                field,
+                                header,
+                                context_spans,
+                            )
+                    })
+                    .count()
+                    > 1;
+            if eligible_indices.len() > 1 {
+                warnings.push(ParserWarning {
+                    code: "multiple_candidates_ambiguous".to_owned(),
+                    message: if tied {
+                        format!(
+                            "field {} has multiple equally supported composed candidates; tied alternatives remain unassigned",
+                            field.name
+                        )
+                    } else {
+                        format!(
+                            "field {} has multiple compatible candidates; the highest-confidence candidate was selected",
+                            field.name
+                        )
+                    },
+                    location: None,
+                });
+            }
+            if tied { Vec::new() } else { vec![selected] }
         };
+
+        if selected_indices.is_empty() {
+            if field.required {
+                warnings.push(ParserWarning {
+                    code: "required_field_missing".to_owned(),
+                    message: format!("required field {} has no compatible candidate", field.name),
+                    location: None,
+                });
+            }
+            continue;
+        }
 
         let selected: Vec<FieldCandidate> = selected_indices
             .into_iter()
@@ -1214,27 +1353,47 @@ fn select_highest_confidence(
     indices: &[usize],
     field: &AssignmentField,
     header: Option<&TableHeaderContext>,
+    context_spans: Option<&[TextSpan]>,
 ) -> usize {
     indices
         .iter()
         .copied()
         .max_by(|left, right| {
-            candidate_score(text, &candidates[*left], field, header)
-                .partial_cmp(&candidate_score(text, &candidates[*right], field, header))
+            candidate_score(text, &candidates[*left], field, header, context_spans)
+                .partial_cmp(&candidate_score(
+                    text,
+                    &candidates[*right],
+                    field,
+                    header,
+                    context_spans,
+                ))
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then_with(|| right.cmp(left))
         })
         .expect("assignment requires at least one matching candidate")
 }
 
-fn candidate_score(
+pub(crate) fn candidate_score(
     text: &str,
     candidate: &FieldCandidate,
     field: &AssignmentField,
     header: Option<&TableHeaderContext>,
+    context_spans: Option<&[TextSpan]>,
 ) -> (bool, bool, bool, f64) {
     let has_header_context = candidate_matches_field_header(candidate, field, header);
-    let mut context_start = candidate.source_span.byte_start.saturating_sub(40);
+    let segment_start = context_spans
+        .and_then(|spans| {
+            spans.iter().find(|span| {
+                span.byte_start <= candidate.source_span.byte_start
+                    && candidate.source_span.byte_end <= span.byte_end
+            })
+        })
+        .map_or(0, |span| span.byte_start);
+    let mut context_start = candidate
+        .source_span
+        .byte_start
+        .saturating_sub(40)
+        .max(segment_start);
     // Advance to a UTF-8 boundary without widening the 40-byte context window.
     while context_start < candidate.source_span.byte_start && !text.is_char_boundary(context_start)
     {
@@ -1688,69 +1847,9 @@ fn normalize_text(
     options: &NormalizationOptions,
     transformations: &mut Vec<Transformation>,
 ) -> String {
-    let mut value = input.to_owned();
-
-    if options.normalize_line_endings {
-        let normalized = value.replace("\r\n", "\n").replace('\r', "\n");
-        if normalized != value {
-            transformations.push(Transformation::LineEndingsNormalized);
-            value = normalized;
-        }
-    }
-
-    if options.normalize_punctuation {
-        let mut dash_changed = false;
-        let mut quote_changed = false;
-        let normalized: String = value
-            .chars()
-            .map(|character| match character {
-                '\u{2010}' | '\u{2011}' | '\u{2012}' | '\u{2013}' | '\u{2014}' | '\u{2212}' => {
-                    dash_changed = true;
-                    '-'
-                }
-                '\u{2018}' | '\u{2019}' => {
-                    quote_changed = true;
-                    '\''
-                }
-                '\u{201c}' | '\u{201d}' => {
-                    quote_changed = true;
-                    '"'
-                }
-                _ => character,
-            })
-            .collect();
-        if dash_changed {
-            transformations.push(Transformation::DashesNormalized);
-        }
-        if quote_changed {
-            transformations.push(Transformation::QuotesNormalized);
-        }
-        if normalized != value {
-            value = normalized;
-        }
-    }
-
-    if options.trim_whitespace {
-        let normalized = value.trim().to_owned();
-        if normalized != value {
-            transformations.push(Transformation::WhitespaceTrimmed);
-            value = normalized;
-        }
-    }
-
-    if options.collapse_whitespace {
-        let normalized = collapse_whitespace(&value);
-        if normalized != value {
-            transformations.push(Transformation::WhitespaceCollapsed);
-            value = normalized;
-        }
-    }
-
-    if options.mark_noise {
-        mark_noise(&value, transformations);
-    }
-
-    value
+    let mapped = text_pipeline::normalize_with_mapping(input, options);
+    transformations.extend(mapped.transformations);
+    mapped.normalized_text
 }
 
 fn collapse_whitespace(input: &str) -> String {

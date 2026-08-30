@@ -87,10 +87,65 @@ pub fn compile_schema(schema: &TargetSchema) -> Result<parser_core::ParsePlan, F
         ));
     }
 
-    Ok(parser_core::ParsePlan::new(
-        fields,
-        schema.record_name.clone(),
-    ))
+    let mut plan = parser_core::ParsePlan::new(fields, schema.record_name.clone());
+    if let Some(options) = &schema.options.text_pipeline {
+        plan = plan.with_text_pipeline(compile_text_pipeline(options)?);
+    }
+    Ok(plan)
+}
+
+fn compile_text_pipeline(
+    options: &crate::TextPipelineOptions,
+) -> Result<parser_core::TextPipelineOptions, Failure> {
+    use crate::TextSegmentationStrategy;
+    let markers = &options.repeated_identifier_markers;
+    let valid_markers = !markers.is_empty()
+        && markers.iter().all(|marker| {
+            marker == marker.trim()
+                && !marker.is_empty()
+                && (marker.ends_with(':') || marker.ends_with('='))
+                && !marker[..marker.len() - 1].trim().is_empty()
+                && !marker.contains(['\r', '\n'])
+        })
+        && markers.iter().enumerate().all(|(index, marker)| {
+            !markers[..index]
+                .iter()
+                .any(|prior| prior.eq_ignore_ascii_case(marker))
+        });
+    match options.strategy {
+        TextSegmentationStrategy::SplitRepeatedIdentifiers if !valid_markers => {
+            return Err(Failure::new(FailureKind::SchemaOptionUnsupported));
+        }
+        TextSegmentationStrategy::OneBlockPerRecord
+        | TextSegmentationStrategy::JoinIndentedContinuations
+            if !markers.is_empty() =>
+        {
+            return Err(Failure::new(FailureKind::SchemaOptionUnsupported));
+        }
+        _ => {}
+    }
+    let strategy = match options.strategy {
+        TextSegmentationStrategy::OneBlockPerRecord => {
+            parser_core::TextPipelineStrategy::OneBlockPerRecord
+        }
+        TextSegmentationStrategy::JoinIndentedContinuations => {
+            parser_core::TextPipelineStrategy::JoinIndentedContinuations
+        }
+        TextSegmentationStrategy::SplitRepeatedIdentifiers => {
+            parser_core::TextPipelineStrategy::SplitRepeatedIdentifiers
+        }
+    };
+    Ok(parser_core::TextPipelineOptions {
+        normalization: parser_core::NormalizationOptions {
+            normalize_line_endings: options.normalization.normalize_line_endings,
+            trim_whitespace: options.normalization.trim_whitespace,
+            collapse_whitespace: options.normalization.collapse_whitespace,
+            normalize_punctuation: options.normalization.normalize_punctuation,
+            mark_noise: options.normalization.mark_noise,
+        },
+        strategy,
+        repeated_identifier_markers: markers.clone(),
+    })
 }
 
 fn candidate_type(field: &crate::FieldDefinition) -> Result<parser_core::CandidateType, Failure> {
@@ -170,7 +225,25 @@ pub fn decode_execution_schema(input: &str) -> Result<TargetSchema, Failure> {
         &value,
         &["schema_version", "record_name", "fields", "options"],
     )?;
-    check_properties(member(&value, "options", 3), &["allow_unknown_fields"])?;
+    let options = member(&value, "options", 3);
+    check_properties(options, &["allow_unknown_fields", "text_pipeline"])?;
+    let text_pipeline = member(options, "text_pipeline", 1);
+    if !text_pipeline.is_null() {
+        check_properties(
+            text_pipeline,
+            &["normalization", "strategy", "repeated_identifier_markers"],
+        )?;
+        check_properties(
+            member(text_pipeline, "normalization", 0),
+            &[
+                "normalize_line_endings",
+                "trim_whitespace",
+                "collapse_whitespace",
+                "normalize_punctuation",
+                "mark_noise",
+            ],
+        )?;
+    }
     if let Some(fields) = member(&value, "fields", 2).as_array() {
         for field in fields {
             check_properties(

@@ -243,6 +243,10 @@ pub fn parse_document_with_plan_and_table_selection(
         debug_assert_eq!(selection_order + 1, output_sheets.len());
     }
 
+    if plan.text_pipeline_enabled() {
+        warnings.push(text_pipeline::not_applied_warning());
+    }
+
     let content = ParseContent::Table {
         sheets: output_sheets,
     };

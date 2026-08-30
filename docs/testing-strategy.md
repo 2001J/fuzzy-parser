@@ -47,6 +47,7 @@ Use integration tests for crate boundaries and complete library paths:
 
 - Input adapter to canonical document.
 - Canonical document through normalization.
+- Schema-compiled text composition through reversible source mapping.
 - Schema plus record candidate through assignment.
 - Full parse request to parse result.
 
@@ -139,6 +140,16 @@ Use stable expected JSON for public contracts and complete parse results.
 Snapshots should exclude or normalize nondeterministic values such as processing duration or random identifiers.
 
 Review snapshot changes as contract changes, not as automatic updates.
+
+The #14 compatibility suite keeps the twelve supported-profile CLI/library
+goldens byte-identical when `text_pipeline` is absent. Focused core, schema and
+CLI tests cover CRLF/punctuation/trim/collapse mapping runs, UTF-8 boundaries,
+blank source membership, synthetic-newline exclusion, repeated IDs and splits,
+heading/competing boundary warnings, segment-local label scoring, singular
+abstention, text/name exact values and constraints, strict nested option decoding,
+safe capability failures, CLI/library parity, and unchanged CSV/XLSX content with
+one ordered not-applied warning. The tests remain nested under the existing six
+Cargo targets.
 
 ### Regression tests
 

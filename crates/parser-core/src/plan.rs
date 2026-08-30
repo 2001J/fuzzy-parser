@@ -25,6 +25,7 @@ pub struct ParsePlan {
     fields: Vec<AssignmentField>,
     enum_definitions: Vec<EnumDefinitions>,
     record_name: Option<String>,
+    text_pipeline: Option<TextPipelineOptions>,
 }
 
 impl ParsePlan {
@@ -38,6 +39,7 @@ impl ParsePlan {
             fields,
             enum_definitions,
             record_name,
+            text_pipeline: None,
         }
     }
 
@@ -52,6 +54,17 @@ impl ParsePlan {
     pub(super) fn record_name(&self) -> Option<String> {
         self.record_name.clone()
     }
+
+    pub(super) fn text_pipeline_enabled(&self) -> bool {
+        self.text_pipeline.is_some()
+    }
+
+    /// Parser-schema's deliberate bridge for validated runtime options.
+    #[doc(hidden)]
+    pub fn with_text_pipeline(mut self, options: TextPipelineOptions) -> Self {
+        self.text_pipeline = Some(options);
+        self
+    }
 }
 
 /// Parse a canonical document with field-scoped enum instructions and full evidence.
@@ -61,6 +74,7 @@ pub fn parse_document_with_plan(document: &RawDocument, plan: &ParsePlan) -> Par
         &plan.fields,
         DetectionRules::Scoped(&plan.enum_definitions),
         plan.record_name.clone(),
+        plan.text_pipeline.as_ref(),
     )
 }
 
@@ -111,6 +125,7 @@ pub(super) fn enum_ownership(
     fields: &[AssignmentField],
     header: Option<&TableHeaderContext>,
     definitions: Option<&[EnumDefinitions]>,
+    context_spans: Option<&[TextSpan]>,
 ) -> (Option<Vec<Option<usize>>>, Vec<ParserWarning>) {
     let Some(definitions) = definitions else {
         return (None, Vec::new());
@@ -147,7 +162,7 @@ pub(super) fn enum_ownership(
                                 .any(|alias| alias.eq_ignore_ascii_case(&alternative.raw_value)))
                 });
                 if lexical_match {
-                    let score = candidate_score(text, alternative, field, header);
+                    let score = candidate_score(text, alternative, field, header, context_spans);
                     matches.push((field_index, index, (score.0, score.1)));
                 }
             }
