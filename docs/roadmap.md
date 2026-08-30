@@ -63,7 +63,7 @@ selected independently.
 | [#14 Compose text normalization/segmentation](https://github.com/2001J/fuzzy-parser/issues/14) | Reversible opt-in composition independently reviewed, locally integrated and verified; closed |
 | [#15 Delimiter-adjacent email regression](https://github.com/2001J/fuzzy-parser/issues/15) | Independently reviewed, locally integrated and verified with core/CLI source-span regressions |
 | [#16 Explicit table headers/selection/provenance](https://github.com/2001J/fuzzy-parser/issues/16) | Opt-in headers/rows/sheets and table-manifest evidence independently reviewed, locally integrated and verified; closed |
-| [#17 Bound CSV/XLSX/schema/result resource use](https://github.com/2001J/fuzzy-parser/issues/17) | #2/#5/#12/#16 complete. Owns all-format same-handle validation and explicit resource defaults; #6 does not restrict CSV/XLSX sizes |
+| [#17 Bound CSV/XLSX/schema/result resource use](https://github.com/2001J/fuzzy-parser/issues/17) | Typed defaults and exact boundary failures for CSV/XLSX/schema/records/results independently reviewed, locally integrated and verified; closed |
 | [#18 Implement the selected runtime adapter](https://github.com/2001J/fuzzy-parser/issues/18) | Reviewed single-backend #11 decision, #10, #12, #17 and installation/packaging/lifecycle gates; final parity includes #13–#16 |
 | [#19 Cross-profile conformance and independence](https://github.com/2001J/fuzzy-parser/issues/19) | All preceding engine-readiness work |
 
@@ -118,7 +118,7 @@ tickets are now independently reviewed, integrated and closed.
 | 0.1 Workspace foundation | Implemented workspace and automated checks |
 | 0.2 TXT inspection | Working path; #2 privacy/#4 fixtures/#5 validation/#6 CLI/#7 subprocess matrix independently reviewed and verified |
 | 0.3 Pasted text/dispatch | Text/stdin exist; #5 validates TXT paths, #6 explicit routing independently reviewed and verified |
-| 0.4 CSV / 0.5 XLSX | Adapters plus opt-in table selection/provenance are delivered; limits and extended formats remain #17/#20 |
+| 0.4 CSV / 0.5 XLSX | Adapters, opt-in table selection/provenance and documented resource limits are delivered; extended formats remain #20 |
 | 0.6 Normalization / 0.7 Segmentation | Separate stages and reversible opt-in document composition are delivered; broader heuristics remain later work |
 | 0.8 Schema | Model/validation, shared compiler and contextual text/name extension are independently reviewed and verified |
 | 0.9 Detection / 0.10 Assignment | Scoped enums and local contextual text/name support; composition/options and later coverage remain |

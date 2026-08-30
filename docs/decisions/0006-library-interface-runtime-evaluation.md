@@ -113,22 +113,24 @@ resource limits and host packaging before implementation. Do not build a second
 adapter or expand #12 in this evaluation.
 
 The corrected evidence selects Node WASM with Worker isolation for future #18.
-The installed-package, #17 resource, true in-call cancellation and
-deadline, artifact identity/public TypeScript API, and Next.js/Vercel/deployment
-gates remain with #18 or separately authorized work. If any required gate fails,
+The installed-package, true in-call cancellation and deadline,
+artifact identity/public TypeScript API, and Next.js/Vercel/deployment gates
+remain with #18 or separately authorized work. The generic #17 engine resource
+limits are now integrated; #18 must enforce and expose them through the package
+boundary. If any required gate fails,
 record that result before implementation; do not add a silent CLI fallback.
 
 ## Budgets and outstanding gates
 
-The experiment caps input at 1 MiB, schema JSON at 64 KiB, stdout at 4 MiB,
-stderr at 64 KiB and each child at five seconds. These are **evaluation guards**,
-not implemented engine limits or promised production capacity. Output can be
-hundreds of times larger than the input. #17 must establish cell/record/schema
-and output budgets before #18 advertises supported sizes.
+The experiment capped input at 1 MiB, schema JSON at 64 KiB, stdout at 4 MiB,
+stderr at 64 KiB and each child at five seconds. Those remain historical
+**evaluation guards**, not promised production capacity. #17 subsequently
+implemented typed cell/record/schema and output budgets; #18 must preserve and
+test those budgets through the installed package.
 
 | Gate | Owner and acceptance |
 | --- | --- |
-| Generic engine prerequisites | #2/#12 safe errors and shared schema compiler plus #13/#14/#15/#16 capability slices are delivered; #17 enforced resource limits remain open |
+| Generic engine prerequisites | #2/#12 safe errors and shared schema compiler plus #13/#14/#15/#16 capability slices and #17 enforced resource limits are delivered |
 | One backend selected | Completed in #11: Node WASM with Worker isolation after independently reviewed CJS/ESM runtime parity and source/error checks |
 | Package installation | #18: test an installable local package with QualEvents absent and no consumer build-time Rust toolchain; verify artifact/contract identity and missing/wrong artifact failures. For CLI, prove OS/architecture/ABI and executable mode. For WASM, prove emitted module/glue loading and byte/source parity. Implement only the selected branch |
 | Runtime lifecycle | #18: true in-call cancellation/deadline policy, bounded memory/output, malformed output/version mismatch, concurrent calls and no input/credential leakage. #11 evidences Worker entry/termination only; it does not claim interruption of a synchronous call |

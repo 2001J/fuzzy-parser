@@ -19,10 +19,10 @@ the applications. See [integration strategy](integration-strategy.md).
 | Runtime worker | [#11 Node WASM boundary evaluation](https://github.com/2001J/fuzzy-parser/issues/11) | Complete; corrected, independently reviewed, integrated and closed | Selected one Node WASM package with Worker isolation; #18 owns production packaging |
 | Text pipeline worker | [#14 Reversible text composition](https://github.com/2001J/fuzzy-parser/issues/14) | Complete; independently reviewed, locally integrated and closed | High reasoning for source mapping and boundary abstention |
 | Table worker | [#16 Explicit table selection and provenance](https://github.com/2001J/fuzzy-parser/issues/16) | Complete; independently reviewed, locally integrated and closed | Medium/high reasoning for selectors, typed values and source manifests |
-| Resource-limits worker | [#17 Resource limits](https://github.com/2001J/fuzzy-parser/issues/17) | Active from `f2676ce`; implementation assigned | Owns CSV/XLSX/schema/record/result limits; one quick verification at handoff |
+| Resource-limits worker | [#17 Resource limits](https://github.com/2001J/fuzzy-parser/issues/17) | Complete; independently reviewed, integrated and verified | Typed CSV/XLSX/schema/record/result limits; full coordinator profile passed at `58e9b2f` |
 | Conformance worker | [#19 Two-profile conformance foundation](https://github.com/2001J/fuzzy-parser/issues/19) | Foundation integrated at `b0fc631`; full issue remains blocked | Selected-runtime completion still requires #17/#18 |
 | QualEvents preparation / privacy reviewer | Refresh host compatibility and define the first Contributor draft ticket | Complete and integrated in the host checkout | Host issue #74 remains blocked on #17/#18/#19 |
-| Coordinator | Independent review, integration and reporting | #2/#4–#7/#10–#16/#21/#22 locally integrated; coordinating next wave | Sole integration owner; one combined full verification after accepted merges |
+| Coordinator | Independent review, integration and reporting | #2/#4–#7/#10–#17/#21/#22 locally integrated; coordinating #18/#19 | Sole integration owner; one combined full verification after accepted merges |
 
 An assigned task must not silently expand into another ticket.
 
@@ -105,11 +105,9 @@ credentials, Docker, or machine resources.
 
 ## Active wave order — 2026-08-30
 
-1. #17 implements and documents the enforceable resource-limit contract.
-2. The #19 worker builds only the reusable native/CLI two-profile corpus in
-   parallel; selected-runtime completion remains blocked.
-3. #18 begins production Node/WASM packaging only after #17's reviewed limit
-   API is integrated, avoiding speculative adapter rework.
+1. #17's reviewed resource-limit contract is integrated and verified.
+2. The reusable native/CLI two-profile #19 foundation is integrated; selected-runtime completion remains blocked on #18.
+3. #18 now owns production Node/WASM packaging and lifecycle behavior against the integrated limits.
 4. Full #19 selected-runtime conformance follows #18.
 5. QualEvents begins its feature-gated, no-save Contributor CSV draft only after
    the package contract is real. Host preparation may refresh documentation and
