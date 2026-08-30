@@ -209,8 +209,8 @@ Its two fixture profiles demonstrate only supported integer/boolean subsets,
 not the full #19 independence gate. WASM is a credible candidate, not rejected
 because today's CLI was easier to exercise. [#22's byte-input API](data-contracts.md#xlsx-library-input--implemented)
 and #12's shared schema compilation are implemented and independently verified
-locally. #11's bounded JS/WASM comparison recommends a single Node WASM package
-with Worker isolation, pending independent review before #18 begins. A native
+locally. #11's bounded JS/WASM comparison selects a single Node WASM package
+with Worker isolation after independent review. A native
 byte API and target compilation alone do not prove deployed JS/WASM behavior.
 No second adapter is built in this slice. Native bindings are deferred; queues
 and a separate service are outside the initial direction.

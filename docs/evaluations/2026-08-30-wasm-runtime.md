@@ -81,8 +81,8 @@ noninterruptible on Node's event loop.
 
 ## Recommendation and limits
 
-Recommend **one Node WASM package with Worker isolation** for #18, subject to
-independent review of this evidence. It avoids the CLI candidate's executable,
+Independent review accepted **one Node WASM package with Worker isolation** as
+the selected backend for #18. It avoids the CLI candidate's executable,
 per-call process, pipe and temporary-file packaging while preserving exact byte
 path JSON, safe errors and source evidence in this bounded experiment. Do not
 ship a CLI fallback or a second backend.

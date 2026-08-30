@@ -3,17 +3,16 @@
 ## Status
 
 Library-first direction and bounded evidence independently reviewed, 2026-08-28.
-The 2026-08-30 #11 evaluation recommends Node WASM with Worker isolation,
-pending independent review; [the dated evidence](../evaluations/2026-08-30-wasm-runtime.md)
-records its scope and limits. Backend selection remains open in
-[#11](https://github.com/2001J/fuzzy-parser/issues/11) until that review.
+The corrected 2026-08-30 #11 evaluation was independently reviewed and selects
+Node WASM with Worker isolation; [the dated evidence](../evaluations/2026-08-30-wasm-runtime.md)
+records its scope and limits. [#11](https://github.com/2001J/fuzzy-parser/issues/11)
+owns the completed selection, not production-adapter readiness.
 Proposed caller boundary: **one small generic JavaScript/TypeScript library
 interface, running with the caller and no queue or separately operated service**.
 Simplicity of installation, calling and deployment is an explicit criterion.
-The corrected #11 evidence recommends **one Node WASM package with Worker
-isolation** as the single backend for #18, pending independent review. #11
-remains open for that review and the gates below. Neither production adapter
-work nor Vercel deployment readiness is established.
+The reviewed #11 evidence selects **one Node WASM package with Worker
+isolation** as the single backend for #18. Neither production adapter work nor
+Vercel deployment readiness is established.
 
 This follows the evidence requirement in [ADR 0005](0005-independent-engine-consumer-validation.md).
 It does not reinstate ADR 0004's unconditional sequence of further bindings.
@@ -98,10 +97,10 @@ There is no new public TypeScript API in this decision. #18 must settle its
 exact types against #12's shared schema contract; the harness is neither an
 installable package nor a production wrapper.
 
-## Backend decision gate — provisional WASM recommendation
+## Backend decision — Node WASM with Worker isolation
 
-The corrected #11 evidence supports an in-process WASM package with Worker
-isolation as the one backend recommendation. Keep the measured bundled-process
+The corrected and independently reviewed #11 evidence selects an in-process
+WASM package with Worker isolation as the one backend. Keep the measured bundled-process
 path as evidence only, not a silent runtime fallback. No application should
 implement or maintain both.
 
@@ -113,8 +112,8 @@ evidence. #18 must independently prove package installation, artifact identity,
 resource limits and host packaging before implementation. Do not build a second
 adapter or expand #12 in this evaluation.
 
-The corrected evidence provisionally selects Node WASM with Worker isolation for
-future #18. The installed-package, #17 resource, true in-call cancellation and
+The corrected evidence selects Node WASM with Worker isolation for future #18.
+The installed-package, #17 resource, true in-call cancellation and
 deadline, artifact identity/public TypeScript API, and Next.js/Vercel/deployment
 gates remain with #18 or separately authorized work. If any required gate fails,
 record that result before implementation; do not add a silent CLI fallback.
@@ -130,7 +129,7 @@ and output budgets before #18 advertises supported sizes.
 | Gate | Owner and acceptance |
 | --- | --- |
 | Generic engine prerequisites | #2/#12 safe errors and shared schema compiler are delivered; #17 enforced resource limits remain open. #13/#14/#16 remain required for final capability parity; #15 is delivered |
-| One backend selected | #11 recommends Node WASM with Worker isolation after CJS/ESM runtime parity and source/error checks; independent review remains required |
+| One backend selected | Completed in #11: Node WASM with Worker isolation after independently reviewed CJS/ESM runtime parity and source/error checks |
 | Package installation | #18: test an installable local package with QualEvents absent and no consumer build-time Rust toolchain; verify artifact/contract identity and missing/wrong artifact failures. For CLI, prove OS/architecture/ABI and executable mode. For WASM, prove emitted module/glue loading and byte/source parity. Implement only the selected branch |
 | Runtime lifecycle | #18: true in-call cancellation/deadline policy, bounded memory/output, malformed output/version mismatch, concurrent calls and no input/credential leakage. #11 evidences Worker entry/termination only; it does not claim interruption of a synchronous call |
 | Framework packaging | #18: a generic Next.js packaging fixture must retain the selected executable or WASM assets and invoke the installed package. It must not depend on QualEvents. No framework build was performed in #11 |
@@ -145,6 +144,6 @@ is ready. Host adoption, UI, migration and cutover remain external work in
 ## Consequences
 
 The useful historical CLI evidence is retained, but Node WASM with Worker
-isolation is the single recommended backend for #18. Only one production backend
+isolation is the selected backend for #18. Only one production backend
 should be implemented after review. No service,
 queue, release, deployment, host migration or publication is authorized here.
