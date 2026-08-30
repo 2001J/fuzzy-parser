@@ -20,8 +20,8 @@ the applications. See [integration strategy](integration-strategy.md).
 | Text pipeline worker | [#14 Reversible text composition](https://github.com/2001J/fuzzy-parser/issues/14) | Complete; independently reviewed, locally integrated and closed | High reasoning for source mapping and boundary abstention |
 | Table worker | [#16 Explicit table selection and provenance](https://github.com/2001J/fuzzy-parser/issues/16) | Complete; independently reviewed, locally integrated and closed | Medium/high reasoning for selectors, typed values and source manifests |
 | Resource-limits worker | [#17 Resource limits](https://github.com/2001J/fuzzy-parser/issues/17) | Active from `f2676ce`; implementation assigned | Owns CSV/XLSX/schema/record/result limits; one quick verification at handoff |
-| Conformance worker | [#19 Two-profile conformance foundation](https://github.com/2001J/fuzzy-parser/issues/19) | Active from `f2676ce`; fixture/test sub-slice assigned | Must not claim the #17/#18-dependent gate is complete |
-| QualEvents preparation / privacy reviewer | Refresh host compatibility and define the first Contributor draft ticket | Active at host `50fcaf`; documentation/tracker only | No runtime API invention or host implementation before #18 |
+| Conformance worker | [#19 Two-profile conformance foundation](https://github.com/2001J/fuzzy-parser/issues/19) | Foundation integrated at `b0fc631`; full issue remains blocked | Selected-runtime completion still requires #17/#18 |
+| QualEvents preparation / privacy reviewer | Refresh host compatibility and define the first Contributor draft ticket | Complete and integrated in the host checkout | Host issue #74 remains blocked on #17/#18/#19 |
 | Coordinator | Independent review, integration and reporting | #2/#4–#7/#10–#16/#21/#22 locally integrated; coordinating next wave | Sole integration owner; one combined full verification after accepted merges |
 
 An assigned task must not silently expand into another ticket.
