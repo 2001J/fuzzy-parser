@@ -1,0 +1,50 @@
+{
+  "schema_version": "0.1",
+  "record_name": "synthetic_attendance_entry",
+  "fields": [
+    {
+      "name": "participant",
+      "field_type": "person_name",
+      "required": true,
+      "multiple": false,
+      "aliases": ["Name"],
+      "constraints": []
+    },
+    {
+      "name": "contact_email",
+      "field_type": "email",
+      "required": true,
+      "multiple": false,
+      "aliases": ["Email"],
+      "constraints": []
+    },
+    {
+      "name": "party_size",
+      "field_type": "integer",
+      "required": true,
+      "multiple": false,
+      "aliases": ["Count"],
+      "constraints": [
+        { "kind": "minimum_integer", "value": 1 },
+        { "kind": "maximum_integer", "value": 20 }
+      ]
+    },
+    {
+      "name": "attending",
+      "field_type": "boolean",
+      "required": true,
+      "multiple": false,
+      "aliases": ["Enabled"],
+      "constraints": []
+    },
+    {
+      "name": "note",
+      "field_type": "text",
+      "required": false,
+      "multiple": false,
+      "aliases": [],
+      "constraints": []
+    }
+  ],
+  "options": { "allow_unknown_fields": true }
+}

@@ -9,6 +9,9 @@ use std::{
 #[path = "parse/email_boundaries.rs"]
 mod email_boundaries;
 
+#[path = "parse/conformance.rs"]
+mod conformance;
+
 #[path = "parse/schema_compilation.rs"]
 mod schema_compilation;
 
