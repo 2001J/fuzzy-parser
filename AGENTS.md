@@ -106,7 +106,8 @@ Do not create circular crate dependencies. Do not place shared models in the CLI
 
 ## Release And Compatibility Rules
 
-- `main` is the stable integrated development branch. Only verified work should be merged there.
+- `development` is the long-lived integration branch. Only reviewed and verified work should be merged there.
+- `main` remains the stable branch. Pull requests from `development` to `main` are opened deliberately after integration verification.
 - Feature branches should be short-lived and named by ticket and purpose, using the `codex/` prefix.
 - The first releases are pre-1.0. Breaking changes are allowed only when documented and covered by migration notes where users could already depend on the contract.
 - Release artifacts may eventually include a Rust library, CLI binary, npm/WebAssembly package, and service image. Do not assume all surfaces must ship in the same ticket.

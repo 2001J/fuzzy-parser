@@ -2,13 +2,18 @@
 
 ## Branch roles
 
+### `development`
+
+`development` is the long-lived integration branch.
+
+- Reviewed and verified feature work is merged into `development`.
+- Pull requests from `development` to `main` are opened deliberately after integration verification.
+- `development` is not permission to publish packages automatically.
+
 ### `main`
 
-`main` is the stable integrated development branch.
-
-- Pull requests target `main` unless an explicit release process says otherwise.
-- Only reviewed and verified work should be merged.
-- `main` is not permission to publish packages automatically.
+`main` is the stable branch and receives reviewed integration pull requests from
+`development`. It is not permission to publish packages automatically.
 
 ### Feature branches
 
