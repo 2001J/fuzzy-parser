@@ -64,7 +64,7 @@ selected independently.
 | [#15 Delimiter-adjacent email regression](https://github.com/2001J/fuzzy-parser/issues/15) | Independently reviewed, locally integrated and verified with core/CLI source-span regressions |
 | [#16 Explicit table headers/selection/provenance](https://github.com/2001J/fuzzy-parser/issues/16) | Opt-in headers/rows/sheets and table-manifest evidence independently reviewed, locally integrated and verified; closed |
 | [#17 Bound CSV/XLSX/schema/result resource use](https://github.com/2001J/fuzzy-parser/issues/17) | Typed defaults and exact boundary failures for CSV/XLSX/schema/records/results independently reviewed, locally integrated and verified; closed |
-| [#18 Implement the selected runtime adapter](https://github.com/2001J/fuzzy-parser/issues/18) | Reviewed single-backend #11 decision, #10, #12, #17 and installation/packaging/lifecycle gates; final parity includes #13–#16 |
+| [#18 Implement the selected runtime adapter](https://github.com/2001J/fuzzy-parser/issues/18) | Installable Node/WASM package, API, identity, limits, Worker lifecycle and generic Node/Next packaging implemented and locally verified; pending integration review/closure |
 | [#19 Cross-profile conformance and independence](https://github.com/2001J/fuzzy-parser/issues/19) | All preceding engine-readiness work |
 
 The milestone ends with a tested independent engine and reusable boundary.

@@ -183,31 +183,38 @@ adds contextual fields and unresolved residuals. It is independently reviewed,
 integrated and verified on macOS/Linux and in the batch container. Datetime
 remains unsupported, and runtime/independence gates remain open.
 
-## Proposed library caller experience
+## Node WebAssembly library
 
-The intended integration is an independently reusable library with a small
-generic call. No message queue or separately operated parser service is needed
-or authorized for the initial integration. A bundled executable behind a JS
-wrapper would still run locally with the caller, but the package must handle
-native binaries, process lifecycle and temporary files. A WASM module could
-avoid that plumbing; its actual byte-input and runtime gates remain open.
-
-**Proposal only — not an existing npm API or executable example.** Exact adapter
-types belong to #18 and must reuse the implemented shared schema contract and
-[data contracts](data-contracts.md), not create a second schema model:
+The implemented `@fuzzy-parser/node` package is the single reusable JavaScript
+boundary selected by #11. It uses generated Node WebAssembly glue in a per-call
+Worker. There is no CLI fallback, queue, service, native binding, or second
+adapter. The package is locally pack-tested but not published.
 
 ```typescript
-const draft = await parser.parse({
-  input: { format: "csv", bytes: uploadedBytes },
+import { parse } from "@fuzzy-parser/node";
+
+const draft = await parse({
+  input: { format: "csv", bytes: uploadedBytes, filename: "input.csv" },
   schema: callerSchema,
   options: callerOptions,
+}, {
+  timeoutMs: 30_000,
+  signal: abortController.signal,
 });
 ```
 
-The caller supplies the input and its own schema/options, then receives
-source-backed draft records, warnings and unresolved content. It owns mapping,
-review/correction, export and confirmed persistence; core fixes belong here.
-The interface must also work with unrelated supported profiles and no QualEvents.
+The caller receives the existing versioned response object. Safe parser errors
+throw `ParserFailure`; validation, initialization, protocol, deadline, abort,
+and package-output failures throw typed `AdapterError`. The installed runtime
+checks adapter/parser/schema/contract identity plus generated JS/WASM hashes.
+Deadline and abort are truthful Worker termination, not cooperative WASM
+cancellation. See the [package README](../packages/fuzzy-parser-node/README.md)
+for API, limits and installation checks.
+
+The caller still owns mapping, review/correction, export and confirmed
+persistence. Local Node 22/macOS arm64 and generic Next.js standalone packaging
+are verified; Vercel, browser, deployment, publication, and QualEvents adoption
+are not.
 
 ## Runtime evaluation — backend selected, adapter gates remain
 

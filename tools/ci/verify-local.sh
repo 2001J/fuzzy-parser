@@ -39,6 +39,7 @@ run cargo fmt --check
 run cargo clippy --workspace --all-targets --locked -- -D warnings
 run cargo test --workspace --locked
 run cargo build --workspace --locked
+run node tools/ci/verify-node-package.mjs
 
 if [[ "$FP_VERIFY_PROFILE" == "full" ]]; then
   if ! rustup target list --installed | grep -Fxq wasm32-unknown-unknown; then

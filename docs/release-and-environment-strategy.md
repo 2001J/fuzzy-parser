@@ -136,10 +136,14 @@ Potential artifacts are released independently when ready:
 
 ### npm/WebAssembly package
 
-- Generate or verify TypeScript declarations.
-- Prove fixture parity with the Rust CLI.
-- Document browser and Node support separately.
-- Do not bundle CLI-only dependencies.
+- `@fuzzy-parser/node` is implemented at package version `0.1.0` with generated
+  TypeScript declarations, Node 22 support, CJS/ESM entry points and one WASM
+  backend. It is locally pack-installed and verified in generic Node/Next.js
+  consumers; it has not been published.
+- Its identity manifest pins adapter/parser/schema/contract versions, Rust source
+  identity, wasm-bindgen version, and generated JS/WASM hashes.
+- Browser support, Vercel deployment and publication require separate evidence
+  and authorization. Do not bundle a CLI fallback or CLI-only dependencies.
 
 ### Container image
 

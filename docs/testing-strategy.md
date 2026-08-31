@@ -76,6 +76,19 @@ this experiment do not complete the broader [#19 gate](#cross-profile-conformanc
 Record OS/architecture, runtime versions and the exact isolation tested;
 local/container execution never substitutes for deployment evidence.
 
+### Installable Node package
+
+`node tools/ci/verify-node-package.mjs` is the deterministic #18 verification
+entry point. It builds the pinned WebAssembly adapter, runs package tests and
+TypeScript checks, packs and installs the tarball into a consumer without a
+Rust toolchain on its `PATH`, then builds and invokes a generic Next.js
+standalone fixture while checking Worker/WASM assets and hashes. Permanent tests
+cover CJS/ESM parity, two unrelated profiles, all supported byte formats,
+source-reference resolution, #17 exact boundaries, safe failures, missing or
+corrupt assets, actual-parser abort/deadline termination, recovery, concurrency,
+determinism, and absence of sensitive logging. This is package and framework
+packaging evidence, not publication, Vercel deployment, or #19 completion.
+
 ### Fixture tests
 
 Store synthetic source files under `fixtures/`.

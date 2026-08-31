@@ -12,6 +12,7 @@ pull request do not trigger duplicate runs.
 | Formatting, lint, and workflow | Rust formatting, warnings-as-errors Clippy across all targets, and actionlint including embedded shell checks |
 | Rust and Node | Locked workspace tests/builds on Ubuntu 24.04 x64 and macOS 15 arm64; fresh release CLI; CI guard tests; the existing Node 22 invocation/parity evaluation |
 | WASM libraries (compilation only) | Core, schema and formats libraries compile for `wasm32-unknown-unknown` |
+| Installable Node/WASM package | Build/typecheck/test the selected package, pack/install it without consumer Rust tooling, and build/invoke a generic Next.js standalone fixture with Worker/WASM assets |
 | Dependency advisories | Committed `Cargo.lock` against the current RustSec database using cargo-audit 0.22.2; advisory warnings and vulnerabilities fail the job |
 | Batch CLI container (no publication) | Build/load Linux amd64 image; non-root execution; synthetic TXT/CSV/XLSX/stdin parsing, source evidence, review warnings, structured errors, usage exit codes and forced timeout cleanup |
 | CI passed | Every required job, including both matrix legs, succeeded; failed, cancelled, skipped or missing jobs cannot pass |
@@ -22,8 +23,9 @@ The Node evaluation checks two supported synthetic profiles, exact CLI stream
 parity, source resolution and bounded invocation controls; its
 [scope and limitations](evaluations/2026-08-28-node-cli.md) still apply.
 
-WASM compilation is not JavaScript execution or package/deployment compatibility.
-The Node harness is an evaluation prototype, not a selected production adapter.
+Reusable-library WASM compilation alone is not JavaScript execution. The
+separate package job executes the selected Node adapter and verifies local
+installation/framework packaging; it is still not publication or deployment.
 Green CI does not establish full
 [#19 independence](https://github.com/2001J/fuzzy-parser/issues/19), arbitrary
 untrusted-file resource safety, benchmark targets or QualEvents integration.
@@ -65,7 +67,8 @@ tools/ci/verify-local.sh quick
 tools/ci/verify-local.sh full
 ```
 
-`quick` runs the locked Rust formatting, lint, test and workspace-build checks.
+`quick` runs the locked Rust formatting, lint, test and workspace-build checks,
+plus the deterministic installable Node-package verifier.
 `full` adds the reusable-library WASM compilation check, release CLI, Node guard
 tests and native invocation/parity evaluation. The script never installs a
 toolchain or target, runs Docker, mutates Git, publishes or deploys. Set
@@ -79,6 +82,7 @@ cargo +1.96.0 fmt --check
 cargo +1.96.0 clippy --workspace --all-targets --locked -- -D warnings
 cargo +1.96.0 test --workspace --locked
 cargo +1.96.0 build --workspace --locked
+node tools/ci/verify-node-package.mjs
 cargo +1.96.0 build --release --locked -p parser-cli
 node --test tools/ci/tests/*.test.mjs
 node --check tools/runtime-evaluation/evaluate.mjs
