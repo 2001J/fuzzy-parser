@@ -40,6 +40,7 @@ Start with the [documentation guide](docs/README.md). It routes you by task:
 - [Data contracts](docs/data-contracts.md)
 - [Error and confidence model](docs/error-and-confidence-model.md)
 - [Testing strategy](docs/testing-strategy.md)
+- [Cross-profile conformance](docs/conformance.md)
 - [Continuous integration](docs/ci.md)
 - [Roadmap](docs/roadmap.md)
 - [Release and environment strategy](docs/release-and-environment-strategy.md)

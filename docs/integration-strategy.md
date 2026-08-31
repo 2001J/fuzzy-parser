@@ -34,12 +34,13 @@ and authorization at confirmation, even when a parser suggestion has a high scor
 No consumer-specific constants, schemas, identifiers, imports or dependencies
 belong in generic engine behavior. Synthetic examples must be isolated fixtures.
 
-### Planned independence acceptance gate
+### Verified independence acceptance gate
 
-The reusable boundary must pass [#19](https://github.com/2001J/fuzzy-parser/issues/19)
-and the [cross-profile independence gate](testing-strategy.md#cross-profile-conformance-and-independence--planned)
-defined in testing strategy. That gate is **planned, not verified**; unsupported
-field types and interfaces must remain explicit until implemented.
+The reusable boundary passes [#19](https://github.com/2001J/fuzzy-parser/issues/19)
+and the [cross-profile independence gate](testing-strategy.md#cross-profile-conformance-and-independence--implemented)
+defined in testing strategy. Native/CLI and installed CJS/ESM tests now verify
+that gate for the implemented capability set; unsupported fields and formats
+remain explicit in the [capability matrix](conformance.md).
 
 ## Current CLI boundary
 
@@ -181,7 +182,8 @@ now supplies the same executable core plan to CLI and Rust callers. The local
 [#13 text/name extension](data-contracts.md#contextual-textname-migration-13)
 adds contextual fields and unresolved residuals. It is independently reviewed,
 integrated and verified on macOS/Linux and in the batch container. Datetime
-remains unsupported, and runtime/independence gates remain open.
+remains unsupported; it is a documented generic gap, not hidden by the completed
+runtime/independence gate.
 
 ## Node WebAssembly library
 
@@ -225,20 +227,17 @@ retains a successful Node/CLI prototype and a WASM runtime experiment.
 [ADR 0006](decisions/0006-library-interface-runtime-evaluation.md) owns the
 comparison, selected library boundary and remaining adapter gates. [Dated CLI
 evidence](evaluations/2026-08-28-node-cli.md) and [dated WASM evidence](evaluations/2026-08-30-wasm-runtime.md)
-own reproducible
-commands and measured results. No production adapter or Vercel deployment is
-claimed. [#18](https://github.com/2001J/fuzzy-parser/issues/18) implements only
-the reviewed choice after its engine prerequisites.
+own reproducible commands and measured results. #18 subsequently implements the
+reviewed Node/WASM choice; no Vercel deployment is claimed.
 
-The prototype invokes the current CLI without copying schema conversion.
-Its two fixture profiles demonstrate only supported integer/boolean subsets,
-not the full #19 independence gate. WASM is a credible candidate, not rejected
-because today's CLI was easier to exercise. [#22's byte-input API](data-contracts.md#xlsx-library-input--implemented)
+The historical prototype invokes the current CLI without copying schema
+conversion. Its two fixture profiles alone did not complete #19; the later
+native/CLI/CJS/ESM conformance corpus does. [#22's byte-input API](data-contracts.md#xlsx-library-input--implemented)
 and #12's shared schema compilation are implemented and independently verified
 locally. #11's bounded JS/WASM comparison selects a single Node WASM package
-with Worker isolation after independent review. A native
-byte API and target compilation alone do not prove deployed JS/WASM behavior.
-No second adapter is built in this slice. Native bindings are deferred; queues
+with Worker isolation after independent review. A native byte API and target
+compilation alone do not prove deployed JS/WASM behavior. No second adapter is
+built. Native bindings are deferred; queues
 and a separate service are outside the initial direction.
 The first consumer's Node.js/Next.js configuration informs
 the evaluation; its deployed version, architecture and compute settings remain

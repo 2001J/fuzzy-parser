@@ -55,7 +55,7 @@ The workspace currently contains four crates:
 - The CLI `parse` command uses shared schema decoding/compilation and the versioned `ParseResponse` pipeline. `datetime` retains `schema_field_type_unsupported`; unsupported options, constraints and enum definitions fail explicitly using the existing safe error boundary. Historical unsupported text/name error payloads remain readable and render unchanged.
 - CSV/XLSX path parsing accepts opt-in header, inclusive include/exclude row and XLSX sheet selectors. The fallible companion path emits table manifest evidence and typed `table_selection_error` failures; no-option parsing, inspection, TXT/text/stdin, and historical success output are unchanged.
 - The corrected and independently reviewed [#11 WASM evaluation](evaluations/2026-08-30-wasm-runtime.md) exercises the shared byte/schema boundary through both CJS and ESM, checks exact native parity and source references, and demonstrates Worker entry/termination. It selects one Node WASM package with Worker isolation for #18. This remains local evaluation evidence, not an installable production adapter, public TypeScript API, true in-call cancellation, Vercel deployment proof or completion of #19.
-- The `@fuzzy-parser/node` package implements that selected boundary with CJS/ESM entry points, TypeScript declarations, per-call Worker isolation, safe typed adapter failures, artifact identity checks, #17 limit preservation, and deadline/abort termination. Its tarball is installed into synthetic Node and generic Next.js standalone consumers during local verification. It is not published or deployed, and #19 selected-runtime independence remains open.
+- The `@fuzzy-parser/node` package implements that selected boundary with CJS/ESM entry points, TypeScript declarations, per-call Worker isolation, safe typed adapter failures, artifact identity checks, #17 limit preservation, and deadline/abort termination. Its tarball is installed into synthetic Node and generic Next.js standalone consumers during local verification. It is not published or deployed; the completed #19 gate verifies the same package across two independent profiles.
 - The [GitHub Actions workflow](ci.md) defines test-only Rust quality, Linux/macOS tests, Node invocation parity, WASM library compilation, dependency advisory and container-semantic gates. It has no publication step; the first hosted run of this revision remains to be recorded in [#23](https://github.com/2001J/fuzzy-parser/issues/23).
 - The CLI container is a batch artifact, not a selected runtime adapter or proven QualEvents deployment. Historical main-push image publication is removed in this revision; branches using the old workflow retain it until integration.
 - The repository is licensed under Apache License 2.0.
@@ -80,9 +80,7 @@ The following capabilities are planned but do not exist yet:
 - Datetime field execution and broader locale-aware field interpretation.
 - A unified serialized parse request; the reusable Rust schema compiler and core plan are available separately.
 - Aggregate record confidence and statistics. Current draft/review statuses expose generic evidence gaps only; heuristic scores are not calibrated accuracy probabilities. Business rejection/approval remains host-owned, not a planned engine capability.
-- The selected installable Node WASM adapter and public TypeScript contract. The isolated #11 binding and Node harness are evaluation tooling only; native Node bindings and HTTP services are not selected alternatives.
 - A standalone graphical interface.
-- The cross-profile, no-QualEvents independence gate described in [testing strategy](testing-strategy.md#cross-profile-conformance-and-independence--planned).
 - Parser-owned export to CSV, XLSX, or clipboard templates (QualEvents has its own export behavior).
 - OCR or PDF support.
 
@@ -93,6 +91,7 @@ cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo build --workspace
+node tools/ci/verify-node-package.mjs
 ```
 
 ## Planned work

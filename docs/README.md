@@ -14,6 +14,7 @@ This is the project map. Start with the question you need answered.
 | How are errors and uncertainty represented? | [Error and confidence model](error-and-confidence-model.md) |
 | Which crate owns a behavior? | [Architecture](architecture.md) |
 | How should changes be tested? | [Testing strategy](testing-strategy.md) |
+| Which capabilities passed the independent two-profile gate? | [Cross-profile conformance](conformance.md) |
 | Which automated checks run, and how do I reproduce them? | [Continuous integration](ci.md) |
 | What is planned next? | [Roadmap](roadmap.md) |
 | Who is working on which ticket, and how are branches combined? | [Parallel work board](parallel-work.md) |

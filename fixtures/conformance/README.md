@@ -1,4 +1,4 @@
-# Cross-profile conformance foundation
+# Cross-profile conformance corpus
 
 This synthetic corpus exercises one unmodified engine with two caller-owned
 schemas. `attendance-profile.json` is shaped like a possible attendance import;
@@ -18,7 +18,7 @@ source-reference resolution, warnings, unassigned candidates and nonempty
 unused spans for both profiles. Reusing the existing XLSX fixture avoids a
 second binary corpus that would duplicate typed-cell coverage.
 
-This is a bounded #19 foundation, not the completed independence gate. It does
-not provide #17 all-format resource limits or #18's installable selected Node
-WASM package/public TypeScript interface. It also does not establish host UI,
-authorization, review, persistence, export, messaging, migration or cutover.
+The corpus now runs through the native library, CLI, and installed #18 Node/WASM
+package via both CJS and ESM. See the [capability matrix](../../docs/conformance.md).
+It does not establish host UI, authorization, review, persistence, export,
+messaging, migration, deployment or cutover.

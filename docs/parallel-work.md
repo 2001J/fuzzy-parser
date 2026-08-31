@@ -20,9 +20,9 @@ the applications. See [integration strategy](integration-strategy.md).
 | Text pipeline worker | [#14 Reversible text composition](https://github.com/2001J/fuzzy-parser/issues/14) | Complete; independently reviewed, locally integrated and closed | High reasoning for source mapping and boundary abstention |
 | Table worker | [#16 Explicit table selection and provenance](https://github.com/2001J/fuzzy-parser/issues/16) | Complete; independently reviewed, locally integrated and closed | Medium/high reasoning for selectors, typed values and source manifests |
 | Resource-limits worker | [#17 Resource limits](https://github.com/2001J/fuzzy-parser/issues/17) | Complete; independently reviewed, integrated and verified | Typed CSV/XLSX/schema/record/result limits; full coordinator profile passed at `58e9b2f` |
-| Conformance worker | [#19 Two-profile conformance foundation](https://github.com/2001J/fuzzy-parser/issues/19) | Foundation integrated at `b0fc631`; full issue remains blocked | Selected-runtime completion still requires #17/#18 |
-| QualEvents preparation / privacy reviewer | Refresh host compatibility and define the first Contributor draft ticket | Complete and integrated in the host checkout | Host issue #74 remains blocked on #17/#18/#19 |
-| Coordinator | Independent review, integration and reporting | #2/#4–#7/#10–#17/#21/#22 locally integrated; coordinating #18/#19 | Sole integration owner; one combined full verification after accepted merges |
+| Conformance worker | [#19 Cross-profile conformance](https://github.com/2001J/fuzzy-parser/issues/19) | Native/CLI foundation plus installed CJS/ESM gate complete | Capability matrix retains generic gaps and excludes host adoption |
+| QualEvents preparation / privacy reviewer | Refresh host compatibility and define the first Contributor draft ticket | Complete and integrated in the host checkout | Host issue #74 may now begin its gated no-save slice |
+| Coordinator | Independent review, integration and reporting | Engine-readiness tickets through #19 locally integrated and verified | Sole integration owner; host adoption remains a separate repository |
 
 An assigned task must not silently expand into another ticket.
 
@@ -106,12 +106,10 @@ credentials, Docker, or machine resources.
 ## Active wave order — 2026-08-30
 
 1. #17's reviewed resource-limit contract is integrated and verified.
-2. The reusable native/CLI two-profile #19 foundation is integrated; selected-runtime completion remains blocked on #18.
-3. #18 now owns production Node/WASM packaging and lifecycle behavior against the integrated limits.
-4. Full #19 selected-runtime conformance follows #18.
-5. QualEvents begins its feature-gated, no-save Contributor CSV draft only after
-   the package contract is real. Host preparation may refresh documentation and
-   its implementation ticket in parallel.
+2. #18's installable Node/WASM package and lifecycle boundary are integrated.
+3. #19's native/CLI/CJS/ESM independence gate is complete.
+4. QualEvents may begin its feature-gated, no-save Contributor CSV draft; host
+   review, authorization and persistence remain separately owned.
 
 Workers run focused red/green checks and one `tools/ci/verify-local.sh quick`
 handoff profile. The coordinator runs the `full` profile once after integration;
@@ -273,12 +271,12 @@ next milestone. Worker message traffic is not a substitute for that summary.
 Record status and evidence here after meaningful review/integration transitions,
 not after every command.
 
-- #2, #3, #4, #5, #6, #7, #10, #11, #12, #13, #14, #15, #16, #21 and #22 are closed for reviewed delivered work. #8 is superseded,
+- #2, #3, #4, #5, #6, #7, #10, #11, #12, #13, #14, #15, #16, #17, #18, #19, #21 and #22 are closed for reviewed delivered work. #8 is superseded,
   not counted as delivered implementation.
 - [#23 CI](https://github.com/2001J/fuzzy-parser/issues/23) is committed and tested
   locally but remains open for the first authorized GitHub-hosted run.
 - Reviewed parser work remains local only; remote main is still
   `8f878a45d7801ab0ca0a7d10a1b8aca353c7c192`. No feature branch has been pushed.
-- Full engine readiness, the selected adapter's #17/#18 limits and packaging,
-  #19 independence conformance and actual QualEvents adoption are still open.
-  Parallelism does not relax these gates.
+- The reviewable-engine milestone gates through #19 are locally complete.
+  Actual QualEvents adoption remains separate and open; parallelism does not
+  relax its host-owned review, authorization or persistence gates.

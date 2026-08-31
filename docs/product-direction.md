@@ -66,12 +66,13 @@ detection, assignment, uncertainty, and provenance. The
 [integration strategy](integration-strategy.md) defines the reusable boundary
 and the separate first-consumer handoff.
 
-### Planned independence gate
+### Verified independence gate
 
-Independence must be demonstrated across unrelated caller profiles with the
-first consumer absent. The authoritative [planned acceptance gate](testing-strategy.md#cross-profile-conformance-and-independence--planned)
-is tracked in [#19](https://github.com/2001J/fuzzy-parser/issues/19); it is not a
-verified result today.
+Independence is demonstrated across unrelated caller profiles with the first
+consumer absent. The authoritative [acceptance gate](testing-strategy.md#cross-profile-conformance-and-independence--implemented)
+and [capability matrix](conformance.md) are completed in
+[#19](https://github.com/2001J/fuzzy-parser/issues/19) for the implemented
+capability set.
 
 ## Initial target inputs
 

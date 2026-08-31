@@ -72,7 +72,7 @@ The [#11 Node/CLI harness and dated evidence](evaluations/2026-08-28-node-cli.md
 exercise the existing executable with built-in Node assertions and synthetic
 profiles under `fixtures/runtime/`. Run these checks separately from Cargo;
 they add no Rust test target or implementation API. Two supported profiles in
-this experiment do not complete the broader [#19 gate](#cross-profile-conformance-and-independence--planned).
+this experiment alone does not complete the broader [#19 gate](#cross-profile-conformance-and-independence--implemented).
 Record OS/architecture, runtime versions and the exact isolation tested;
 local/container execution never substitutes for deployment evidence.
 
@@ -86,8 +86,9 @@ standalone fixture while checking Worker/WASM assets and hashes. Permanent tests
 cover CJS/ESM parity, two unrelated profiles, all supported byte formats,
 source-reference resolution, #17 exact boundaries, safe failures, missing or
 corrupt assets, actual-parser abort/deadline termination, recovery, concurrency,
-determinism, and absence of sensitive logging. This is package and framework
-packaging evidence, not publication, Vercel deployment, or #19 completion.
+determinism, and absence of sensitive logging. Combined with the dedicated
+conformance corpus below, it completes #19; it is not publication or Vercel
+deployment evidence.
 
 ### Fixture tests
 
@@ -376,16 +377,16 @@ A behavior ticket is complete when:
 - Existing fixtures remain green.
 - No source data is silently discarded.
 
-## Cross-profile conformance and independence — planned
+## Cross-profile conformance and independence — implemented
 
-[#19](https://github.com/2001J/fuzzy-parser/issues/19) gates engine readiness with
+[#19](https://github.com/2001J/fuzzy-parser/issues/19) verifies engine independence with
 synthetic text/TXT/CSV/XLSX fixtures and CLI/selected-boundary parity. The same
 unmodified engine/public interface must process a synthetic QualEvents-shaped
 profile and an unrelated supported-domain profile using caller configuration
 only, with QualEvents not installed or available. Fixture profiles must remain
-isolated from implementation; inspect dependency and runtime assumptions as well
-as results. This gate is planned, not satisfied by the existing suite or #10's
-source-evidence regression tests.
+isolated from implementation; tests inspect dependency and runtime assumptions as
+well as results. The native/CLI and installed CJS/ESM package suites now satisfy
+this gate; see the [capability matrix](conformance.md).
 
 Measure semantic output, source evidence and unresolved content; do not infer
 accuracy from rule scores or claim unsupported field types work. Additional
