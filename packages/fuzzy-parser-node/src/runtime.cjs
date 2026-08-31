@@ -1,6 +1,7 @@
 'use strict';
 
 const { Worker } = require('node:worker_threads');
+const { version: PACKAGE_VERSION } = require('../package.json');
 
 const WORKER_PATH = require.resolve('./worker.cjs');
 const PROTOCOL_VERSION = 1;
@@ -130,7 +131,7 @@ function decodeSuccess(json) {
   } catch {
     throw new AdapterError('PROTOCOL_ERROR', 'worker returned invalid parser result JSON');
   }
-  if (response?.contract_version !== '0.1' || response?.parser_version !== '0.1.0') {
+  if (response?.contract_version !== '0.1' || response?.parser_version !== PACKAGE_VERSION) {
     throw new AdapterError('PROTOCOL_ERROR', 'worker returned an incompatible parser result');
   }
   return response;

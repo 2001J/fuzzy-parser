@@ -1,11 +1,13 @@
 # Fuzzy Parser
 
+[![CI](https://github.com/2001J/fuzzy-parser/actions/workflows/ci.yml/badge.svg?branch=development)](https://github.com/2001J/fuzzy-parser/actions/workflows/ci.yml?query=branch%3Adevelopment)
+
 Fuzzy Parser turns messy text and tabular data into reviewable, traceable
 records. It is a domain-neutral Rust engine: callers provide the fields,
 aliases, enum values, and constraints; the parser provides extraction,
 normalization, provenance, confidence, and uncertainty.
 
-QualEvents is the first planned consumer and validation case, not an engine
+QualEvents is the first consumer and validation case, not an engine
 dependency. Like any caller, it supplies input and its own schema/options; it
 owns business rules, review/correction, export, and confirmed persistence.
 Its adoption goal covers supported text and tabular imports. Independent Rust
@@ -13,7 +15,9 @@ library and CLI use remain part of the product.
 
 The usable surfaces today are the Rust libraries, `parser-cli`, and the locally
 pack-tested [`@fuzzy-parser/node`](packages/fuzzy-parser-node/README.md) WebAssembly
-package. The QualEvents integration is not implemented. See
+package. QualEvents has a feature-gated, preview-only product-branch integration
+for paste/CSV draft review; it does not save or deploy anything and is not the
+full import cutover. See
 [current limitations](docs/current-state.md) and the [engine roadmap](docs/roadmap.md).
 
 ## Quick Start
@@ -176,8 +180,11 @@ cargo build --workspace --locked
 
 The [workflow](.github/workflows/ci.yml) also checks Linux/macOS behavior, the
 Node invocation prototype, WASM library compilation, dependency advisories,
-and container semantics. Its tested Rust baseline is 1.96.0. CI and releases are
-separate; no automatic publication is configured in this revision.
+and container semantics on pull requests plus pushes to `development` and
+`main`. Its tested Rust baseline is 1.96.0. The separate manual
+[release workflow](.github/workflows/release.yml) can build release candidates
+without publishing; publication is an explicit, protected choice from `main`.
+See the [release operator guide](docs/releasing.md).
 
 ## License
 

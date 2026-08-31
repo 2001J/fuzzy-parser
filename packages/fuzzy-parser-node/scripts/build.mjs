@@ -10,6 +10,7 @@ const dist = join(packageRoot, 'dist');
 const generated = join(packageRoot, '.generated');
 const runtimeDir = join(dist, 'runtime');
 const bindgen = join(packageRoot, '.toolchain/bin/wasm-bindgen');
+const packageManifest = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'));
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { cwd: packageRoot, stdio: 'inherit', ...options });
@@ -85,9 +86,9 @@ const gluePath = join(runtimeDir, 'parser_wasm.cjs');
 const wasmPath = join(runtimeDir, 'parser_wasm_bg.wasm');
 const identity = {
   adapterName: '@fuzzy-parser/node',
-  adapterVersion: '0.1.0',
+  adapterVersion: packageManifest.version,
   contractVersion: '0.1',
-  parserVersion: '0.1.0',
+  parserVersion: packageManifest.version,
   schemaVersion: '0.1',
   sourceIdentity,
   wasmBindgenVersion: '0.2.115',

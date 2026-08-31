@@ -51,6 +51,13 @@ The project starts at `0.x` and follows semantic versioning in spirit:
 
 Pre-1.0 does not mean careless. Any serialized contract already used by another project should receive migration notes when changed.
 
+The Rust workspace, `@fuzzy-parser/node`, its WASM crate, lockfile entries,
+binary response `parser_version`, package identity and container label all use
+one implementation version. `node tools/release/check-version.mjs` fails when
+those package surfaces diverge. JSON schema, parse-response and error-contract
+versions remain independent compatibility axes and are not forced to equal the
+package version.
+
 Separate versions may eventually exist for:
 
 - Rust crates.
@@ -171,6 +178,13 @@ immutable releases or evidence of a tested QualEvents deployment.
 - Publication credentials must never be committed.
 - Release automation must not run on ordinary pull requests.
 - Prefer dry runs before irreversible publication.
+
+The manual [Release workflow](../.github/workflows/release.yml) implements these
+rules. A run from `development` may validate version `0.1.0` and build candidate
+CLI/npm artifacts, but cannot publish. Publishing GitHub, npm or GHCR artifacts
+requires a separate boolean input, the `main` ref, the protected `release`
+environment and the relevant GitHub/npm credentials. Rust crates are not part
+of this first publication workflow.
 
 [#23](https://github.com/2001J/fuzzy-parser/issues/23) removes the earlier automatic
 main-push image publication and its mismatch with this policy. Until that change

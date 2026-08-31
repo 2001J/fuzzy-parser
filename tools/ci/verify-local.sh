@@ -39,6 +39,8 @@ run cargo fmt --check
 run cargo clippy --workspace --all-targets --locked -- -D warnings
 run cargo test --workspace --locked
 run cargo build --workspace --locked
+run node --test tools/release/tests/*.test.mjs
+run node tools/release/check-version.mjs
 run node tools/ci/verify-node-package.mjs
 
 if [[ "$FP_VERIFY_PROFILE" == "full" ]]; then
@@ -47,7 +49,7 @@ if [[ "$FP_VERIFY_PROFILE" == "full" ]]; then
     exit 2
   fi
   run cargo check --locked --target wasm32-unknown-unknown \
-    -p parser-core -p parser-schema -p parser-formats
+    -p parser-api -p parser-core -p parser-schema -p parser-formats
   run cargo build --release --locked -p parser-cli
   run node --test tools/ci/tests/*.test.mjs
   run node --check tools/runtime-evaluation/evaluate.mjs

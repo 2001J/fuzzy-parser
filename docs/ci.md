@@ -2,16 +2,16 @@
 
 CI [automated checks after code changes] uses the existing
 [workflow](../.github/workflows/ci.yml) for pull requests, pushes to `main`, and
-manual runs. It never publishes or deploys. Feature-branch pushes without a
-pull request do not trigger duplicate runs.
+`development`, and manual runs. It never publishes or deploys. Feature-branch
+pushes without a pull request do not trigger duplicate runs.
 
 ## Required checks
 
 | Check | What it verifies |
 | --- | --- |
-| Formatting, lint, and workflow | Rust formatting, warnings-as-errors Clippy across all targets, and actionlint including embedded shell checks |
+| Formatting, lint, version, and workflow | Rust formatting, warnings-as-errors Clippy across all targets, actionlint including embedded shell checks, and one aligned Rust/npm/WASM package version |
 | Rust and Node | Locked workspace tests/builds on Ubuntu 24.04 x64 and macOS 15 arm64; fresh release CLI; CI guard tests; the existing Node 22 invocation/parity evaluation |
-| WASM libraries (compilation only) | Core, schema and formats libraries compile for `wasm32-unknown-unknown` |
+| WASM libraries (compilation only) | Application API, core, schema and formats libraries compile for `wasm32-unknown-unknown` |
 | Installable Node/WASM package | Build/typecheck/test the selected package, pack/install it without consumer Rust tooling, and build/invoke a generic Next.js standalone fixture with Worker/WASM assets |
 | Dependency advisories | Committed `Cargo.lock` against the current RustSec database using cargo-audit 0.22.2; advisory warnings and vulnerabilities fail the job |
 | Batch CLI container (no publication) | Build/load Linux amd64 image; non-root execution; synthetic TXT/CSV/XLSX/stdin parsing, source evidence, review warnings, structured errors, usage exit codes and forced timeout cleanup |
@@ -40,7 +40,7 @@ The advisory job covers Rust dependencies, not operating-system image packages.
   with no network, read-only filesystems/fixtures, no extra capabilities, a
   non-root UID, and memory/process limits.
 - Every job has a timeout; obsolete runs are cancelled. Both matrix results stay
-  visible. Cargo/image caches are saved only on main-push runs; a
+  visible. Cargo/image caches are saved only on `development` or `main` pushes; a
   cache hit never skips tests. Image cache export occurs during the build step,
   so a later semantic-smoke failure can still leave that cache available.
 - Actions use upstream commit SHAs, actionlint and build images use digests,
@@ -82,13 +82,15 @@ cargo +1.96.0 fmt --check
 cargo +1.96.0 clippy --workspace --all-targets --locked -- -D warnings
 cargo +1.96.0 test --workspace --locked
 cargo +1.96.0 build --workspace --locked
+node --test tools/release/tests/*.test.mjs
+node tools/release/check-version.mjs
 node tools/ci/verify-node-package.mjs
 cargo +1.96.0 build --release --locked -p parser-cli
 node --test tools/ci/tests/*.test.mjs
 node --check tools/runtime-evaluation/evaluate.mjs
 node tools/runtime-evaluation/evaluate.mjs target/release/parser-cli
 rustup target add --toolchain 1.96.0 wasm32-unknown-unknown
-cargo +1.96.0 check --locked --target wasm32-unknown-unknown -p parser-core -p parser-schema -p parser-formats
+cargo +1.96.0 check --locked --target wasm32-unknown-unknown -p parser-api -p parser-core -p parser-schema -p parser-formats
 ```
 
 Other checks require Docker, Cargo and cargo-audit **0.22.2**. The workflow records
@@ -124,6 +126,12 @@ After a green hosted run, `CI passed` is the intended stable required status
 check for a repository ruleset or branch protection. This change does not alter
 those settings: without required-check rules CI reports failures but does not
 prevent merging. Reconcile any old required-check names when enabling the gate.
+
+The manual [release workflow](../.github/workflows/release.yml) is separate from
+CI. Its default execution validates and uploads candidate artifacts only. It can
+publish only when an operator selects an explicit publication input on `main`;
+ordinary `development`, `main`, pull-request and CI runs have read-only content
+permissions and no registry credentials.
 
 The old main-push workflow published a container independently of its Rust test
 job. This checkout removes that behavior, but branches using the old workflow

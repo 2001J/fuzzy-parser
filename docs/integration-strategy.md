@@ -4,7 +4,9 @@ This document owns the reusable integration boundary and external consumer
 handoff. Use
 [data contracts](data-contracts.md) for exact current versus proposed models,
 [current state](current-state.md) for capability limits, and [roadmap](roadmap.md)
-for ticket order. QualEvents integration is planned, not implemented.
+for ticket order. QualEvents has a feature-gated, preview-only product-branch
+integration for paste/CSV draft review. It does not persist, deploy, or prove
+the remaining text/tabular cutover work complete.
 
 ## Generic engine/adapter/host ownership
 

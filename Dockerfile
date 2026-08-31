@@ -9,6 +9,15 @@ RUN cargo build --release --locked -p parser-cli
 
 FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS runtime
 
+ARG VERSION=0.1.0
+ARG REVISION=unknown
+LABEL org.opencontainers.image.title="Fuzzy Parser CLI" \
+      org.opencontainers.image.description="Domain-neutral batch parser CLI" \
+      org.opencontainers.image.version="$VERSION" \
+      org.opencontainers.image.revision="$REVISION" \
+      org.opencontainers.image.source="https://github.com/2001J/fuzzy-parser" \
+      org.opencontainers.image.licenses="Apache-2.0"
+
 RUN groupadd --system --gid 10001 parser \
     && useradd --system --uid 10001 --gid parser --create-home parser
 

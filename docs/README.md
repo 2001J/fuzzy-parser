@@ -16,6 +16,7 @@ This is the project map. Start with the question you need answered.
 | How should changes be tested? | [Testing strategy](testing-strategy.md) |
 | Which capabilities passed the independent two-profile gate? | [Cross-profile conformance](conformance.md) |
 | Which automated checks run, and how do I reproduce them? | [Continuous integration](ci.md) |
+| How do I validate a version or produce release artifacts? | [Release operator guide](releasing.md) |
 | What is planned next? | [Roadmap](roadmap.md) |
 | Who is working on which ticket, and how are branches combined? | [Parallel work board](parallel-work.md) |
 | How are releases and containers handled? | [Release and environment strategy](release-and-environment-strategy.md) |
@@ -40,6 +41,8 @@ Each document has one primary responsibility:
   `testing-strategy.md` owns verification requirements.
 - `release-and-environment-strategy.md` owns versioning and publication rules.
   Planning milestones are not package or contract versions.
+- `releasing.md` is the executable operator checklist for dry-run artifacts and
+  separately authorized publication.
 - `ci.md` owns workflow gates, local reproduction and hosted-verification limits;
   CI is not release automation or evidence of host adoption.
 - Dated audits record historical evidence, not a competing current-state contract.
