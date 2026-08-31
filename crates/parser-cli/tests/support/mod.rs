@@ -1,6 +1,6 @@
 use std::{
     fs,
-    io::Write,
+    io::{ErrorKind, Write},
     path::PathBuf,
     process::{Command, Output, Stdio},
     sync::atomic::{AtomicUsize, Ordering},
@@ -46,7 +46,13 @@ pub fn run(args: &[&str], input: Option<&[u8]>) -> Output {
         .spawn()
         .unwrap();
     if let Some(input) = input {
-        child.stdin.take().unwrap().write_all(input).unwrap();
+        if let Err(error) = child.stdin.take().unwrap().write_all(input) {
+            assert_eq!(
+                error.kind(),
+                ErrorKind::BrokenPipe,
+                "unexpected stdin write failure: {error}"
+            );
+        }
     } else {
         drop(child.stdin.take());
     }
