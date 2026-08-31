@@ -1,2 +1,8 @@
 /target
 .DS_Store
+/packages/fuzzy-parser-node/.generated
+/packages/fuzzy-parser-node/.toolchain
+/packages/fuzzy-parser-node/LICENSE
+/packages/fuzzy-parser-node/dist
+/packages/fuzzy-parser-node/node_modules
+/packages/fuzzy-parser-node/wasm/target

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const requiredJobs = ['quality', 'test', 'wasm', 'dependencies', 'container'];
+export const requiredJobs = ['quality', 'test', 'wasm', 'node-package', 'dependencies', 'container'];
 
 export function assertJobResults(results) {
   assert(results && typeof results === 'object' && !Array.isArray(results), 'missing job results');

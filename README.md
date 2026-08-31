@@ -11,10 +11,10 @@ owns business rules, review/correction, export, and confirmed persistence.
 Its adoption goal covers supported text and tabular imports. Independent Rust
 library and CLI use remain part of the product.
 
-The usable surface today is `parser-cli`: inspection of TXT, CSV, and XLSX,
-schema validation, and partial schema-driven parsing. The QualEvents integration
-is not implemented. See [current limitations](docs/current-state.md) and the
-[engine roadmap](docs/roadmap.md).
+The usable surfaces today are the Rust libraries, `parser-cli`, and the locally
+pack-tested [`@fuzzy-parser/node`](packages/fuzzy-parser-node/README.md) WebAssembly
+package. The QualEvents integration is not implemented. See
+[current limitations](docs/current-state.md) and the [engine roadmap](docs/roadmap.md).
 
 ## Quick Start
 
@@ -121,6 +121,17 @@ CI [automated checks after code changes] builds and smoke-tests a non-root batch
 CLI image without publishing it. It is not an HTTP service or a proven
 QualEvents deployment boundary. See [CI checks and local reproduction](docs/ci.md)
 and [release and publication rules](docs/release-and-environment-strategy.md).
+
+## Node library
+
+`@fuzzy-parser/node` exposes the same byte/schema pipeline through one
+Worker-isolated WebAssembly backend. CJS and ESM consumers receive the existing
+parse-response object; safe parser reports are distinct from adapter lifecycle
+errors. The package verifies its generated JS/WASM identity and supports
+deadlines and `AbortSignal` by terminating the per-call Worker. It has been
+pack-installed in synthetic Node and Next.js consumers, but has not been
+published or deployed. See the [package README](packages/fuzzy-parser-node/README.md)
+and [integration contract](docs/integration-strategy.md#node-webassembly-library).
 
 ## Development
 
