@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/parser-api",
     "crates/parser-core",
     "crates/parser-formats",
     "crates/parser-schema",

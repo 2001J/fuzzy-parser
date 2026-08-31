@@ -1,5 +1,10 @@
 import {
   AdapterError,
+  defineProfile,
+  parseProfile,
+  records,
+  reviewRecords,
+  unresolvedEvidence,
   ParserFailure,
   parse,
   type ParseRequest,
@@ -24,3 +29,18 @@ const response: Promise<ParseResponse> = parse(request, {
 void response;
 void AdapterError;
 void ParserFailure;
+
+const profile = defineProfile({
+  name: "contact",
+  version: "1",
+  fields: [{ name: "person", fieldType: "person_name", required: true }],
+});
+void profile.then(async (value) => {
+  const parsed = await parseProfile(value, request.input);
+  const rows = records(parsed);
+  const review = reviewRecords(parsed);
+  const evidence = unresolvedEvidence(parsed);
+  void rows;
+  void review;
+  void evidence;
+});

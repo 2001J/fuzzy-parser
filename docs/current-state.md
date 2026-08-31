@@ -23,8 +23,9 @@ limits are not a sandbox or preallocation guarantee.
 
 The repository is a Rust workspace at version `0.1.0` using Rust edition 2024.
 
-The workspace currently contains four crates:
+The workspace currently contains five crates:
 
+- `parser-api`
 - `parser-core`
 - `parser-formats`
 - `parser-schema`
@@ -48,6 +49,7 @@ The workspace currently contains four crates:
 - `parser-formats` reads XLSX workbooks from paths or borrowed bytes with optional filename metadata, using one extraction path with sheet, row, column and typed-cell provenance. The byte API performs no filesystem/network I/O; both read stored/cached values without executing formulas or macros. See [XLSX library input](data-contracts.md#xlsx-library-input--implemented) for metadata and error semantics.
 - `parser-schema` provides serializable generic target-schema models for fields, enum values, aliases, and basic constraints, plus structural validation for supported versions and ambiguous labels.
 - `parser-schema` compiles executable schemas into a reusable core `ParsePlan`; CLI and Rust callers use the same detector/assignment pipeline. Strict execution JSON decoding checks unknown properties without changing structural schema validation. Enum values and aliases stay scoped to their field; unresolved ownership warns instead of choosing by schema order. See [capabilities and migration](data-contracts.md#executable-schema). This local #12 implementation is independently reviewed and verified.
+- `parser-api` adds the application-facing Rust flow: define and version a reusable typed profile, validate supported capabilities before source input arrives, and parse borrowed text/TXT/CSV/XLSX data through the existing adapters and plan. It returns the unchanged typed assignments, review state, warnings, unresolved candidates and source evidence; it does not add a queue, service, persistence, or application semantics. The Node package mirrors this with `defineProfile`/`parseProfile` and typed review/evidence helpers. See [application profiles and migration](data-contracts.md#application-profiles-and-migration).
 - Format/schema errors share typed reports and safe default JSON/Display in `parser-core`. Explicit library diagnostics and a leading CLI `--diagnostics` expose only allowlisted context, which may be sensitive. The [error contract migration](data-contracts.md#error-contract-01-and-migration-from-unversioned-errors) preserves codes/cause meanings while changing default fields/messages, adding the separate error version and refining invalid-data I/O kinds. Successful output is unchanged.
 - Text input has library-configurable byte and line-length limits. CLI TXT-file inspect/parse accepts trailing byte-limit and empty-policy overrides; defaults remain 1 MiB total, 64 KiB per line and empty acceptance. CSV, XLSX, schema and parsed-response paths now have typed library limits and safe defaults; the CLI applies those defaults without adding new flags. See the [resource-limit contract](data-contracts.md#resource-limits--implemented) and [exact TXT grammar](integration-strategy.md#cli-grammar-and-validation-options).
 - The independently reviewed local [file-validation slice](file-validation.md) checks regular files, enabled extensions, metadata size and explicit empty policy, returning an opened handle. TXT paths use this helper and bounded reads on the same handle; default empty acceptance and successful raw output remain unchanged. The helper's CSV/XLSX eligibility does not integrate those readers.

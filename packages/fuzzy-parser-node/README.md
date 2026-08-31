@@ -10,6 +10,45 @@ consumer-specific rules.
 The package is implemented and locally pack-tested, but is not published by
 this repository's CI.
 
+## Application profiles
+
+For repeated imports, define a caller-owned profile once instead of rebuilding
+raw schema JSON for every parse:
+
+```js
+import { defineProfile, parseProfile, reviewRecords, unresolvedEvidence } from '@fuzzy-parser/node';
+
+const profile = await defineProfile({
+  name: 'contacts-import', version: '2026-08', recordName: 'contact',
+  fields: [
+    { name: 'person', fieldType: 'person_name', required: true, aliases: ['Name'] },
+    { name: 'phone', fieldType: 'phone_number', required: true },
+    { name: 'amount', fieldType: 'currency' },
+    { name: 'notes', fieldType: 'text' },
+  ],
+});
+const result = await parseProfile(profile, {
+  format: 'csv', bytes: uploadedBytes, filename: 'contacts.csv',
+});
+const needsReview = reviewRecords(result);
+const unresolved = unresolvedEvidence(result);
+// unresolved.records contains unassigned candidates; unresolved.source keeps
+// the canonical document and unused source spans for correction UIs.
+```
+
+`defineProfile` validates executable capabilities through the same Worker/WASM
+compiler before application input is supplied. It does not infer business
+meaning: field names, aliases, requiredness, enum values and constraints remain
+application-owned. The same profile can parse text, TXT, CSV and XLSX even when
+optional `amount` or `notes` fields are absent. Its application version is
+separate from parser schema/result versions; use a new profile version for
+meaning changes and retain prior versions for historical replays.
+
+Profile fields and options use typed application-facing names. For example,
+constraints use `{ kind: 'minimumLength', value: 2 }`; text normalization uses
+`normalizePunctuation`, while the package translates these once to the stable
+engine schema contract.
+
 ```js
 import { parse, ParserFailure, AdapterError } from '@fuzzy-parser/node';
 

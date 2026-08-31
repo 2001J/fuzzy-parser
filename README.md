@@ -28,6 +28,34 @@ Inspection preserves source locations and raw values. Valid output goes to
 stdout; processing failures are structured JSON on stderr with exit code `1`.
 Usage errors are plain text on stderr with exit code `2`.
 
+### Application profiles
+
+Applications that import more than one file can define their field vocabulary
+once, version it in the application, and reuse it. The engine surfaces universal
+evidence; the application owns field meaning and approval.
+
+```rust
+use parser_api::{ApplicationInput, ApplicationProfile, ProfileField};
+use parser_schema::FieldType;
+
+let contacts = ApplicationProfile::define("contacts-import", "2026-08")
+    .record_name("contact")
+    .field(ProfileField::required("person", FieldType::PersonName).aliases(["Name"]))
+    .field(ProfileField::required("phone", FieldType::PhoneNumber))
+    .field(ProfileField::optional("amount", FieldType::Currency))
+    .field(ProfileField::optional("notes", FieldType::Text))
+    .build()?;
+let result = contacts.parse(
+    ApplicationInput::Csv { bytes: uploaded_csv, file_name: Some("contacts.csv") },
+    Default::default(),
+)?;
+```
+
+`build` validates supported capabilities before uploaded input arrives.
+`ApplicationInput` accepts pasted text, TXT, CSV and XLSX bytes; optional
+fields may be absent without a new profile. The profile version is separate
+from parser schema/result versions; see [profile versioning and migration](docs/data-contracts.md#application-profiles-and-migration).
+
 ## Documentation
 
 Start with the [documentation guide](docs/README.md). It routes you by task:

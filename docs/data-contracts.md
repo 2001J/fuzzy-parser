@@ -30,6 +30,37 @@ are not any of these versions; see [release strategy](release-and-environment-st
 
 Parser implementation version and schema contract version are separate concerns.
 
+### Application profiles and migration
+
+`parser-api` is the preferred Rust boundary for repeated application imports.
+`ApplicationProfile::define(name, version)` builds caller-owned `ProfileField`
+values, validates executable schema capabilities immediately, and compiles one
+reusable plan. Its single `parse(ApplicationInput, ApplicationParseOptions)`
+entry accepts pasted text, TXT bytes, CSV bytes and XLSX bytes, returning the
+existing `ParseResponse`. It creates no service, queue, database or persistence
+workflow.
+
+The Node package mirrors this with async `defineProfile` and `parseProfile`.
+The Node definition uses application-facing camel case (`recordName`,
+`fieldType`, `allowUnknownFields`) and converts it once to the existing schema
+contract. `defineProfile` invokes the same Worker/WASM compiler with no caller
+data, so unsupported types, constraints, options and enum definitions fail
+before an application accepts an upload.
+
+Profile `name` and caller-managed `version` identify a vocabulary but never
+influence detection or assignment. They are distinct from `schema_version`,
+`contract_version` and `parser_version`. Introduce a new profile version when a
+field's meaning, requiredness, aliases, constraints or enum vocabulary changes,
+and retain older profiles to replay historical imports. Optional fields are
+absent when a source does not contain them; inspect warnings and review state
+rather than treating absence as approval.
+
+The result surface is unchanged for compatibility: assignments and record
+review remain under `content`, unassigned candidates remain in each assignment,
+warnings remain at `warnings`, and canonical source evidence/unused spans remain
+at `source_evidence`. The engine surfaces evidence; applications define business
+meaning, and no profile name receives special behavior.
+
 ### Executable schema migration (#12)
 
 The #12 execution boundary preserves structural `TargetSchema` decoding and the

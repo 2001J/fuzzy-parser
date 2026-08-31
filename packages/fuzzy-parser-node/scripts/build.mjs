@@ -50,6 +50,7 @@ const sourceFiles = [
   join(packageRoot, 'wasm/Cargo.lock'),
   join(packageRoot, 'wasm/Cargo.toml'),
   ...(await filesUnder(join(repositoryRoot, 'crates/parser-core/src'))),
+  ...(await filesUnder(join(repositoryRoot, 'crates/parser-api/src'))),
   ...(await filesUnder(join(repositoryRoot, 'crates/parser-formats/src'))),
   ...(await filesUnder(join(repositoryRoot, 'crates/parser-schema/src'))),
   ...(await filesUnder(join(packageRoot, 'wasm/src'))),

@@ -1,0 +1,13 @@
+[package]
+name = "parser-api"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+parser-core = { path = "../parser-core" }
+parser-formats = { path = "../parser-formats" }
+parser-schema = { path = "../parser-schema" }
+

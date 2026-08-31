@@ -86,6 +86,20 @@ currently executable schema options.
 
 The schema crate describes generic structure. Product-specific schemas live in consuming applications or external profile files.
 
+### `parser-api`
+
+Owns the small application-facing composition boundary:
+
+- Reusable caller-owned profile identity and version.
+- Typed fields, aliases, required/optional/multiple settings and constraints.
+- Early compilation of supported schema capabilities into one immutable plan.
+- One borrowed-input parse entry for text, TXT, CSV and XLSX, preserving the
+  existing response/review/warning/evidence contract.
+
+It depends on schema, format and core crates but has no domain constants,
+network, queue, database or persistence dependency. It must not duplicate
+compiler, extraction, detection or assignment behavior.
+
 ### `parser-cli`
 
 Owns command-line concerns:
@@ -104,6 +118,8 @@ The CLI should call library APIs rather than reproduce parsing logic.
 The current local-crate dependencies, verified from the manifests, are:
 
 ```text
+parser-api → parser-formats → parser-core
+parser-api → parser-schema → parser-core
 parser-cli → parser-formats → parser-core
 parser-cli → parser-core
 parser-cli → parser-schema
@@ -114,6 +130,8 @@ Exact dependencies may evolve, but these constraints remain:
 
 - `parser-core` must not depend on `parser-cli`.
 - Format adapters must not depend on business applications.
+- The application-facing composition crate must not move parsing behavior out of
+  the lower parser crates.
 - The CLI must not become the only home of public models.
 - Circular crate dependencies are not allowed.
 
