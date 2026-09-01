@@ -354,8 +354,8 @@ pub fn read_csv_bytes(
         Some(delimiter) => (delimiter, parse_csv_records(bytes, source_path, delimiter)?),
         None => detect_delimiter(bytes, source_path)?,
     };
-    let logical_rows = csv_logical_rows(bytes, delimiter.byte()).len();
-    check_record_limits(&records, logical_rows, options.limits)?;
+    csv_logical_rows(bytes, delimiter.byte(), options.limits.max_rows)?;
+    check_csv_cell_limit(&records, options.limits)?;
 
     let blocks = records
         .into_iter()
@@ -399,8 +399,8 @@ pub fn read_csv_table_bytes(
         Some(delimiter) => (delimiter, parse_csv_records(bytes, source_path, delimiter)?),
         None => detect_delimiter(bytes, source_path)?,
     };
-    let logical_rows = csv_logical_rows(bytes, delimiter.byte());
-    check_record_limits(&records, logical_rows.len(), options.limits)?;
+    let logical_rows = csv_logical_rows(bytes, delimiter.byte(), options.limits.max_rows)?;
+    check_csv_cell_limit(&records, options.limits)?;
     let mut records = records.into_iter();
     let mut blocks = Vec::new();
     let mut rows = Vec::new();
@@ -474,7 +474,11 @@ struct CsvLogicalRow {
     blank: bool,
 }
 
-fn csv_logical_rows(bytes: &[u8], delimiter: u8) -> Vec<CsvLogicalRow> {
+fn csv_logical_rows(
+    bytes: &[u8],
+    delimiter: u8,
+    max_rows: usize,
+) -> Result<Vec<CsvLogicalRow>, ParserError> {
     let mut rows = Vec::new();
     let mut row_start = 0;
     let mut row_line_start = 1;
@@ -502,6 +506,7 @@ fn csv_logical_rows(bytes: &[u8], delimiter: u8) -> Vec<CsvLogicalRow> {
                     index += if crlf { 2 } else { 1 };
                     continue;
                 }
+                check_csv_row_capacity(rows.len(), max_rows)?;
                 rows.push(CsvLogicalRow {
                     source_row: rows.len() + 1,
                     byte_start: row_start,
@@ -527,6 +532,7 @@ fn csv_logical_rows(bytes: &[u8], delimiter: u8) -> Vec<CsvLogicalRow> {
         }
     }
     if row_start < bytes.len() {
+        check_csv_row_capacity(rows.len(), max_rows)?;
         rows.push(CsvLogicalRow {
             source_row: rows.len() + 1,
             byte_start: row_start,
@@ -536,7 +542,18 @@ fn csv_logical_rows(bytes: &[u8], delimiter: u8) -> Vec<CsvLogicalRow> {
             blank: row_start == bytes.len(),
         });
     }
-    rows
+    Ok(rows)
+}
+
+fn check_csv_row_capacity(rows: usize, max_rows: usize) -> Result<(), ParserError> {
+    if rows == max_rows {
+        return Err(ParserError::ResourceLimit {
+            resource: ResourceLimitKind::CsvRows,
+            limit: max_rows as u64,
+            actual: max_rows.saturating_add(1) as u64,
+        });
+    }
+    Ok(())
 }
 
 type DelimiterScore = (usize, usize, usize, usize);
@@ -1004,18 +1021,7 @@ fn check_csv_limits(bytes: &[u8], limits: CsvLimits, _source: &str) -> Result<()
     Ok(())
 }
 
-fn check_record_limits(
-    records: &[Vec<String>],
-    logical_rows: usize,
-    limits: CsvLimits,
-) -> Result<(), ParserError> {
-    if logical_rows > limits.max_rows {
-        return Err(ParserError::ResourceLimit {
-            resource: ResourceLimitKind::CsvRows,
-            limit: limits.max_rows as u64,
-            actual: logical_rows as u64,
-        });
-    }
+fn check_csv_cell_limit(records: &[Vec<String>], limits: CsvLimits) -> Result<(), ParserError> {
     let cells = records.iter().map(Vec::len).sum::<usize>();
     if cells > limits.max_cells {
         return Err(ParserError::ResourceLimit {

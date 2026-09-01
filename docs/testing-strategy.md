@@ -137,12 +137,15 @@ tests cover bytes, fields, combined field/enum aliases, object and positional
 encodings, string-safe nesting and structural/execution parity. Formats tests
 cover CSV file/byte/document/table paths, blank logical rows, XLSX
 file/byte/document/table paths, empty sheets, extracted cells and table-selection
-record/response limits. CLI unit and subprocess tests cover bounded pretty JSON
-including the trailing newline, schema file/stdin reads, processing exit `1`,
-safe stderr and schema-before-input failure precedence.
+record/response limits. CSV row regressions additionally cover the exact limit,
+the first disallowed row, mostly blank input, quoted multiline records, and
+unchanged blank-row byte/line provenance. CLI unit and subprocess tests cover
+bounded pretty JSON including the trailing newline, schema file/stdin reads,
+processing exit `1`, safe stderr and schema-before-input failure precedence.
 
 These regressions deliberately test the contract boundaries without claiming
-preallocation safety. CSV delimiter candidates exist before row/cell checks,
+general preallocation safety. The CSV logical-row inventory is bounded during
+its scan, but delimiter candidates still exist before row/cell checks,
 calamine worksheet ranges exist before XLSX cell checks, schema values exist
 before field/alias checks, and parse responses exist before record/response-byte
 checks. Tests assert the typed failure and observed count at those boundaries;
