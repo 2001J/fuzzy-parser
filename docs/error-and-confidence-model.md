@@ -1,27 +1,75 @@
 # Error And Confidence Model
 
 The parser must separate unrecoverable failures from recoverable uncertainty.
+This document owns diagnostic and confidence semantics. The requirements below
+include planned behavior; use [data contracts](data-contracts.md) for actual
+serialized shapes and [current state](current-state.md) for implementation gaps.
+
+## Implemented boundary
+
+- `parser-core::ParserError` has `io_error`, `invalid_utf8`, `unsupported_input`,
+  `input_too_large`, `line_too_long`, `invalid_csv`, and `invalid_xlsx` variants,
+  plus the local #5 [file-validation additions](data-contracts.md#file-validation-additions-in-error-contract-01).
+  Missing files use `io_error` with `kind: "not_found"`.
+- Format and schema causes now convert to `parser-core::Failure`, with shared
+  typed payloads and exhaustive safe rendering. The [error contract and migration](data-contracts.md#error-contract-01-and-migration-from-unversioned-errors)
+  owns the codes, exact fields and legacy-read versus new-wire compatibility.
+  This #2 implementation is independently reviewed and verified locally.
+- Normal processing failures use JSON stderr and exit `1`. Usage failures use
+  plain stderr and exit `2`. Default JSON and `Display` omit supplied paths,
+  caller values and opaque upstream prose. Explicit detailed reports may expose
+  allowlisted caller context with JSON escaping; they are potentially sensitive,
+  as are raw in-process cause fields and `Debug`. Do not send them to public logs.
+- Semantic table-selection failures use `table_selection_error` with a typed
+  safe reason and fixed message. Sheet names are absent by default and available
+  only in explicitly requested allowlisted diagnostics.
+- Assignment warnings include `required_field_missing` and
+  `multiple_candidates_ambiguous`; separate segmentation APIs have boundary
+  warnings. The document response now forwards input warnings before row-grouping
+  warnings; record assignment warnings remain nested under each record.
+  Excluded source blocks retain a reason. Aggregate confidence is not implemented.
+
+## Record review
+
+`RecordReview` is a deterministic summary of record-level evidence, not a
+business validation or accuracy estimate. `needs_review` has one or more reasons
+below, in this order; `draft` has none. Both require the host's review/confirmation
+policy and neither authorizes persistence or messaging.
+
+| Reason code | Trigger |
+| --- | --- |
+| `no_candidates` | No field candidates were detected, including empty records |
+| `assignment_warnings` | The record's assignment emitted warnings |
+| `unassigned_candidates` | Detected values remain unassigned |
+| `unrecognized_content` | Non-whitespace content lies outside all detected spans |
+
+Whitespace is retained in source coverage but does not alone trigger the last
+reason. Scores do not determine these statuses. Document/input warnings still
+need separate inspection even for a `draft` record. Missing review metadata in
+legacy JSON means unavailable, not reviewed. See [data contracts](data-contracts.md)
+for the serialized shape and source-accounting rules.
 
 ## Fatal errors
 
 A fatal error prevents the requested parse operation from producing a trustworthy result.
 
-Examples:
+Required categories (some remain unimplemented at the shared boundary):
 
 - Unsupported input format.
 - File not found or unreadable.
 - File exceeds a configured hard limit.
 - Invalid or unsupported encoding.
 - Corrupt CSV or spreadsheet that cannot be safely extracted.
+- Invalid or contradictory explicit table selection.
 - Invalid schema.
 - Internal invariant failure.
 
-Fatal errors should include:
+The implemented fatal-error contract contains stable codes, fixed human messages,
+typed numeric/reason metadata and optional explicitly requested diagnostics.
+It does not include retry policy or a generic invariant-failure category. Future
+extensions may add:
 
-- Stable machine-readable code.
-- Human-readable message.
-- Optional source location.
-- Optional safe diagnostic context.
+- Additional typed source locations.
 - Whether retrying with different input or configuration may help.
 
 The CLI should return a non-zero exit code for fatal errors.
@@ -30,7 +78,7 @@ The CLI should return a non-zero exit code for fatal errors.
 
 Warnings describe recoverable problems in the document, record, or field.
 
-Examples:
+Examples of intended warning categories (not an implemented-code inventory):
 
 - Ambiguous delimiter.
 - Missing required field.
@@ -42,11 +90,19 @@ Examples:
 - Locale-dependent date ambiguity.
 - Possible duplicate.
 
+Implemented table-selection warnings include `header_search_no_match`,
+`header_search_ambiguous`, and `merged_regions_unsupported`. They preserve
+uncertainty or unsupported metadata rather than guessing.
+
 Warnings must not be represented only as prose. Use stable codes and structured metadata.
 
 ## Rejected fragments
 
-A rejected fragment is source content that could not be incorporated into a record or assignment.
+A standalone rejected-fragment model remains proposed. Today's `ParseResponse`
+accounts for every canonical block through embedded evidence, unused spans and
+header/exclusion roles; unassigned detected candidates remain separate. See
+[source coverage](data-contracts.md#versioned-parse-result). This is canonical
+content retention, not exact original CSV/XLSX file fidelity or business rejection.
 
 It should preserve:
 
@@ -59,7 +115,9 @@ Rejected content must not disappear silently.
 
 ## Confidence layers
 
-Confidence is represented at several levels:
+The target model distinguishes the levels below. Today field candidates and
+separate segmentation results have scores/reasons; layered extraction,
+assignment, and record aggregation are not implemented.
 
 ### Extraction confidence
 
@@ -111,36 +169,43 @@ A summary of the record's overall reliability. It should consider the weaker sta
 
 ## Confidence scale
 
-All confidence scores use the inclusive range `0.0` to `1.0`.
+Current rules emit scores in the inclusive range `0.0` to `1.0`, but `Confidence`
+is an `f64` alias and does not itself validate deserialized bounds. Scores are
+heuristic evidence weights, **not calibrated accuracy probabilities**. For
+example, `0.88` does not establish that 88% of those suggestions are correct.
 
-Suggested interpretation:
+Illustrative review bands for future evaluation, not shipped approval policy:
 
 - `0.90–1.00`: strong evidence.
 - `0.75–0.89`: likely correct but review may still be useful.
 - `0.50–0.74`: ambiguous and should normally be reviewed.
 - Below `0.50`: weak suggestion or unresolved result.
 
-These bands are product guidance, not universal truth. Consuming applications may choose their own review thresholds.
+These bands have not been calibrated against an evaluation corpus. Consumers
+must consider missing fields, ambiguity, source evidence, and business rules;
+they may choose thresholds only with suitable validation. A high score never
+authorizes persistence or messaging.
 
 ## Explainability
 
 Every non-trivial score should include stable reason codes.
 
-Example:
+Example of current candidate evidence (excerpt, not a complete result):
 
 ```json
 {
-  "field": "phone",
-  "confidence": 0.98,
+  "candidate_type": "phone_number",
+  "confidence": 0.88,
   "reasons": [
-    { "code": "PHONE_PATTERN_MATCH" },
-    { "code": "ONLY_COMPATIBLE_CANDIDATE" },
-    { "code": "CALLER_COUNTRY_HINT_APPLIED" }
+    {
+      "code": "phone_pattern_match",
+      "message": "the value contains a plausible number of phone digits and valid separators"
+    }
   ]
 }
 ```
 
-Negative evidence should also be recorded:
+Additional negative-evidence categories are proposed, not current code names:
 
 ```text
 MULTIPLE_COMPATIBLE_CANDIDATES
@@ -162,7 +227,7 @@ Processing duration, generated identifiers, or unordered map traversal must not 
 
 ## No fabricated certainty
 
-The parser must prefer:
+The intended contract must prefer:
 
 - `null` over invented data.
 - Ambiguity over arbitrary tie-breaking.
@@ -170,3 +235,6 @@ The parser must prefer:
 - Multiple candidates over a false single answer.
 
 A consuming application may provide stricter rules, but the generic core must remain honest about evidence.
+Current single-value assignment can select a candidate even when alternatives
+exist, while returning an ambiguity warning. Consumers must not treat that
+selection as resolved certainty or assume the engine abstains in every tie.

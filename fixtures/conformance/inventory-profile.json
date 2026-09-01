@@ -1,0 +1,64 @@
+{
+  "schema_version": "0.1",
+  "record_name": "synthetic_inventory_entry",
+  "fields": [
+    {
+      "name": "item_label",
+      "field_type": "text",
+      "required": true,
+      "multiple": false,
+      "aliases": ["Name"],
+      "constraints": []
+    },
+    {
+      "name": "supplier_email",
+      "field_type": "email",
+      "required": false,
+      "multiple": false,
+      "aliases": ["Email"],
+      "constraints": []
+    },
+    {
+      "name": "units",
+      "field_type": "integer",
+      "required": true,
+      "multiple": false,
+      "aliases": ["Count"],
+      "constraints": [
+        { "kind": "minimum_integer", "value": 0 }
+      ]
+    },
+    {
+      "name": "available",
+      "field_type": "boolean",
+      "required": true,
+      "multiple": false,
+      "aliases": ["Enabled"],
+      "constraints": []
+    },
+    {
+      "name": "stock_state",
+      "field_type": {
+        "enum": {
+          "values": [
+            { "value": "available", "aliases": ["in"] },
+            { "value": "unavailable", "aliases": ["out"] }
+          ]
+        }
+      },
+      "required": true,
+      "multiple": false,
+      "aliases": ["Status"],
+      "constraints": []
+    },
+    {
+      "name": "handling_note",
+      "field_type": "text",
+      "required": false,
+      "multiple": false,
+      "aliases": ["Note"],
+      "constraints": []
+    }
+  ],
+  "options": { "allow_unknown_fields": true }
+}

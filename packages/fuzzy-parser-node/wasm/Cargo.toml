@@ -1,0 +1,18 @@
+[package]
+name = "fuzzy-parser-node-wasm"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+parser-core = { path = "../../../crates/parser-core" }
+parser-formats = { path = "../../../crates/parser-formats" }
+parser-schema = { path = "../../../crates/parser-schema" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+wasm-bindgen = "=0.2.115"
+
+[workspace]

@@ -1,64 +1,131 @@
 # Current State
 
-Last reviewed: 2026-08-26.
+This page is the concise capability matrix for the code on `development`.
+Historical ticket evidence belongs in [internal documentation](internal/README.md).
 
-This document records only what is implemented in the repository now. It must not describe planned behavior as complete.
+Fuzzy Parser is a pre-1.0 Rust workspace at version `0.1.0`. Its Rust libraries,
+CLI, and Node/WebAssembly package share the same parser core. The Node package is
+pack/install tested but has not been published.
 
-## Repository state
+## Input support
 
-The repository is a Rust workspace at version `0.1.0` using Rust edition 2024.
+| Input | Support | Important limits |
+| --- | --- | --- |
+| Pasted or inline text | Implemented | Text input is not automatically interpreted as CSV |
+| Standard input | Implemented | Treated as text |
+| UTF-8 TXT | Implemented | Non-UTF-8 input fails; byte and line limits apply |
+| CSV | Implemented | Detects comma, semicolon, tab, and pipe delimiters |
+| XLSX | Implemented | Reads stored/cached values; does not execute formulas or macros |
+| Legacy XLS | Not implemented | Keep an application fallback when required |
+| PDF, image, OCR | Not implemented | Outside the deterministic text/table engine |
 
-The workspace currently contains four crates:
+CSV and XLSX support optional header, row, and sheet selection. The default
+table path remains compatible with earlier behavior; explicit selection is
+recommended when the caller knows the source layout.
 
-- `parser-core`
-- `parser-formats`
-- `parser-schema`
-- `parser-cli`
+## Field capabilities
 
-## Implemented today
+| Field type | Support | Important limits |
+| --- | --- | --- |
+| `text` | Implemented | Assignment needs a matching header or literal caller label; residual text stays unresolved |
+| `person_name` | Implemented | Possible-name evidence only; no identity or name dictionary |
+| `phone_number` | Implemented | Conservative digit/separator matching; no country or locale interpretation |
+| `email` | Implemented | Conservative ASCII pattern, not full RFC validation |
+| `integer` | Implemented | Complete integer tokens |
+| `decimal` | Implemented | Requires a decimal representation |
+| `currency` | Implemented | Limited symbol-based parsing; not locale-aware money interpretation |
+| `date` | Implemented | Conservative year-month-day forms |
+| `datetime` | Not implemented | Profile compilation fails explicitly |
+| `boolean` | Implemented | Fixed generic true/false aliases |
+| caller-defined enum | Implemented | Single-token matching; ambiguous ownership remains unresolved |
 
-- The workspace compiles as a multi-crate Rust project.
-- `parser-core` provides serializable canonical raw-document models, source locations, raw values, warnings, structured parser errors, configurable derived text normalization, and deterministic record segmentation strategies including repeated-identifier splitting and heading-aware boundaries.
-- `parser-core` detects conservative email, integer, decimal, phone-number, boolean, date, currency, and caller-defined enum field candidates with raw values, normalized values, confidence, reason codes, and byte-accurate source spans.
-- `parser-core` assigns compatible candidates to caller-provided fields, uses nearby canonical or caller-provided labels, optional source-column metadata, or detected table-header labels as assignment context, applies caller-provided integer and length constraints, selects the highest-confidence candidate when context is equal, preserves multiple values when requested preferring header-matching columns, and reports missing required fields, ambiguity, and unassigned candidates.
-- `parser-core` groups blocks with row provenance into sheet rows, conservatively detects textual first-row headers per sheet (rejecting typed, empty, single-row, or strong-value cases with reason codes), and exposes a deterministic tabular pipeline (`parse_document_rows_with_assignment`) that parses each data row with header-driven assignment; blocks without row provenance are reported as warnings rather than dropped.
-- `parser-core` exposes a deterministic text pipeline that composes all built-in detectors, caller-defined enum detection, and schema-compatible assignment while returning both raw candidate evidence and assignment results.
-- `parser-core` exposes a document-level orchestrator (`parse_document_with_assignment`) that chooses the tabular header-driven pipeline when the document has row provenance and a per-block text pipeline otherwise, returning a versioned `ParseResponse` with contract and parser versions, source provenance, and every candidate, ambiguity, and unassigned value observable.
-- `parser-formats` reads UTF-8 TXT files, pasted text, standard input, and CSV files into canonical raw blocks while preserving content and source locations.
-- CSV extraction scores comma, semicolon, tab, and pipe delimiters, supports explicit overrides, quoted/multiline cells, empty cells, and row/column provenance.
-- `parser-formats` reads XLSX workbooks with sheet, row, column, and typed-cell provenance; it reads stored values only and does not execute formulas or macros.
-- `parser-schema` provides serializable generic target-schema models for fields, enum values, aliases, and basic constraints, plus structural validation for supported versions and ambiguous labels.
-- `parser-formats` exposes configurable default-safe byte and line-length limits for text input.
-- The CLI supports help output, `inspect <path>` for TXT, CSV, and XLSX files, `inspect --stdin`, `inspect --text <content>`, schema validation from a path, standard input, or inline text with optional compact output, and `parse <path> --schema <schema-path>` / `parse --stdin --schema <schema-path>`, emitting canonical JSON with structured errors and nonzero exit codes.
-- The CLI `parse` command loads a validated caller schema, converts supported field types into assignment instructions, and runs the versioned `ParseResponse` pipeline; schemas that reference not-yet-supported field types (`text`, `person_name`, `datetime`) are rejected with a structured `schema_field_type_unsupported` error instead of silently dropping fields.
-- GitHub Actions runs formatting, Clippy, tests, and a workspace build on pull requests and pushes to `main`, and builds/smoke-tests the CLI container on every change.
-- The CLI container is the current deployable batch artifact; pushes to `main` publish its `latest` image to GHCR.
-- The repository is licensed under Apache License 2.0.
-- The root README describes the intended workspace boundaries and local validation commands.
+Profiles support required and multiple fields, aliases, integer bounds, string
+length bounds, enum values, and optional text composition. Unsupported options
+or constraints fail during profile compilation instead of being silently
+ignored.
 
-## Not implemented yet
+## Text composition
 
-The following capabilities are planned but do not exist yet:
+Profiles may opt into:
 
-- Additional field candidate detection beyond email, integer, decimal, phone-number, boolean, date, currency, and caller-defined enum values, including residual text and person-name fields.
-- Parse request/response surfaces beyond the CLI `parse` command (review UI, TypeScript/WebAssembly, native, service), and record statuses, aggregated confidence, rejected fragments, and statistics as documented for the future explainable parse result contract.
-- Confidence aggregation and explanations.
-- Structured warnings or rejected fragments at the record level (per-parse warnings exist; rejected fragments and record statuses do not).
-- General parse request/response contracts beyond raw-document inspection.
-- TypeScript, WebAssembly, native Node, or HTTP integration.
-- A standalone graphical interface.
-- Export to CSV, XLSX, or clipboard templates.
-- OCR or PDF support.
+- one block per record;
+- indented continuation joining;
+- splitting on caller-provided repeated identifiers.
 
-## Current verification commands
+The default path performs no hidden normalization pass. Composed records retain
+mapping evidence back to the original blocks. Detection and label context do not
+cross synthetic joins.
 
-```bash
-cargo fmt --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-cargo build --workspace
-```
+Arbitrary unlabeled prose is deliberately conservative. A string that could be
+a name, note, or heading may remain unresolved rather than being assigned by
+guesswork.
 
-## Immediate next slice
+## Results
 
-- The next slice completes the generic field detection set by adding conservative residual-text and person-name candidates, which unblocks `text` and `person_name` schema fields (currently rejected as unsupported).
+Implemented parse responses include:
+
+- assigned fields and all detected candidates;
+- unassigned candidates;
+- record review status and reason codes;
+- warnings;
+- the canonical source document;
+- source references for candidate copies;
+- unused source spans;
+- table and text-composition evidence where applicable.
+
+Confidence values are deterministic heuristics, not accuracy probabilities.
+Neither `clear` nor `needs_review` is business approval. See
+[Results and review](results-and-review.md).
+
+## Interfaces
+
+| Interface | Status |
+| --- | --- |
+| `parser-api` reusable Rust profiles | Implemented in the workspace |
+| Lower-level Rust crates | Implemented |
+| `parser-cli` | Implemented |
+| `@fuzzy-parser/node` CJS/ESM package | Implemented and pack/install tested; unpublished |
+| Generic Next.js package consumption | Verified in an isolated fixture |
+| HTTP service | Not implemented |
+| Standalone graphical review/export tool | Not implemented |
+
+The Node package uses one Worker-isolated WebAssembly backend. Deadlines and
+`AbortSignal` terminate the per-call Worker; this is isolation and cleanup, not
+cooperative cancellation inside synchronous parser code.
+
+## Resource and privacy boundaries
+
+Typed limits cover text, CSV, XLSX, schemas, record counts, and serialized
+responses. Some checks necessarily occur after an underlying library has
+materialized intermediate data, so the parser is not a hostile-file sandbox.
+
+Default errors omit paths and arbitrary caller strings. Explicit diagnostics and
+successful source-backed output may contain sensitive data and should not be
+logged by default.
+
+The parser does not:
+
+- persist records;
+- authorize users;
+- enforce application duplicate or qualification policy;
+- send messages;
+- evaluate workbook code;
+- archive exact uploaded files;
+- automatically redact successful results.
+
+## Verification status
+
+CI runs on pull requests and pushes to `development` and `main`. It covers
+formatting, Clippy, Rust tests/builds on Linux and macOS, dependency advisories,
+CLI parity, Node/WASM packaging, generic Next.js consumption, WASM compilation,
+and a non-published container smoke test.
+
+The manual release workflow has not published a crate, npm package, container,
+tag, or GitHub Release.
+
+## What remains
+
+Near-term capability work is summarized in the [roadmap](roadmap.md). The most
+visible gaps are broader locale-aware values, datetime execution, legacy and
+declared delimited formats, richer workbook display metadata, and a standalone
+review/export experience.

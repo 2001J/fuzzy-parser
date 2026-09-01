@@ -7,5 +7,6 @@ edition.workspace = true
 path = "src/lib.rs"
 
 [dependencies]
+parser-core = { path = "../parser-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

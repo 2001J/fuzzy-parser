@@ -1,6 +1,19 @@
 use serde::{Deserialize, Serialize};
 use std::{fmt, io};
 
+mod errors;
+pub use errors::*;
+mod plan;
+use plan::{DetectionRules, EnumDefinitions};
+pub use plan::{
+    ParseLimits, ParsePlan, PlanField, enforce_parse_response_limits, parse_document_with_plan,
+    parse_document_with_plan_with_limits,
+};
+mod table_selection;
+pub use table_selection::*;
+mod text_fields;
+mod text_pipeline;
+
 pub const CONTRACT_VERSION: &str = "0.1";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -96,6 +109,25 @@ pub struct NormalizationOptions {
     pub mark_noise: bool,
 }
 
+/// Runtime-only caller instructions for opt-in text composition.
+///
+/// Serialized schemas remain owned by `parser-schema`; this core model is also
+/// echoed in composed parse evidence so callers can reproduce the exact run.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TextPipelineOptions {
+    pub normalization: NormalizationOptions,
+    pub strategy: TextPipelineStrategy,
+    pub repeated_identifier_markers: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TextPipelineStrategy {
+    OneBlockPerRecord,
+    JoinIndentedContinuations,
+    SplitRepeatedIdentifiers,
+}
+
 impl Default for NormalizationOptions {
     fn default() -> Self {
         Self {
@@ -173,6 +205,53 @@ pub struct TextSpan {
     pub byte_end: usize,
 }
 
+/// Coordinates in one canonical value, never CSV/XLSX file bytes.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceCoordinateSpace {
+    /// UTF-8 bytes in a stored string value, before trimming or normalization.
+    RawTextUtf8,
+    /// UTF-8 bytes in `RawValue::to_text()` for a typed, non-string value.
+    RenderedValueUtf8,
+}
+
+impl SourceCoordinateSpace {
+    fn for_value(value: &RawValue) -> Self {
+        match value {
+            RawValue::Text(_)
+            | RawValue::DateTimeText(_)
+            | RawValue::Duration(_)
+            | RawValue::Error(_) => Self::RawTextUtf8,
+            _ => Self::RenderedValueUtf8,
+        }
+    }
+}
+
+/// A zero-based block index disambiguates even repeated caller-supplied IDs.
+/// The span is zero-based and end-exclusive in the stated coordinate space.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SourceReference {
+    pub block_index: usize,
+    pub coordinate_space: SourceCoordinateSpace,
+    pub span: TextSpan,
+}
+
+impl SourceReference {
+    /// Resolve against the matching response's embedded document (or the
+    /// original document for a lower-level library result). Invalid references
+    /// return `None`, including out-of-bounds and non-UTF-8-boundary spans.
+    pub fn resolve(&self, document: &RawDocument) -> Option<String> {
+        let value = &document.blocks.get(self.block_index)?.value;
+        if self.coordinate_space != SourceCoordinateSpace::for_value(value) {
+            return None;
+        }
+        value
+            .to_text()
+            .get(self.span.byte_start..self.span.byte_end)
+            .map(str::to_owned)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CandidateType {
@@ -184,6 +263,8 @@ pub enum CandidateType {
     Date,
     Currency,
     Enum,
+    Text,
+    PersonName,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -194,6 +275,9 @@ pub struct FieldCandidate {
     pub source_span: TextSpan,
     #[serde(default)]
     pub source_column: Option<usize>,
+    /// Absent for standalone detectors and legacy JSON without a raw document.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_reference: Option<SourceReference>,
     pub confidence: Confidence,
     pub reasons: Vec<Reason>,
 }
@@ -235,6 +319,22 @@ pub struct AssignmentResult {
 pub struct TextParseResult {
     pub candidates: Vec<FieldCandidate>,
     pub assignment: AssignmentResult,
+    /// Missing in legacy results; neither status authorizes an import.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review: Option<RecordReview>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RecordReviewStatus {
+    Draft,
+    NeedsReview,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RecordReview {
+    pub status: RecordReviewStatus,
+    pub reasons: Vec<Reason>,
 }
 
 pub fn parse_text_with_assignment(
@@ -242,18 +342,134 @@ pub fn parse_text_with_assignment(
     fields: &[AssignmentField],
     enum_definitions: &[(String, Vec<String>)],
 ) -> TextParseResult {
-    let candidates = collect_field_candidates(text, enum_definitions);
-    let assignment = assign_candidates(text, &candidates, fields);
+    parse_text_record(text, fields, DetectionRules::Legacy(enum_definitions), None)
+}
+
+fn parse_text_record(
+    text: &str,
+    fields: &[AssignmentField],
+    rules: DetectionRules<'_>,
+    source: Option<(usize, &RawValue)>,
+) -> TextParseResult {
+    let mut candidates = collect_field_candidates(text, rules);
+    if let Some((block_index, value)) = source {
+        for candidate in &mut candidates {
+            candidate.source_reference = Some(SourceReference {
+                block_index,
+                coordinate_space: SourceCoordinateSpace::for_value(value),
+                span: candidate.source_span.clone(),
+            });
+        }
+    }
+    let mut assignment =
+        assign_scalar_candidates(text, &candidates, fields, None, rules.scoped(), None);
+    let sources = if source.is_none_or(|(_, value)| matches!(value, RawValue::Text(_))) {
+        vec![text_fields::TextSource {
+            span: TextSpan {
+                byte_start: 0,
+                byte_end: text.len(),
+            },
+            reference: source.map(|(block_index, value)| SourceReference {
+                block_index,
+                coordinate_space: SourceCoordinateSpace::for_value(value),
+                span: TextSpan {
+                    byte_start: 0,
+                    byte_end: text.len(),
+                },
+            }),
+            column: None,
+        }]
+    } else {
+        Vec::new()
+    };
+    text_fields::complete(
+        text,
+        &mut candidates,
+        fields,
+        None,
+        &sources,
+        &mut assignment,
+        None,
+    );
+    finish_text_parse(text, candidates, assignment)
+}
+
+fn finish_text_parse(
+    text: &str,
+    candidates: Vec<FieldCandidate>,
+    assignment: AssignmentResult,
+) -> TextParseResult {
+    let mut reasons = Vec::new();
+    if candidates.is_empty() {
+        reasons.push(Reason::new(
+            "no_candidates",
+            "no field candidates were detected",
+        ));
+    }
+    if !assignment.warnings.is_empty() {
+        reasons.push(Reason::new(
+            "assignment_warnings",
+            "record assignment produced warnings",
+        ));
+    }
+    if !assignment.unassigned_candidates.is_empty() {
+        reasons.push(Reason::new(
+            "unassigned_candidates",
+            "detected candidates remain unassigned",
+        ));
+    }
+    if uncovered_spans(
+        text.len(),
+        candidates
+            .iter()
+            .map(|candidate| candidate.source_span.clone()),
+    )
+    .iter()
+    .any(|span| !text[span.byte_start..span.byte_end].trim().is_empty())
+    {
+        reasons.push(Reason::new(
+            "unrecognized_content",
+            "non-whitespace content produced no candidate",
+        ));
+    }
+    let status = if reasons.is_empty() {
+        RecordReviewStatus::Draft
+    } else {
+        RecordReviewStatus::NeedsReview
+    };
     TextParseResult {
         candidates,
         assignment,
+        review: Some(RecordReview { status, reasons }),
     }
 }
 
-fn collect_field_candidates(
-    text: &str,
-    enum_definitions: &[(String, Vec<String>)],
-) -> Vec<FieldCandidate> {
+/// Complements the union of candidate spans, preserving gaps and whitespace.
+/// Empty values are represented by an explicit empty span.
+fn uncovered_spans(length: usize, spans: impl Iterator<Item = TextSpan>) -> Vec<TextSpan> {
+    let mut spans: Vec<_> = spans.collect();
+    spans.sort_by_key(|span| (span.byte_start, span.byte_end));
+    let mut uncovered = Vec::new();
+    let mut cursor = 0;
+    for span in spans {
+        if cursor < span.byte_start {
+            uncovered.push(TextSpan {
+                byte_start: cursor,
+                byte_end: span.byte_start,
+            });
+        }
+        cursor = cursor.max(span.byte_end);
+    }
+    if cursor < length || length == 0 {
+        uncovered.push(TextSpan {
+            byte_start: cursor,
+            byte_end: length,
+        });
+    }
+    uncovered
+}
+
+fn collect_field_candidates(text: &str, rules: DetectionRules<'_>) -> Vec<FieldCandidate> {
     let mut candidates = Vec::new();
     candidates.extend(detect_email_candidates(text));
     candidates.extend(detect_integer_candidates(text));
@@ -262,7 +478,7 @@ fn collect_field_candidates(
     candidates.extend(detect_boolean_candidates(text));
     candidates.extend(detect_date_candidates(text));
     candidates.extend(detect_currency_candidates(text));
-    candidates.extend(detect_enum_candidates(text, enum_definitions));
+    candidates.extend(rules.detect_enums(text));
     candidates
 }
 
@@ -273,6 +489,8 @@ pub struct TableCell {
     pub source_column: usize,
     pub value: RawValue,
     pub source_block_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_block_index: Option<usize>,
 }
 
 /// All cells of one sheet row, ordered by column.
@@ -298,7 +516,7 @@ pub fn group_document_rows(document: &RawDocument) -> DocumentRows {
     let mut rows: Vec<TableRowGroup> = Vec::new();
     let mut warnings = Vec::new();
 
-    for block in &document.blocks {
+    for (block_index, block) in document.blocks.iter().enumerate() {
         let Some(source_row) = block.location.row else {
             warnings.push(ParserWarning {
                 code: "row_provenance_missing".to_owned(),
@@ -319,6 +537,7 @@ pub fn group_document_rows(document: &RawDocument) -> DocumentRows {
                 source_column: block.location.column.unwrap_or(0),
                 value: block.value.clone(),
                 source_block_id: block.id.clone(),
+                source_block_index: Some(block_index),
             });
             group.source_block_ids.push(block.id.clone());
         } else {
@@ -329,6 +548,7 @@ pub fn group_document_rows(document: &RawDocument) -> DocumentRows {
                     source_column: block.location.column.unwrap_or(0),
                     value: block.value.clone(),
                     source_block_id: block.id.clone(),
+                    source_block_index: Some(block_index),
                 }],
                 source_block_ids: vec![block.id.clone()],
             });
@@ -430,7 +650,7 @@ pub fn detect_table_headers(rows: &[TableRowGroup]) -> HeaderExtraction {
         .map(|(_, label)| label.as_str())
         .collect::<Vec<_>>()
         .join(" ");
-    if !collect_field_candidates(&header_text, &[]).is_empty() {
+    if !collect_field_candidates(&header_text, DetectionRules::Legacy(&[])).is_empty() {
         return HeaderExtraction::not_detected(
             "header_not_detected_strong_values",
             "the first row contains strongly typed values, so it was not treated as a header",
@@ -479,6 +699,14 @@ pub fn parse_document_rows_with_assignment(
     fields: &[AssignmentField],
     enum_definitions: &[(String, Vec<String>)],
 ) -> TableParseResult {
+    parse_document_rows_inner(document, fields, DetectionRules::Legacy(enum_definitions))
+}
+
+fn parse_document_rows_inner(
+    document: &RawDocument,
+    fields: &[AssignmentField],
+    rules: DetectionRules<'_>,
+) -> TableParseResult {
     let grouped = group_document_rows(document);
 
     let mut buckets: Vec<(Option<String>, Vec<TableRowGroup>)> = Vec::new();
@@ -499,7 +727,7 @@ pub fn parse_document_rows_with_assignment(
                     .is_none_or(|headers| row.source_row != headers.source_row)
             });
             let records = data_rows
-                .map(|row| parse_row_group(row, header.context(), fields, enum_definitions))
+                .map(|row| parse_row_group(row, header.context(), fields, rules))
                 .collect();
             SheetTableResult {
                 sheet,
@@ -519,10 +747,11 @@ fn parse_row_group(
     row: &TableRowGroup,
     header: Option<&TableHeaderContext>,
     fields: &[AssignmentField],
-    enum_definitions: &[(String, Vec<String>)],
+    rules: DetectionRules<'_>,
 ) -> TableRowParseResult {
     let mut row_text = String::new();
     let mut candidates = Vec::new();
+    let mut text_sources = Vec::new();
 
     for cell in &row.cells {
         let cell_text = cell.value.to_text();
@@ -536,7 +765,36 @@ fn parse_row_group(
         let offset = row_text.len();
         row_text.push_str(trimmed);
 
-        for mut candidate in collect_field_candidates(trimmed, enum_definitions) {
+        if matches!(cell.value, RawValue::Text(_)) {
+            let trim_offset = cell_text.len() - cell_text.trim_start().len();
+            text_sources.push(text_fields::TextSource {
+                span: TextSpan {
+                    byte_start: offset,
+                    byte_end: offset + trimmed.len(),
+                },
+                reference: cell.source_block_index.map(|block_index| SourceReference {
+                    block_index,
+                    coordinate_space: SourceCoordinateSpace::RawTextUtf8,
+                    span: TextSpan {
+                        byte_start: trim_offset,
+                        byte_end: trim_offset + trimmed.len(),
+                    },
+                }),
+                column: Some(cell.source_column),
+            });
+        }
+
+        for mut candidate in collect_field_candidates(trimmed, rules) {
+            let trim_offset = cell_text.len() - cell_text.trim_start().len();
+            candidate.source_reference =
+                cell.source_block_index.map(|block_index| SourceReference {
+                    block_index,
+                    coordinate_space: SourceCoordinateSpace::for_value(&cell.value),
+                    span: TextSpan {
+                        byte_start: trim_offset + candidate.source_span.byte_start,
+                        byte_end: trim_offset + candidate.source_span.byte_end,
+                    },
+                });
             candidate.source_column = Some(cell.source_column);
             candidate.source_span.byte_start += offset;
             candidate.source_span.byte_end += offset;
@@ -544,14 +802,21 @@ fn parse_row_group(
         }
     }
 
-    let assignment = assign_candidates_inner(&row_text, &candidates, fields, header);
+    let mut assignment =
+        assign_scalar_candidates(&row_text, &candidates, fields, header, rules.scoped(), None);
+    text_fields::complete(
+        &row_text,
+        &mut candidates,
+        fields,
+        header,
+        &text_sources,
+        &mut assignment,
+        None,
+    );
     TableRowParseResult {
         source_row: row.source_row,
         source_block_ids: row.source_block_ids.clone(),
-        parse: TextParseResult {
-            candidates,
-            assignment,
-        },
+        parse: finish_text_parse(&row_text, candidates, assignment),
     }
 }
 
@@ -560,6 +825,57 @@ fn parse_row_group(
 pub struct TextRecordParseResult {
     pub source_block_id: String,
     pub parse: TextParseResult,
+    /// Present only when the caller explicitly enabled text composition.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub composition: Option<TextRecordComposition>,
+}
+
+/// Reversible evidence for one opt-in composed text record.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TextRecordComposition {
+    pub record_id: String,
+    pub composed_text: String,
+    pub applied_options: TextPipelineOptions,
+    pub segments: Vec<TextCompositionSegment>,
+    pub boundary: TextBoundaryEvidence,
+}
+
+/// Ordered segments cover `composed_text` fully and without gaps.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TextCompositionSegment {
+    Source {
+        source_reference: SourceReference,
+        composed_span: TextSpan,
+        mapping_runs: Vec<TextMappingRun>,
+    },
+    SyntheticSeparator {
+        composed_span: TextSpan,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TextMappingRun {
+    pub raw_span: TextSpan,
+    pub composed_span: TextSpan,
+    pub operations: Vec<TextMappingOperation>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TextMappingOperation {
+    Unchanged,
+    LineEndingFold,
+    PunctuationReplacement,
+    Trim,
+    WhitespaceCollapse,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TextBoundaryEvidence {
+    pub confidence: Confidence,
+    pub reasons: Vec<Reason>,
+    pub warnings: Vec<ParserWarning>,
 }
 
 /// Mode-specific parse content for a versioned `ParseResponse`.
@@ -570,11 +886,114 @@ pub enum ParseContent {
     Text { records: Vec<TextRecordParseResult> },
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceBlockRole {
+    Parsed,
+    Header,
+    Excluded,
+}
+
+/// Exactly one entry per embedded block, in original document order.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SourceBlockCoverage {
+    pub block_index: usize,
+    pub role: SourceBlockRole,
+    pub coordinate_space: SourceCoordinateSpace,
+    /// In parsed blocks, the complement of all detected candidate spans.
+    /// This includes whitespace; unassigned candidates remain in assignment.
+    /// Header/excluded roles account for the entire block instead.
+    pub unused_spans: Vec<TextSpan>,
+    pub reason: Option<Reason>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SourceEvidence {
+    /// Unmodified canonical extraction, including typed values and warnings.
+    /// Not an archive of original TXT line separators or CSV/XLSX file bytes.
+    pub document: RawDocument,
+    pub blocks: Vec<SourceBlockCoverage>,
+    /// Present only for the opt-in table-selection path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub table: Option<TableSourceEvidence>,
+}
+
+impl SourceEvidence {
+    fn new(document: &RawDocument, content: &ParseContent) -> Self {
+        let mut spans = vec![Vec::new(); document.blocks.len()];
+        let mut roles = vec![SourceBlockRole::Parsed; document.blocks.len()];
+        let mut collect = |parse: &TextParseResult| {
+            for candidate in &parse.candidates {
+                if let Some(source) = &candidate.source_reference {
+                    spans[source.block_index].push(source.span.clone());
+                }
+            }
+        };
+        match content {
+            ParseContent::Text { records } => {
+                for record in records {
+                    collect(&record.parse);
+                }
+            }
+            ParseContent::Table { sheets } => {
+                for (index, block) in document.blocks.iter().enumerate() {
+                    if block.location.row.is_none() {
+                        roles[index] = SourceBlockRole::Excluded;
+                    }
+                }
+                for sheet in sheets {
+                    if let Some(header) = sheet.header.context() {
+                        for (index, block) in document.blocks.iter().enumerate() {
+                            if block.location.sheet == header.sheet
+                                && block.location.row == Some(header.source_row)
+                            {
+                                roles[index] = SourceBlockRole::Header;
+                            }
+                        }
+                    }
+                    for record in &sheet.records {
+                        collect(&record.parse);
+                    }
+                }
+            }
+        }
+        let blocks = document.blocks.iter().enumerate().map(|(index, block)| {
+            let role = roles[index];
+            let reason = match role {
+                SourceBlockRole::Parsed => None,
+                SourceBlockRole::Header => Some(Reason::new(
+                    "header_detected",
+                    "the existing first-row heuristic used this block as header context, not record content",
+                )),
+                SourceBlockRole::Excluded => Some(Reason::new(
+                    "row_provenance_missing",
+                    "the block was excluded from table parsing because it has no row metadata",
+                )),
+            };
+            SourceBlockCoverage {
+                block_index: index,
+                role,
+                coordinate_space: SourceCoordinateSpace::for_value(&block.value),
+                unused_spans: if role == SourceBlockRole::Parsed {
+                    uncovered_spans(block.value.to_text().len(), spans[index].iter().cloned())
+                } else {
+                    Vec::new()
+                },
+                reason,
+            }
+        }).collect();
+        Self {
+            document: document.clone(),
+            blocks,
+            table: None,
+        }
+    }
+}
+
 /// Versioned, serializable result of a schema-driven parse.
 ///
-/// The envelope carries the contract and parser versions plus source
-/// provenance, while the mode-specific content keeps every raw value,
-/// candidate, ambiguity, and unassigned candidate observable.
+/// Source evidence is an additive extension of contract 0.1. Old payloads
+/// deserialize with no evidence; absence must not be interpreted as empty input.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ParseResponse {
     pub contract_version: String,
@@ -583,48 +1002,96 @@ pub struct ParseResponse {
     pub source_type: SourceType,
     pub content: ParseContent,
     pub warnings: Vec<ParserWarning>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_evidence: Option<SourceEvidence>,
 }
 
 /// Parses any canonical document with caller-provided fields.
 ///
 /// Chooses the tabular header-driven pipeline when the document carries row
 /// provenance and a per-block text pipeline otherwise, so multi-line text and
-/// tables both flow through one versioned result contract. Raw values stay in
-/// the document; unassigned candidates remain observable.
+/// tables both flow through one versioned result contract. The embedded source
+/// document and coverage retain all canonical values, even excluded content.
 pub fn parse_document_with_assignment(
     document: &RawDocument,
     fields: &[AssignmentField],
     enum_definitions: &[(String, Vec<String>)],
     record_name: Option<String>,
 ) -> ParseResponse {
+    parse_document_inner(
+        document,
+        fields,
+        DetectionRules::Legacy(enum_definitions),
+        record_name,
+        None,
+    )
+}
+
+fn parse_document_inner(
+    document: &RawDocument,
+    fields: &[AssignmentField],
+    rules: DetectionRules<'_>,
+    record_name: Option<String>,
+    text_pipeline: Option<&TextPipelineOptions>,
+) -> ParseResponse {
     let grouped = group_document_rows(document);
     let (content, warnings) = if grouped.rows.is_empty() {
-        let records = document
-            .blocks
-            .iter()
-            .map(|block| TextRecordParseResult {
-                source_block_id: block.id.clone(),
-                parse: parse_text_with_assignment(&block.value.to_text(), fields, enum_definitions),
-            })
-            .collect();
+        let records = if let Some(options) = text_pipeline {
+            text_pipeline::compose_document(document, options)
+                .into_iter()
+                .map(|record| {
+                    let parse =
+                        text_pipeline::parse_record(document, &record.composition, fields, rules);
+                    TextRecordParseResult {
+                        source_block_id: record.source_block_id,
+                        parse,
+                        composition: Some(record.composition),
+                    }
+                })
+                .collect()
+        } else {
+            document
+                .blocks
+                .iter()
+                .enumerate()
+                .map(|(index, block)| TextRecordParseResult {
+                    source_block_id: block.id.clone(),
+                    parse: parse_text_record(
+                        &block.value.to_text(),
+                        fields,
+                        rules,
+                        Some((index, &block.value)),
+                    ),
+                    composition: None,
+                })
+                .collect()
+        };
         (ParseContent::Text { records }, Vec::new())
     } else {
-        let table = parse_document_rows_with_assignment(document, fields, enum_definitions);
+        let table = parse_document_rows_inner(document, fields, rules);
+        let mut warnings = table.warnings;
+        if text_pipeline.is_some() {
+            warnings.push(text_pipeline::not_applied_warning());
+        }
         (
             ParseContent::Table {
                 sheets: table.sheets,
             },
-            table.warnings,
+            warnings,
         )
     };
 
+    let source_evidence = Some(SourceEvidence::new(document, &content));
+    let mut all_warnings = document.warnings.clone();
+    all_warnings.extend(warnings);
     ParseResponse {
         contract_version: CONTRACT_VERSION.to_owned(),
         parser_version: env!("CARGO_PKG_VERSION").to_owned(),
         record_name,
         source_type: document.source.source_type.clone(),
         content,
-        warnings,
+        warnings: all_warnings,
+        source_evidence,
     }
 }
 
@@ -633,7 +1100,7 @@ pub fn assign_candidates(
     candidates: &[FieldCandidate],
     fields: &[AssignmentField],
 ) -> AssignmentResult {
-    assign_candidates_inner(text, candidates, fields, None)
+    assign_candidates_inner(text, candidates, fields, None, None)
 }
 
 pub fn assign_candidates_with_header_context(
@@ -642,7 +1109,7 @@ pub fn assign_candidates_with_header_context(
     fields: &[AssignmentField],
     header: Option<&TableHeaderContext>,
 ) -> AssignmentResult {
-    assign_candidates_inner(text, candidates, fields, header)
+    assign_candidates_inner(text, candidates, fields, header, None)
 }
 
 fn assign_candidates_inner(
@@ -650,18 +1117,47 @@ fn assign_candidates_inner(
     candidates: &[FieldCandidate],
     fields: &[AssignmentField],
     header: Option<&TableHeaderContext>,
+    enum_definitions: Option<&[EnumDefinitions]>,
+) -> AssignmentResult {
+    let mut result =
+        assign_scalar_candidates(text, candidates, fields, header, enum_definitions, None);
+    text_fields::assign_supplied(text, candidates, fields, header, &mut result);
+    result
+}
+
+fn assign_scalar_candidates(
+    text: &str,
+    candidates: &[FieldCandidate],
+    fields: &[AssignmentField],
+    header: Option<&TableHeaderContext>,
+    enum_definitions: Option<&[EnumDefinitions]>,
+    context_spans: Option<&[TextSpan]>,
 ) -> AssignmentResult {
     let mut assigned = vec![false; candidates.len()];
     let mut result_fields = Vec::new();
-    let mut warnings = Vec::new();
+    let (owners, mut warnings) = plan::enum_ownership(
+        text,
+        candidates,
+        fields,
+        header,
+        enum_definitions,
+        context_spans,
+    );
 
-    for field in fields {
+    for (field_index, field) in fields.iter().enumerate() {
+        if text_fields::is_text(&field.candidate_type) {
+            continue;
+        }
         let matching_indices = candidates
             .iter()
             .enumerate()
             .filter(|(index, candidate)| {
                 !assigned[*index]
                     && candidate.candidate_type == field.candidate_type
+                    && (candidate.candidate_type != CandidateType::Enum
+                        || owners
+                            .as_ref()
+                            .is_none_or(|owners| owners[*index] == Some(field_index)))
                     && candidate_satisfies_constraints(candidate, field)
             })
             .map(|(index, _)| index)
@@ -686,24 +1182,59 @@ fn assign_candidates_inner(
         let selected_indices = if field.multiple {
             eligible_indices
         } else {
-            if eligible_indices.len() > 1 {
-                warnings.push(ParserWarning {
-                    code: "multiple_candidates_ambiguous".to_owned(),
-                    message: format!(
-                        "field {} has multiple compatible candidates; the highest-confidence candidate was selected",
-                        field.name
-                    ),
-                    location: None,
-                });
-            }
-            vec![select_highest_confidence(
+            let selected = select_highest_confidence(
                 text,
                 candidates,
                 &eligible_indices,
                 field,
                 header,
-            )]
+                context_spans,
+            );
+            let tied = context_spans.is_some()
+                && eligible_indices
+                    .iter()
+                    .filter(|index| {
+                        candidate_score(text, &candidates[**index], field, header, context_spans)
+                            == candidate_score(
+                                text,
+                                &candidates[selected],
+                                field,
+                                header,
+                                context_spans,
+                            )
+                    })
+                    .count()
+                    > 1;
+            if eligible_indices.len() > 1 {
+                warnings.push(ParserWarning {
+                    code: "multiple_candidates_ambiguous".to_owned(),
+                    message: if tied {
+                        format!(
+                            "field {} has multiple equally supported composed candidates; tied alternatives remain unassigned",
+                            field.name
+                        )
+                    } else {
+                        format!(
+                            "field {} has multiple compatible candidates; the highest-confidence candidate was selected",
+                            field.name
+                        )
+                    },
+                    location: None,
+                });
+            }
+            if tied { Vec::new() } else { vec![selected] }
         };
+
+        if selected_indices.is_empty() {
+            if field.required {
+                warnings.push(ParserWarning {
+                    code: "required_field_missing".to_owned(),
+                    message: format!("required field {} has no compatible candidate", field.name),
+                    location: None,
+                });
+            }
+            continue;
+        }
 
         let selected: Vec<FieldCandidate> = selected_indices
             .into_iter()
@@ -825,27 +1356,52 @@ fn select_highest_confidence(
     indices: &[usize],
     field: &AssignmentField,
     header: Option<&TableHeaderContext>,
+    context_spans: Option<&[TextSpan]>,
 ) -> usize {
     indices
         .iter()
         .copied()
         .max_by(|left, right| {
-            candidate_score(text, &candidates[*left], field, header)
-                .partial_cmp(&candidate_score(text, &candidates[*right], field, header))
+            candidate_score(text, &candidates[*left], field, header, context_spans)
+                .partial_cmp(&candidate_score(
+                    text,
+                    &candidates[*right],
+                    field,
+                    header,
+                    context_spans,
+                ))
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then_with(|| right.cmp(left))
         })
         .expect("assignment requires at least one matching candidate")
 }
 
-fn candidate_score(
+pub(crate) fn candidate_score(
     text: &str,
     candidate: &FieldCandidate,
     field: &AssignmentField,
     header: Option<&TableHeaderContext>,
+    context_spans: Option<&[TextSpan]>,
 ) -> (bool, bool, bool, f64) {
     let has_header_context = candidate_matches_field_header(candidate, field, header);
-    let context_start = candidate.source_span.byte_start.saturating_sub(40);
+    let segment_start = context_spans
+        .and_then(|spans| {
+            spans.iter().find(|span| {
+                span.byte_start <= candidate.source_span.byte_start
+                    && candidate.source_span.byte_end <= span.byte_end
+            })
+        })
+        .map_or(0, |span| span.byte_start);
+    let mut context_start = candidate
+        .source_span
+        .byte_start
+        .saturating_sub(40)
+        .max(segment_start);
+    // Advance to a UTF-8 boundary without widening the 40-byte context window.
+    while context_start < candidate.source_span.byte_start && !text.is_char_boundary(context_start)
+    {
+        context_start += 1;
+    }
     let context = text[context_start..candidate.source_span.byte_start].to_ascii_lowercase();
     let labels =
         std::iter::once(field.name.as_str()).chain(field.aliases.iter().map(String::as_str));
@@ -866,7 +1422,19 @@ fn candidate_score(
 }
 
 pub fn detect_email_candidates(text: &str) -> Vec<FieldCandidate> {
-    text.split_whitespace()
+    // Only email detection treats these punctuation marks as boundaries. Keep
+    // dots and other email characters inside tokens, and leave other detectors'
+    // decimal/phone tokenization unchanged. Split borrowed slices of the original
+    // text so the scan below continues to report original UTF-8 byte offsets.
+    let tokens = text.split(|character: char| {
+        character.is_whitespace()
+            || matches!(
+                character,
+                ',' | ';' | ':' | '(' | ')' | '[' | ']' | '<' | '>'
+            )
+    });
+    tokens
+        .filter(|token| !token.is_empty())
         .scan(0, |search_start, token| {
             let start = text[*search_start..].find(token)? + *search_start;
             *search_start = start + token.len();
@@ -894,6 +1462,7 @@ pub fn detect_email_candidates(text: &str) -> Vec<FieldCandidate> {
                     byte_end,
                 },
                 source_column: None,
+                source_reference: None,
                 confidence: 0.98,
                 reasons: vec![Reason::new(
                     "email_pattern_match",
@@ -941,6 +1510,7 @@ pub fn detect_integer_candidates(text: &str) -> Vec<FieldCandidate> {
                     byte_end,
                 },
                 source_column: None,
+                source_reference: None,
                 confidence: 0.96,
                 reasons: vec![Reason::new(
                     "integer_pattern_match",
@@ -978,6 +1548,7 @@ pub fn detect_decimal_candidates(text: &str) -> Vec<FieldCandidate> {
                     byte_end,
                 },
                 source_column: None,
+                source_reference: None,
                 confidence: 0.94,
                 reasons: vec![Reason::new(
                     "decimal_pattern_match",
@@ -1022,6 +1593,7 @@ pub fn detect_phone_candidates(text: &str) -> Vec<FieldCandidate> {
                     byte_end,
                 },
                 source_column: None,
+                source_reference: None,
                 confidence: 0.88,
                 reasons: vec![Reason::new(
                     "phone_pattern_match",
@@ -1060,6 +1632,7 @@ pub fn detect_boolean_candidates(text: &str) -> Vec<FieldCandidate> {
                     byte_end,
                 },
                 source_column: None,
+                source_reference: None,
                 confidence: 0.93,
                 reasons: vec![Reason::new(
                     "boolean_alias_match",
@@ -1094,6 +1667,7 @@ pub fn detect_date_candidates(text: &str) -> Vec<FieldCandidate> {
                     byte_end,
                 },
                 source_column: None,
+                source_reference: None,
                 confidence: if separator == '-' { 0.96 } else { 0.91 },
                 reasons: vec![Reason::new(
                     "date_pattern_match",
@@ -1132,6 +1706,7 @@ pub fn detect_currency_candidates(text: &str) -> Vec<FieldCandidate> {
                     byte_end,
                 },
                 source_column: None,
+                source_reference: None,
                 confidence: 0.92,
                 reasons: vec![Reason::new(
                     "currency_symbol_match",
@@ -1174,6 +1749,7 @@ pub fn detect_enum_candidates(
                     byte_end,
                 },
                 source_column: None,
+                source_reference: None,
                 confidence: 0.9,
                 reasons: vec![Reason::new(
                     "enum_alias_match",
@@ -1274,69 +1850,9 @@ fn normalize_text(
     options: &NormalizationOptions,
     transformations: &mut Vec<Transformation>,
 ) -> String {
-    let mut value = input.to_owned();
-
-    if options.normalize_line_endings {
-        let normalized = value.replace("\r\n", "\n").replace('\r', "\n");
-        if normalized != value {
-            transformations.push(Transformation::LineEndingsNormalized);
-            value = normalized;
-        }
-    }
-
-    if options.normalize_punctuation {
-        let mut dash_changed = false;
-        let mut quote_changed = false;
-        let normalized: String = value
-            .chars()
-            .map(|character| match character {
-                '\u{2010}' | '\u{2011}' | '\u{2012}' | '\u{2013}' | '\u{2014}' | '\u{2212}' => {
-                    dash_changed = true;
-                    '-'
-                }
-                '\u{2018}' | '\u{2019}' => {
-                    quote_changed = true;
-                    '\''
-                }
-                '\u{201c}' | '\u{201d}' => {
-                    quote_changed = true;
-                    '"'
-                }
-                _ => character,
-            })
-            .collect();
-        if dash_changed {
-            transformations.push(Transformation::DashesNormalized);
-        }
-        if quote_changed {
-            transformations.push(Transformation::QuotesNormalized);
-        }
-        if normalized != value {
-            value = normalized;
-        }
-    }
-
-    if options.trim_whitespace {
-        let normalized = value.trim().to_owned();
-        if normalized != value {
-            transformations.push(Transformation::WhitespaceTrimmed);
-            value = normalized;
-        }
-    }
-
-    if options.collapse_whitespace {
-        let normalized = collapse_whitespace(&value);
-        if normalized != value {
-            transformations.push(Transformation::WhitespaceCollapsed);
-            value = normalized;
-        }
-    }
-
-    if options.mark_noise {
-        mark_noise(&value, transformations);
-    }
-
-    value
+    let mapped = text_pipeline::normalize_with_mapping(input, options);
+    transformations.extend(mapped.transformations);
+    mapped.normalized_text
 }
 
 fn collapse_whitespace(input: &str) -> String {
@@ -1840,6 +2356,7 @@ pub enum IoErrorKind {
     NotFound,
     PermissionDenied,
     InvalidInput,
+    InvalidData,
     Other,
 }
 
@@ -1849,12 +2366,27 @@ impl From<io::ErrorKind> for IoErrorKind {
             io::ErrorKind::NotFound => Self::NotFound,
             io::ErrorKind::PermissionDenied => Self::PermissionDenied,
             io::ErrorKind::InvalidInput => Self::InvalidInput,
+            io::ErrorKind::InvalidData => Self::InvalidData,
             _ => Self::Other,
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+impl fmt::Display for IoErrorKind {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::NotFound => "file not found",
+            Self::PermissionDenied => "permission denied",
+            Self::InvalidInput => "invalid input",
+            Self::InvalidData => "invalid data",
+            Self::Other => "I/O failure",
+        })
+    }
+}
+
+// Deserialize is intentionally the original, private cause format. New output
+// must be decoded as ErrorPayload; absent private fields are never invented.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(tag = "code")]
 pub enum ParserError {
     #[serde(rename = "io_error")]
@@ -1863,6 +2395,16 @@ pub enum ParserError {
     InvalidUtf8 { path: String, valid_up_to: usize },
     #[serde(rename = "unsupported_input")]
     UnsupportedInput { source_type: String },
+    #[serde(rename = "not_regular_file")]
+    NotRegularFile { path: String },
+    #[serde(rename = "empty_input")]
+    EmptyInput { path: String },
+    #[serde(rename = "file_too_large")]
+    FileTooLarge {
+        path: String,
+        limit: u64,
+        actual: u64,
+    },
     #[serde(rename = "input_too_large")]
     InputTooLarge {
         source: String,
@@ -1884,6 +2426,12 @@ pub enum ParserError {
     },
     #[serde(rename = "invalid_xlsx")]
     InvalidXlsx { path: String, message: String },
+    #[serde(rename = "resource_limit")]
+    ResourceLimit {
+        resource: ResourceLimitKind,
+        limit: u64,
+        actual: u64,
+    },
 }
 
 impl ParserError {
@@ -1892,57 +2440,33 @@ impl ParserError {
             Self::Io { .. } => "io_error",
             Self::InvalidUtf8 { .. } => "invalid_utf8",
             Self::UnsupportedInput { .. } => "unsupported_input",
+            Self::NotRegularFile { .. } => "not_regular_file",
+            Self::EmptyInput { .. } => "empty_input",
+            Self::FileTooLarge { .. } => "file_too_large",
             Self::InputTooLarge { .. } => "input_too_large",
             Self::LineTooLong { .. } => "line_too_long",
             Self::InvalidCsv { .. } => "invalid_csv",
             Self::InvalidXlsx { .. } => "invalid_xlsx",
+            Self::ResourceLimit { .. } => "resource_limit",
         }
     }
 }
 
 impl fmt::Display for ParserError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Io { path, kind } => write!(formatter, "could not read {path}: {kind:?}"),
-            Self::InvalidUtf8 { path, valid_up_to } => write!(
-                formatter,
-                "{path} is not valid UTF-8 at byte offset {valid_up_to}"
-            ),
-            Self::UnsupportedInput { source_type } => {
-                write!(formatter, "unsupported input type: {source_type}")
-            }
-            Self::InputTooLarge {
-                source,
-                limit,
-                actual,
-            } => write!(
-                formatter,
-                "{source} exceeds the {limit}-byte limit ({actual} bytes)"
-            ),
-            Self::LineTooLong {
-                source,
-                line,
-                limit,
-                actual,
-            } => write!(
-                formatter,
-                "{source} line {line} exceeds the {limit}-byte limit ({actual} bytes)"
-            ),
-            Self::InvalidCsv {
-                path,
-                record,
-                message,
-            } => match record {
-                Some(record) => write!(
-                    formatter,
-                    "invalid CSV in {path} at record {record}: {message}"
-                ),
-                None => write!(formatter, "invalid CSV in {path}: {message}"),
-            },
-            Self::InvalidXlsx { path, message } => {
-                write!(formatter, "invalid XLSX in {path}: {message}")
-            }
-        }
+        Failure::from(self).fmt(formatter)
+    }
+}
+
+impl Serialize for ParserError {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        Failure::from(self).serialize(serializer)
+    }
+}
+
+impl ParserError {
+    pub fn report(&self, mode: DiagnosticsMode) -> ErrorReport {
+        Failure::from(self).report(mode)
     }
 }
 
@@ -1953,1273 +2477,5 @@ pub fn core_ready() -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn test_document(blocks: Vec<RawBlock>) -> RawDocument {
-        RawDocument::new(
-            "test-document",
-            SourceMetadata {
-                source_type: SourceType::Text,
-                file_name: None,
-                mime_type: Some("text/plain".to_owned()),
-                size_bytes: None,
-                delimiter: None,
-            },
-            blocks,
-        )
-    }
-
-    #[test]
-    fn raw_document_round_trips_as_json() {
-        let document = RawDocument::new(
-            "document-1",
-            SourceMetadata {
-                source_type: SourceType::Txt,
-                file_name: Some("sample.txt".to_owned()),
-                mime_type: Some("text/plain".to_owned()),
-                size_bytes: Some(5),
-                delimiter: None,
-            },
-            vec![RawBlock {
-                id: "block-1".to_owned(),
-                value: RawValue::text("Ada  Lovelace"),
-                location: SourceLocation {
-                    line: Some(1),
-                    byte_start: Some(0),
-                    byte_end: Some(13),
-                    ..SourceLocation::default()
-                },
-            }],
-        );
-
-        let json = serde_json::to_string(&document).expect("document should serialize");
-        let decoded: RawDocument =
-            serde_json::from_str(&json).expect("document should deserialize");
-
-        assert_eq!(decoded, document);
-    }
-
-    #[test]
-    fn email_detection_preserves_value_and_byte_span() {
-        let text = "Contact: Ada ada@example.test.";
-        let candidates = detect_email_candidates(text);
-
-        assert_eq!(candidates.len(), 1);
-        assert_eq!(candidates[0].candidate_type, CandidateType::Email);
-        assert_eq!(candidates[0].raw_value, "ada@example.test");
-        assert_eq!(
-            &text[candidates[0].source_span.byte_start..candidates[0].source_span.byte_end],
-            "ada@example.test"
-        );
-        assert_eq!(
-            candidates[0].normalized_value,
-            Some(serde_json::Value::String("ada@example.test".to_owned()))
-        );
-    }
-
-    #[test]
-    fn email_detection_ignores_near_misses() {
-        assert!(detect_email_candidates("missing-at.example invalid@localhost").is_empty());
-    }
-
-    #[test]
-    fn integer_detection_returns_normalized_values_and_spans() {
-        let text = "count: -42, next 7.";
-        let candidates = detect_integer_candidates(text);
-
-        assert_eq!(candidates.len(), 2);
-        assert_eq!(candidates[0].raw_value, "-42");
-        assert_eq!(candidates[0].normalized_value, Some(serde_json::json!(-42)));
-        assert_eq!(
-            &text[candidates[0].source_span.byte_start..candidates[0].source_span.byte_end],
-            "-42"
-        );
-        assert_eq!(candidates[1].raw_value, "7");
-    }
-
-    #[test]
-    fn integer_detection_does_not_extract_digits_from_mixed_tokens() {
-        assert!(detect_integer_candidates("phone 555-0123 room12").is_empty());
-    }
-
-    #[test]
-    fn decimal_detection_excludes_integers_and_normalizes_values() {
-        let text = "whole 7 decimal -12.50, invalid 1.2.3";
-        let candidates = detect_decimal_candidates(text);
-
-        assert_eq!(candidates.len(), 1);
-        assert_eq!(candidates[0].candidate_type, CandidateType::Decimal);
-        assert_eq!(candidates[0].raw_value, "-12.50");
-        assert_eq!(
-            candidates[0].normalized_value,
-            Some(serde_json::json!(-12.5))
-        );
-    }
-
-    #[test]
-    fn phone_detection_normalizes_separators_and_preserves_span() {
-        let text = "call +1-555-012-3456.";
-        let candidates = detect_phone_candidates(text);
-
-        assert_eq!(candidates.len(), 1);
-        assert_eq!(candidates[0].candidate_type, CandidateType::PhoneNumber);
-        assert_eq!(candidates[0].raw_value, "+1-555-012-3456");
-        assert_eq!(
-            candidates[0].normalized_value,
-            Some(serde_json::json!("15550123456"))
-        );
-        assert_eq!(
-            &text[candidates[0].source_span.byte_start..candidates[0].source_span.byte_end],
-            "+1-555-012-3456"
-        );
-    }
-
-    #[test]
-    fn phone_detection_ignores_short_and_mixed_tokens() {
-        assert!(detect_phone_candidates("room 12345 code A5550123").is_empty());
-    }
-
-    #[test]
-    fn currency_detection_normalizes_symbol_amounts_and_preserves_span() {
-        let text = "Total: $12.50, other EUR 9.00";
-        let candidates = detect_currency_candidates(text);
-
-        assert_eq!(candidates.len(), 1);
-        assert_eq!(candidates[0].candidate_type, CandidateType::Currency);
-        assert_eq!(candidates[0].raw_value, "$12.50");
-        assert_eq!(
-            candidates[0].normalized_value,
-            Some(serde_json::json!(12.5))
-        );
-        assert_eq!(
-            &text[candidates[0].source_span.byte_start..candidates[0].source_span.byte_end],
-            "$12.50"
-        );
-    }
-
-    #[test]
-    fn currency_detection_ignores_unmarked_amounts() {
-        assert!(detect_currency_candidates("amount 12.50 dollars").is_empty());
-    }
-
-    #[test]
-    fn enum_detection_normalizes_aliases_to_canonical_values() {
-        let definitions = vec![(
-            "active".to_owned(),
-            vec!["enabled".to_owned(), "on".to_owned()],
-        )];
-        let text = "Status: ENABLED.";
-        let candidates = detect_enum_candidates(text, &definitions);
-
-        assert_eq!(candidates.len(), 1);
-        assert_eq!(candidates[0].candidate_type, CandidateType::Enum);
-        assert_eq!(candidates[0].raw_value, "ENABLED");
-        assert_eq!(
-            candidates[0].normalized_value,
-            Some(serde_json::json!("active"))
-        );
-        assert_eq!(
-            &text[candidates[0].source_span.byte_start..candidates[0].source_span.byte_end],
-            "ENABLED"
-        );
-    }
-
-    #[test]
-    fn enum_detection_ignores_values_without_definitions() {
-        let definitions = vec![("active".to_owned(), vec!["enabled".to_owned()])];
-        assert!(detect_enum_candidates("pending unknown", &definitions).is_empty());
-    }
-
-    #[test]
-    fn assignment_selects_highest_confidence_compatible_candidate() {
-        let mut candidates = detect_email_candidates("first a@example.test second b@example.test");
-        candidates[0].confidence = 0.8;
-        let result = assign_candidates(
-            "first a@example.test second b@example.test",
-            &candidates,
-            &[AssignmentField {
-                name: "email".to_owned(),
-                aliases: Vec::new(),
-                candidate_type: CandidateType::Email,
-                required: true,
-                multiple: false,
-                unique: true,
-                constraints: Vec::new(),
-                expected_column: None,
-            }],
-        );
-
-        assert_eq!(result.fields.len(), 1);
-        assert_eq!(result.fields[0].candidates[0].raw_value, "b@example.test");
-        assert_eq!(result.unassigned_candidates.len(), 1);
-        assert_eq!(result.warnings[0].code, "multiple_candidates_ambiguous");
-    }
-
-    #[test]
-    fn assignment_prefers_nearby_field_label_over_confidence_alone() {
-        let text = "backup a@example.test Email: b@example.test";
-        let mut candidates = detect_email_candidates(text);
-        candidates[1].confidence = 0.8;
-        let result = assign_candidates(
-            text,
-            &candidates,
-            &[AssignmentField {
-                name: "email".to_owned(),
-                aliases: vec!["contact".to_owned()],
-                candidate_type: CandidateType::Email,
-                required: true,
-                multiple: false,
-                unique: true,
-                constraints: Vec::new(),
-                expected_column: None,
-            }],
-        );
-
-        assert_eq!(result.fields[0].candidates[0].raw_value, "b@example.test");
-    }
-
-    #[test]
-    fn assignment_prefers_expected_column_context_over_confidence_alone() {
-        let text = "first a@example.test second b@example.test";
-        let mut candidates = detect_email_candidates(text);
-        candidates[0].source_column = Some(1);
-        candidates[1].source_column = Some(2);
-        candidates[1].confidence = 0.8;
-        let result = assign_candidates(
-            text,
-            &candidates,
-            &[AssignmentField {
-                name: "email".to_owned(),
-                aliases: Vec::new(),
-                candidate_type: CandidateType::Email,
-                required: true,
-                multiple: false,
-                unique: true,
-                constraints: Vec::new(),
-                expected_column: Some(2),
-            }],
-        );
-
-        assert_eq!(result.fields[0].candidates[0].raw_value, "b@example.test");
-    }
-
-    #[test]
-    fn assignment_reports_missing_required_and_unassigned_candidates() {
-        let candidates = detect_integer_candidates("count 4");
-        let result = assign_candidates(
-            "count 4",
-            &candidates,
-            &[AssignmentField {
-                name: "email".to_owned(),
-                aliases: Vec::new(),
-                candidate_type: CandidateType::Email,
-                required: true,
-                multiple: false,
-                unique: true,
-                constraints: Vec::new(),
-                expected_column: None,
-            }],
-        );
-
-        assert!(result.fields.is_empty());
-        assert_eq!(result.unassigned_candidates.len(), 1);
-        assert_eq!(result.warnings[0].code, "required_field_missing");
-    }
-
-    #[test]
-    fn assignment_keeps_all_compatible_candidates_for_multiple_fields() {
-        let candidates = detect_integer_candidates("first 4 second 7");
-        let result = assign_candidates(
-            "first 4 second 7",
-            &candidates,
-            &[AssignmentField {
-                name: "counts".to_owned(),
-                aliases: Vec::new(),
-                candidate_type: CandidateType::Integer,
-                required: false,
-                multiple: true,
-                unique: false,
-                constraints: Vec::new(),
-                expected_column: None,
-            }],
-        );
-
-        assert_eq!(result.fields[0].candidates.len(), 2);
-        assert!(result.warnings.is_empty());
-        assert!(result.unassigned_candidates.is_empty());
-    }
-
-    #[test]
-    fn assignment_filters_candidates_that_violate_integer_constraints() {
-        let text = "small 3 valid 12";
-        let candidates = detect_integer_candidates(text);
-        let result = assign_candidates(
-            text,
-            &candidates,
-            &[AssignmentField {
-                name: "quantity".to_owned(),
-                aliases: Vec::new(),
-                candidate_type: CandidateType::Integer,
-                required: true,
-                multiple: false,
-                unique: true,
-                constraints: vec![AssignmentConstraint::MinimumInteger(10)],
-                expected_column: None,
-            }],
-        );
-
-        assert_eq!(result.fields[0].candidates[0].raw_value, "12");
-        assert_eq!(result.unassigned_candidates[0].raw_value, "3");
-    }
-
-    #[test]
-    fn assignment_reports_missing_required_when_all_candidates_violate_constraints() {
-        let text = "quantity 3";
-        let candidates = detect_integer_candidates(text);
-        let result = assign_candidates(
-            text,
-            &candidates,
-            &[AssignmentField {
-                name: "quantity".to_owned(),
-                aliases: Vec::new(),
-                candidate_type: CandidateType::Integer,
-                required: true,
-                multiple: false,
-                unique: true,
-                constraints: vec![AssignmentConstraint::MinimumInteger(10)],
-                expected_column: None,
-            }],
-        );
-
-        assert!(result.fields.is_empty());
-        assert_eq!(result.unassigned_candidates.len(), 1);
-        assert_eq!(result.warnings[0].code, "required_field_missing");
-    }
-
-    #[test]
-    fn assignment_models_round_trip_through_json() {
-        let field = AssignmentField {
-            name: "quantity".to_owned(),
-            aliases: vec!["count".to_owned()],
-            candidate_type: CandidateType::Integer,
-            required: true,
-            multiple: false,
-            unique: true,
-            constraints: vec![AssignmentConstraint::MinimumInteger(1)],
-            expected_column: None,
-        };
-        let result = assign_candidates(
-            "quantity: 4",
-            &detect_integer_candidates("quantity: 4"),
-            &[field],
-        );
-        let json = serde_json::to_string(&result).expect("assignment should serialize");
-        let decoded: AssignmentResult =
-            serde_json::from_str(&json).expect("assignment should deserialize");
-
-        assert_eq!(decoded, result);
-    }
-
-    #[test]
-    fn text_pipeline_detects_and_assigns_caller_defined_fields() {
-        let fields = vec![
-            AssignmentField {
-                name: "email".to_owned(),
-                aliases: Vec::new(),
-                candidate_type: CandidateType::Email,
-                required: true,
-                multiple: false,
-                unique: true,
-                constraints: Vec::new(),
-                expected_column: None,
-            },
-            AssignmentField {
-                name: "status".to_owned(),
-                aliases: Vec::new(),
-                candidate_type: CandidateType::Enum,
-                required: true,
-                multiple: false,
-                unique: true,
-                constraints: Vec::new(),
-                expected_column: None,
-            },
-        ];
-        let result = parse_text_with_assignment(
-            "Email: ada@example.test Status: ENABLED",
-            &fields,
-            &[("active".to_owned(), vec!["enabled".to_owned()])],
-        );
-
-        assert_eq!(result.candidates.len(), 2);
-        assert_eq!(result.assignment.fields.len(), 2);
-        assert!(result.assignment.unassigned_candidates.is_empty());
-        assert!(result.assignment.warnings.is_empty());
-    }
-
-    #[test]
-    fn boolean_detection_normalizes_common_aliases() {
-        let candidates = detect_boolean_candidates("Enabled: YES disabled: off maybe");
-
-        assert_eq!(candidates.len(), 2);
-        assert_eq!(candidates[0].raw_value, "YES");
-        assert_eq!(
-            candidates[0].normalized_value,
-            Some(serde_json::json!(true))
-        );
-        assert_eq!(candidates[1].raw_value, "off");
-        assert_eq!(
-            candidates[1].normalized_value,
-            Some(serde_json::json!(false))
-        );
-    }
-
-    #[test]
-    fn boolean_detection_ignores_embedded_aliases() {
-        assert!(detect_boolean_candidates("yesterday onboard truthful").is_empty());
-    }
-
-    #[test]
-    fn date_detection_normalizes_supported_formats() {
-        let text = "started 2026-08-23, renewed 2027/01/05";
-        let candidates = detect_date_candidates(text);
-
-        assert_eq!(candidates.len(), 2);
-        assert_eq!(candidates[0].raw_value, "2026-08-23");
-        assert_eq!(
-            candidates[1].normalized_value,
-            Some(serde_json::json!("2027-01-05"))
-        );
-    }
-
-    #[test]
-    fn date_detection_rejects_invalid_calendar_values() {
-        assert!(detect_date_candidates("2026-02-29 2026-13-01 26-01-01").is_empty());
-    }
-
-    #[test]
-    fn parser_errors_have_stable_codes() {
-        let error = ParserError::InvalidUtf8 {
-            path: "input.txt".to_owned(),
-            valid_up_to: 4,
-        };
-
-        assert_eq!(error.code(), "invalid_utf8");
-        assert_eq!(
-            error.to_string(),
-            "input.txt is not valid UTF-8 at byte offset 4"
-        );
-    }
-
-    #[test]
-    fn input_limits_have_stable_codes() {
-        let error = ParserError::LineTooLong {
-            source: "<stdin>".to_owned(),
-            line: 3,
-            limit: 10,
-            actual: 11,
-        };
-
-        assert_eq!(error.code(), "line_too_long");
-        assert_eq!(
-            error.to_string(),
-            "<stdin> line 3 exceeds the 10-byte limit (11 bytes)"
-        );
-    }
-
-    #[test]
-    fn normalization_preserves_raw_value_and_records_transforms() {
-        let block = RawBlock {
-            id: "block-1".to_owned(),
-            value: RawValue::text("  Ada  —  “Lovelace”\r\n"),
-            location: SourceLocation::default(),
-        };
-
-        let normalized = normalize_block(&block);
-
-        assert_eq!(normalized.source_block_id, "block-1");
-        assert_eq!(normalized.original, block.value);
-        assert_eq!(normalized.normalized_text, "Ada - \"Lovelace\"");
-        assert_eq!(
-            normalized.transformations,
-            vec![
-                Transformation::LineEndingsNormalized,
-                Transformation::DashesNormalized,
-                Transformation::QuotesNormalized,
-                Transformation::WhitespaceTrimmed,
-                Transformation::WhitespaceCollapsed,
-            ]
-        );
-
-        let json = serde_json::to_string(&normalized).expect("normalized block should serialize");
-        let decoded: NormalizedBlock =
-            serde_json::from_str(&json).expect("normalized block should deserialize");
-        assert_eq!(decoded, normalized);
-    }
-
-    #[test]
-    fn normalization_marks_noise_without_removing_it() {
-        let cases = [
-            ("- item", Transformation::ListMarkerDetected),
-            ("12. item", Transformation::ListMarkerDetected),
-            ("[12:30] Alice", Transformation::TimestampPrefixDetected),
-            ("[Alice]: value", Transformation::SenderPrefixDetected),
-            ("# Heading", Transformation::HeadingDetected),
-        ];
-
-        for (value, expected) in cases {
-            let block = RawBlock {
-                id: value.to_owned(),
-                value: RawValue::text(value),
-                location: SourceLocation::default(),
-            };
-            let normalized = normalize_block(&block);
-
-            assert_eq!(normalized.normalized_text, value);
-            assert!(normalized.transformations.contains(&expected));
-        }
-    }
-
-    #[test]
-    fn normalization_options_can_disable_derived_changes() {
-        let block = RawBlock {
-            id: "block-1".to_owned(),
-            value: RawValue::text("  Ada  —  Lovelace  "),
-            location: SourceLocation::default(),
-        };
-        let options = NormalizationOptions {
-            normalize_line_endings: false,
-            trim_whitespace: false,
-            collapse_whitespace: false,
-            normalize_punctuation: false,
-            mark_noise: false,
-        };
-
-        let normalized = normalize_block_with_options(&block, &options);
-
-        assert_eq!(normalized.normalized_text, "  Ada  —  Lovelace  ");
-        assert!(normalized.transformations.is_empty());
-        assert_eq!(normalized.original, block.value);
-    }
-
-    #[test]
-    fn normalization_converts_typed_values_without_replacing_originals() {
-        let block = RawBlock {
-            id: "number".to_owned(),
-            value: RawValue::Integer(42),
-            location: SourceLocation::default(),
-        };
-
-        let normalized = normalize_block(&block);
-
-        assert_eq!(normalized.normalized_text, "42");
-        assert_eq!(normalized.original, RawValue::Integer(42));
-    }
-
-    #[test]
-    fn one_block_strategy_produces_traceable_candidates() {
-        let document = test_document(vec![
-            RawBlock {
-                id: "block-1".to_owned(),
-                value: RawValue::text("Ada"),
-                location: SourceLocation {
-                    line: Some(1),
-                    ..SourceLocation::default()
-                },
-            },
-            RawBlock {
-                id: "block-2".to_owned(),
-                value: RawValue::text("Grace"),
-                location: SourceLocation {
-                    line: Some(2),
-                    ..SourceLocation::default()
-                },
-            },
-        ]);
-
-        let candidates = segment_document(&document, &SegmentationOptions::default());
-
-        assert_eq!(candidates.len(), 2);
-        assert_eq!(candidates[0].id, "record-1");
-        assert_eq!(candidates[0].source_block_ids, vec!["block-1"]);
-        assert_eq!(candidates[0].text, "Ada");
-        assert_eq!(candidates[0].confidence, 1.0);
-        assert_eq!(candidates[0].reasons[0].code, "one_block_boundary");
-    }
-
-    #[test]
-    fn one_row_strategy_groups_cells_without_losing_provenance() {
-        let document = test_document(vec![
-            RawBlock {
-                id: "row-1-column-1".to_owned(),
-                value: RawValue::text("Ada"),
-                location: SourceLocation {
-                    row: Some(1),
-                    column: Some(1),
-                    ..SourceLocation::default()
-                },
-            },
-            RawBlock {
-                id: "row-1-column-2".to_owned(),
-                value: RawValue::text("ada@example.test"),
-                location: SourceLocation {
-                    row: Some(1),
-                    column: Some(2),
-                    ..SourceLocation::default()
-                },
-            },
-            RawBlock {
-                id: "row-2-column-1".to_owned(),
-                value: RawValue::text("Grace"),
-                location: SourceLocation {
-                    row: Some(2),
-                    column: Some(1),
-                    ..SourceLocation::default()
-                },
-            },
-        ]);
-        let options = SegmentationOptions {
-            strategy: SegmentationStrategy::OneRowPerRecord,
-            join_separator: " | ".to_owned(),
-        };
-
-        let candidates = segment_document(&document, &options);
-
-        assert_eq!(candidates.len(), 2);
-        assert_eq!(candidates[0].text, "Ada | ada@example.test");
-        assert_eq!(
-            candidates[0].source_block_ids,
-            vec!["row-1-column-1", "row-1-column-2"]
-        );
-        assert_eq!(candidates[0].confidence, 0.98);
-        assert_eq!(candidates[1].text, "Grace");
-    }
-
-    #[test]
-    fn indented_continuations_join_with_lower_confidence() {
-        let document = test_document(vec![
-            RawBlock {
-                id: "line-1".to_owned(),
-                value: RawValue::text("Name: Ada"),
-                location: SourceLocation::default(),
-            },
-            RawBlock {
-                id: "line-2".to_owned(),
-                value: RawValue::text("  email: ada@example.test"),
-                location: SourceLocation::default(),
-            },
-            RawBlock {
-                id: "line-3".to_owned(),
-                value: RawValue::text("Name: Grace"),
-                location: SourceLocation::default(),
-            },
-        ]);
-        let options = SegmentationOptions {
-            strategy: SegmentationStrategy::JoinIndentedContinuations,
-            join_separator: "\n".to_owned(),
-        };
-
-        let candidates = segment_document(&document, &options);
-
-        assert_eq!(candidates.len(), 2);
-        assert_eq!(candidates[0].text, "Name: Ada\nemail: ada@example.test");
-        assert_eq!(candidates[0].confidence, 0.85);
-        assert_eq!(candidates[0].reasons[0].code, "indented_continuation");
-        assert_eq!(candidates[1].text, "Name: Grace");
-    }
-
-    #[test]
-    fn heading_boundaries_keep_sections_observable_and_warn_on_indented_followers() {
-        let document = test_document(vec![
-            RawBlock {
-                id: "line-1".to_owned(),
-                value: RawValue::text("Name: Ada"),
-                location: SourceLocation {
-                    line: Some(1),
-                    ..SourceLocation::default()
-                },
-            },
-            RawBlock {
-                id: "line-2".to_owned(),
-                value: RawValue::text("  email: ada@example.test"),
-                location: SourceLocation {
-                    line: Some(2),
-                    ..SourceLocation::default()
-                },
-            },
-            RawBlock {
-                id: "line-3".to_owned(),
-                value: RawValue::text("# Section"),
-                location: SourceLocation {
-                    line: Some(3),
-                    ..SourceLocation::default()
-                },
-            },
-            RawBlock {
-                id: "line-4".to_owned(),
-                value: RawValue::text("  section text"),
-                location: SourceLocation {
-                    line: Some(4),
-                    ..SourceLocation::default()
-                },
-            },
-        ]);
-        let options = SegmentationOptions {
-            strategy: SegmentationStrategy::JoinIndentedContinuations,
-            join_separator: "\n".to_owned(),
-        };
-
-        let candidates = segment_document(&document, &options);
-
-        assert_eq!(candidates.len(), 3);
-        assert_eq!(candidates[0].text, "Name: Ada\nemail: ada@example.test");
-        assert_eq!(candidates[1].text, "# Section");
-        assert_eq!(candidates[1].reasons[0].code, "heading_boundary");
-        assert_eq!(candidates[2].text, "section text");
-        assert_eq!(candidates[2].confidence, 0.35);
-        assert_eq!(
-            candidates[2].warnings[0].code,
-            "ambiguous_heading_continuation"
-        );
-        assert_eq!(
-            candidates[2].warnings[0]
-                .location
-                .as_ref()
-                .and_then(|location| location.line),
-            Some(4)
-        );
-    }
-
-    #[test]
-    fn indented_heading_does_not_join_the_previous_record() {
-        let document = test_document(vec![
-            RawBlock {
-                id: "line-1".to_owned(),
-                value: RawValue::text("Name: Ada"),
-                location: SourceLocation::default(),
-            },
-            RawBlock {
-                id: "line-2".to_owned(),
-                value: RawValue::text("  # Section"),
-                location: SourceLocation::default(),
-            },
-        ]);
-        let options = SegmentationOptions {
-            strategy: SegmentationStrategy::JoinIndentedContinuations,
-            join_separator: "\n".to_owned(),
-        };
-
-        let candidates = segment_document(&document, &options);
-
-        assert_eq!(candidates.len(), 2);
-        assert_eq!(candidates[1].text, "# Section");
-        assert_eq!(candidates[1].reasons[0].code, "heading_boundary");
-    }
-
-    #[test]
-    fn repeated_identifier_strategy_splits_one_block_without_losing_source_reference() {
-        let document = test_document(vec![RawBlock {
-            id: "line-1".to_owned(),
-            value: RawValue::text("ID: first ID: second"),
-            location: SourceLocation {
-                line: Some(1),
-                ..SourceLocation::default()
-            },
-        }]);
-        let options = SegmentationOptions {
-            strategy: SegmentationStrategy::SplitRepeatedIdentifiers,
-            join_separator: " | ".to_owned(),
-        };
-
-        let candidates = segment_document(&document, &options);
-
-        assert_eq!(candidates.len(), 2);
-        assert_eq!(candidates[0].text, "ID: first");
-        assert_eq!(candidates[1].text, "ID: second");
-        assert_eq!(candidates[0].source_block_ids, vec!["line-1"]);
-        assert_eq!(candidates[1].source_block_ids, vec!["line-1"]);
-        assert_eq!(candidates[0].confidence, 0.82);
-        assert_eq!(
-            candidates[0].reasons[0].code,
-            "repeated_identifier_boundary"
-        );
-    }
-
-    #[test]
-    fn repeated_identifier_strategy_keeps_near_miss_intact() {
-        let document = test_document(vec![RawBlock {
-            id: "line-1".to_owned(),
-            value: RawValue::text("ID: first identifier: second"),
-            location: SourceLocation::default(),
-        }]);
-        let options = SegmentationOptions {
-            strategy: SegmentationStrategy::SplitRepeatedIdentifiers,
-            join_separator: "\n".to_owned(),
-        };
-
-        let candidates = segment_document(&document, &options);
-
-        assert_eq!(candidates.len(), 1);
-        assert_eq!(candidates[0].text, "ID: first identifier: second");
-        assert_eq!(candidates[0].confidence, 0.9);
-        assert!(candidates[0].warnings.is_empty());
-    }
-
-    #[test]
-    fn repeated_identifier_strategy_reports_ambiguous_marker_sets() {
-        let document = test_document(vec![RawBlock {
-            id: "line-1".to_owned(),
-            value: RawValue::text("ID: first ID: second Record: third Record: fourth"),
-            location: SourceLocation {
-                line: Some(7),
-                ..SourceLocation::default()
-            },
-        }]);
-        let options = SegmentationOptions {
-            strategy: SegmentationStrategy::SplitRepeatedIdentifiers,
-            join_separator: "\n".to_owned(),
-        };
-
-        let candidates = segment_document(&document, &options);
-
-        assert_eq!(candidates.len(), 1);
-        assert_eq!(candidates[0].confidence, 0.35);
-        assert_eq!(
-            candidates[0].reasons[0].code,
-            "ambiguous_repeated_identifier_boundary"
-        );
-        assert_eq!(
-            candidates[0].warnings[0]
-                .location
-                .as_ref()
-                .and_then(|location| location.line),
-            Some(7)
-        );
-    }
-
-    #[test]
-    fn repeated_identifier_markers_can_be_supplied_by_the_caller() {
-        let document = test_document(vec![RawBlock {
-            id: "line-1".to_owned(),
-            value: RawValue::text("Ref: first Ref: second"),
-            location: SourceLocation::default(),
-        }]);
-        let markers = vec!["Ref:".to_owned()];
-
-        let candidates = segment_document_with_repeated_identifier_markers(&document, &markers);
-
-        assert_eq!(
-            candidates
-                .iter()
-                .map(|candidate| candidate.text.as_str())
-                .collect::<Vec<_>>(),
-            vec!["Ref: first", "Ref: second"]
-        );
-    }
-
-    #[test]
-    fn segmentation_serializes_candidates_and_keeps_blank_blocks() {
-        let document = test_document(vec![RawBlock {
-            id: "blank".to_owned(),
-            value: RawValue::text(""),
-            location: SourceLocation::default(),
-        }]);
-
-        let candidates = segment_document(&document, &SegmentationOptions::default());
-        let json = serde_json::to_string(&candidates[0]).expect("candidate should serialize");
-        let decoded: RecordCandidate =
-            serde_json::from_str(&json).expect("candidate should deserialize");
-
-        assert_eq!(decoded, candidates[0]);
-        assert_eq!(decoded.source_block_ids, vec!["blank"]);
-        assert_eq!(decoded.text, "");
-    }
-
-    #[test]
-    fn io_error_kind_is_serializable() {
-        let error = ParserError::Io {
-            path: "missing.txt".to_owned(),
-            kind: IoErrorKind::NotFound,
-        };
-
-        let json = serde_json::to_string(&error).expect("error should serialize");
-        assert_eq!(
-            json,
-            r#"{"code":"io_error","path":"missing.txt","kind":"not_found"}"#
-        );
-    }
-
-    #[test]
-    fn empty_core_test() {
-        assert!(core_ready());
-    }
-
-    fn table_block(sheet: Option<&str>, row: usize, column: usize, value: RawValue) -> RawBlock {
-        RawBlock {
-            id: format!("block-{row}-{column}"),
-            value,
-            location: SourceLocation {
-                row: Some(row),
-                column: Some(column),
-                sheet: sheet.map(str::to_owned),
-                ..SourceLocation::default()
-            },
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn field_of(
-        name: &str,
-        aliases: &[&str],
-        candidate_type: CandidateType,
-        required: bool,
-        multiple: bool,
-    ) -> AssignmentField {
-        AssignmentField {
-            name: name.to_owned(),
-            aliases: aliases.iter().map(|alias| alias.to_string()).collect(),
-            candidate_type,
-            required,
-            multiple,
-            unique: false,
-            constraints: Vec::new(),
-            expected_column: None,
-        }
-    }
-
-    fn table_document(blocks: Vec<RawBlock>) -> RawDocument {
-        RawDocument::new(
-            "table-document",
-            SourceMetadata {
-                source_type: SourceType::Csv,
-                file_name: Some("table.csv".to_owned()),
-                mime_type: Some("text/csv".to_owned()),
-                size_bytes: None,
-                delimiter: Some(",".to_owned()),
-            },
-            blocks,
-        )
-    }
-
-    #[test]
-    fn table_headers_are_detected_and_drive_row_assignment() {
-        let document = table_document(vec![
-            table_block(None, 1, 1, RawValue::text("Email")),
-            table_block(None, 1, 2, RawValue::text("Age")),
-            table_block(None, 2, 1, RawValue::text("ada@example.test")),
-            table_block(None, 2, 2, RawValue::Integer(30)),
-        ]);
-        let fields = [
-            field_of("email", &[], CandidateType::Email, true, false),
-            field_of("age", &[], CandidateType::Integer, false, false),
-        ];
-
-        let result = parse_document_rows_with_assignment(&document, &fields, &[]);
-
-        assert_eq!(result.sheets.len(), 1);
-        let sheet = &result.sheets[0];
-        let HeaderExtraction::Detected { headers } = &sheet.header else {
-            panic!("expected a detected header");
-        };
-        assert_eq!(headers.source_row, 1);
-        assert_eq!(
-            headers.labels,
-            vec![(1, "Email".to_owned()), (2, "Age".to_owned())]
-        );
-        assert_eq!(sheet.records.len(), 1);
-        let record = &sheet.records[0];
-        assert_eq!(record.source_row, 2);
-        assert_eq!(record.parse.assignment.fields.len(), 2);
-        assert_eq!(
-            record.parse.assignment.fields[0].candidates[0].raw_value,
-            "ada@example.test"
-        );
-        assert_eq!(
-            record.parse.assignment.fields[0].candidates[0].source_column,
-            Some(1)
-        );
-        assert_eq!(
-            record.parse.assignment.fields[1].candidates[0].normalized_value,
-            Some(serde_json::json!(30))
-        );
-    }
-
-    #[test]
-    fn typed_first_rows_are_not_headers_and_stay_records() {
-        let document = table_document(vec![
-            table_block(None, 1, 1, RawValue::text("2024-01-15")),
-            table_block(None, 1, 2, RawValue::text("Note")),
-            table_block(None, 2, 1, RawValue::text("Contact")),
-            table_block(None, 2, 2, RawValue::text("ada@example.test")),
-        ]);
-        let fields = [field_of("email", &[], CandidateType::Email, false, false)];
-
-        let result = parse_document_rows_with_assignment(&document, &fields, &[]);
-
-        let sheet = &result.sheets[0];
-        let HeaderExtraction::NotDetected { code, .. } = &sheet.header else {
-            panic!("expected header detection to be rejected");
-        };
-        assert_eq!(code, "header_not_detected_strong_values");
-        assert_eq!(sheet.records.len(), 2);
-        // Without a header the email still assigns by type compatibility.
-        assert_eq!(
-            sheet.records[1].parse.assignment.fields[0].candidates[0].raw_value,
-            "ada@example.test"
-        );
-    }
-
-    #[test]
-    fn single_row_documents_do_not_invent_a_header() {
-        let document = table_document(vec![
-            table_block(None, 1, 1, RawValue::text("Email")),
-            table_block(None, 1, 2, RawValue::text("Age")),
-        ]);
-
-        let result = parse_document_rows_with_assignment(&document, &[], &[]);
-
-        let sheet = &result.sheets[0];
-        let HeaderExtraction::NotDetected { code, message } = &sheet.header else {
-            panic!("expected header detection to be rejected");
-        };
-        assert_eq!(code, "header_not_detected_single_row");
-        assert!(!message.is_empty());
-        assert_eq!(sheet.records.len(), 1);
-    }
-
-    #[test]
-    fn header_labels_resolve_ambiguous_integer_columns() {
-        let document = table_document(vec![
-            table_block(None, 1, 1, RawValue::text("Quantity")),
-            table_block(None, 1, 2, RawValue::text("Age")),
-            table_block(None, 2, 1, RawValue::Integer(30)),
-            table_block(None, 2, 2, RawValue::Integer(7)),
-        ]);
-        let fields = [field_of("age", &[], CandidateType::Integer, true, false)];
-
-        let result = parse_document_rows_with_assignment(&document, &fields, &[]);
-
-        let record = &result.sheets[0].records[0];
-        let assignment = &record.parse.assignment;
-        // Both integers are type-compatible; only the "Age" column matches.
-        assert_eq!(assignment.warnings.len(), 0);
-        assert_eq!(assignment.fields[0].candidates.len(), 1);
-        let selected = &assignment.fields[0].candidates[0];
-        assert_eq!(selected.source_column, Some(2));
-        assert_eq!(selected.normalized_value, Some(serde_json::json!(7)));
-        assert!(
-            selected
-                .reasons
-                .iter()
-                .any(|reason| reason.code == "header_label_match")
-        );
-        assert_eq!(assignment.unassigned_candidates.len(), 1);
-    }
-
-    #[test]
-    fn multiple_fields_prefer_header_matching_columns() {
-        let document = table_document(vec![
-            table_block(None, 1, 1, RawValue::text("Phone")),
-            table_block(None, 1, 2, RawValue::text("Fax")),
-            table_block(None, 2, 1, RawValue::text("+15550101")),
-            table_block(None, 2, 2, RawValue::text("+15550102")),
-        ]);
-        let fields = [field_of(
-            "phone",
-            &[],
-            CandidateType::PhoneNumber,
-            false,
-            true,
-        )];
-
-        let result = parse_document_rows_with_assignment(&document, &fields, &[]);
-
-        let assignment = &result.sheets[0].records[0].parse.assignment;
-        assert_eq!(assignment.fields[0].candidates.len(), 1);
-        assert_eq!(assignment.fields[0].candidates[0].raw_value, "+15550101");
-        // Each phone-like token also surfaces an integer candidate (evidence,
-        // not assignments); together with the unmatched "Fax" phone they stay
-        // observable as unassigned.
-        let unassigned_phones = assignment
-            .unassigned_candidates
-            .iter()
-            .filter(|candidate| candidate.candidate_type == CandidateType::PhoneNumber)
-            .count();
-        assert_eq!(assignment.unassigned_candidates.len(), 3);
-        assert_eq!(unassigned_phones, 1);
-        assert_eq!(assignment.unassigned_candidates[0].source_column, Some(1));
-    }
-
-    #[test]
-    fn blocks_without_row_provenance_are_reported_not_dropped() {
-        let document = table_document(vec![
-            table_block(None, 1, 1, RawValue::text("Email")),
-            table_block(None, 1, 2, RawValue::text("Age")),
-            table_block(None, 2, 1, RawValue::text("ada@example.test")),
-            table_block(None, 2, 2, RawValue::Integer(30)),
-            RawBlock {
-                id: "loose-block".to_owned(),
-                value: RawValue::text("stray note"),
-                location: SourceLocation::default(),
-            },
-        ]);
-
-        let grouped = group_document_rows(&document);
-
-        assert_eq!(grouped.rows.len(), 2);
-        assert_eq!(grouped.warnings.len(), 1);
-        assert_eq!(grouped.warnings[0].code, "row_provenance_missing");
-        assert_eq!(
-            grouped.warnings[0].location.as_ref().and_then(|l| l.row),
-            None
-        );
-    }
-
-    #[test]
-    fn sheets_get_independent_header_contexts() {
-        let document = table_document(vec![
-            table_block(Some("A"), 1, 1, RawValue::text("Email")),
-            table_block(Some("A"), 1, 2, RawValue::text("Age")),
-            table_block(Some("A"), 2, 1, RawValue::text("ada@example.test")),
-            table_block(Some("A"), 2, 2, RawValue::Integer(30)),
-            table_block(Some("B"), 1, 1, RawValue::text("Phone")),
-            table_block(Some("B"), 1, 2, RawValue::text("Fax")),
-            table_block(Some("B"), 2, 1, RawValue::text("+15550101")),
-            table_block(Some("B"), 2, 2, RawValue::text("+15550102")),
-        ]);
-        let fields = [
-            field_of("email", &[], CandidateType::Email, false, false),
-            field_of("phone", &[], CandidateType::PhoneNumber, false, false),
-        ];
-
-        let result = parse_document_rows_with_assignment(&document, &fields, &[]);
-
-        assert_eq!(result.sheets.len(), 2);
-        assert_eq!(result.sheets[0].sheet.as_deref(), Some("A"));
-        assert_eq!(result.sheets[1].sheet.as_deref(), Some("B"));
-        for sheet in &result.sheets {
-            assert!(sheet.header.context().is_some());
-            assert_eq!(sheet.records.len(), 1);
-        }
-        let assigned_value = |sheet: &SheetTableResult, name: &str| {
-            sheet.records[0]
-                .parse
-                .assignment
-                .fields
-                .iter()
-                .find(|field| field.name == name)
-                .map(|field| field.candidates[0].raw_value.clone())
-        };
-        // Sheets only report fields that found a compatible candidate.
-        assert_eq!(
-            assigned_value(&result.sheets[0], "email").as_deref(),
-            Some("ada@example.test")
-        );
-        assert_eq!(assigned_value(&result.sheets[0], "phone"), None);
-        assert_eq!(
-            assigned_value(&result.sheets[1], "phone").as_deref(),
-            Some("+15550101")
-        );
-        assert_eq!(assigned_value(&result.sheets[1], "email"), None);
-    }
-
-    #[test]
-    fn table_parse_result_round_trips_as_json() {
-        let document = table_document(vec![
-            table_block(None, 1, 1, RawValue::text("Email")),
-            table_block(None, 1, 2, RawValue::text("Age")),
-            table_block(None, 2, 1, RawValue::text("ada@example.test")),
-            table_block(None, 2, 2, RawValue::Integer(30)),
-        ]);
-        let fields = [field_of("email", &[], CandidateType::Email, true, false)];
-
-        let result = parse_document_rows_with_assignment(&document, &fields, &[]);
-        let json = serde_json::to_string(&result).expect("table result should serialize");
-        let decoded: TableParseResult =
-            serde_json::from_str(&json).expect("table result should deserialize");
-
-        assert_eq!(decoded, result);
-    }
-
-    #[test]
-    fn parse_document_dispatches_to_table_for_row_provenance() {
-        let document = table_document(vec![
-            table_block(None, 1, 1, RawValue::text("Email")),
-            table_block(None, 1, 2, RawValue::text("Age")),
-            table_block(None, 2, 1, RawValue::text("ada@example.test")),
-            table_block(None, 2, 2, RawValue::Integer(30)),
-        ]);
-        let fields = [field_of("email", &[], CandidateType::Email, true, false)];
-
-        let response =
-            parse_document_with_assignment(&document, &fields, &[], Some("contact".to_owned()));
-
-        assert_eq!(response.contract_version, CONTRACT_VERSION);
-        assert_eq!(response.parser_version, env!("CARGO_PKG_VERSION"));
-        assert_eq!(response.record_name.as_deref(), Some("contact"));
-        assert_eq!(response.source_type, SourceType::Csv);
-        let ParseContent::Table { sheets } = &response.content else {
-            panic!("expected table content");
-        };
-        assert_eq!(sheets.len(), 1);
-        assert_eq!(sheets[0].records.len(), 1);
-        assert_eq!(
-            sheets[0].records[0].parse.assignment.fields[0].candidates[0].raw_value,
-            "ada@example.test"
-        );
-    }
-
-    #[test]
-    fn parse_document_dispatches_to_text_without_row_provenance() {
-        let document = test_document(vec![
-            RawBlock {
-                id: "b1".to_owned(),
-                value: RawValue::text("ada@example.test"),
-                location: SourceLocation::default(),
-            },
-            RawBlock {
-                id: "b2".to_owned(),
-                value: RawValue::text("grace@example.test"),
-                location: SourceLocation::default(),
-            },
-        ]);
-        let fields = [field_of("email", &[], CandidateType::Email, true, false)];
-
-        let response = parse_document_with_assignment(&document, &fields, &[], None);
-
-        assert_eq!(response.source_type, SourceType::Text);
-        assert!(response.warnings.is_empty());
-        let ParseContent::Text { records } = &response.content else {
-            panic!("expected text content");
-        };
-        assert_eq!(records.len(), 2);
-        assert_eq!(records[0].source_block_id, "b1");
-        assert_eq!(
-            records[0].parse.assignment.fields[0].candidates[0].raw_value,
-            "ada@example.test"
-        );
-        assert_eq!(
-            records[1].parse.assignment.fields[0].candidates[0].raw_value,
-            "grace@example.test"
-        );
-    }
-
-    #[test]
-    fn parse_response_round_trips_as_json() {
-        let document = table_document(vec![
-            table_block(None, 1, 1, RawValue::text("Email")),
-            table_block(None, 1, 2, RawValue::text("Age")),
-            table_block(None, 2, 1, RawValue::text("ada@example.test")),
-            table_block(None, 2, 2, RawValue::Integer(30)),
-        ]);
-        let fields = [field_of("email", &[], CandidateType::Email, true, false)];
-
-        let response =
-            parse_document_with_assignment(&document, &fields, &[], Some("contact".to_owned()));
-        let json = serde_json::to_string(&response).expect("response should serialize");
-        let decoded: ParseResponse =
-            serde_json::from_str(&json).expect("response should deserialize");
-
-        assert_eq!(decoded, response);
-    }
-}
+#[path = "../tests/unit/mod.rs"]
+mod tests;

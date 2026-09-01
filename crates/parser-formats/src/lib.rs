@@ -1,11 +1,132 @@
-use calamine::{Data, Reader, Xlsx, open_workbook};
+use calamine::{Data, Reader, Xlsx, XlsxError, open_workbook_from_rs};
 use parser_core::{
-    ParserError, RawBlock, RawDocument, RawValue, SourceLocation, SourceMetadata, SourceType,
+    Failure, ParsePlan, ParseResponse, ParserError, RawBlock, RawDocument, RawValue,
+    ResourceLimitKind, SourceLocation, SourceMetadata, SourceType, TableByteSpan, TableInventory,
+    TableInventoryRow, TableInventorySheet, TableSelectionOptions, UnsupportedTableMetadata,
 };
-use std::{fs, fs::File, io::Read, path::Path};
+use std::{
+    fs,
+    io::{Cursor, Read, Seek},
+    path::Path,
+};
+
+mod file_validation;
+pub use file_validation::{
+    EmptyFilePolicy, FileFormat, FileValidationOptions, ValidatedFile, open_validated_file,
+};
 
 pub const DEFAULT_MAX_TEXT_BYTES: usize = 1024 * 1024;
 pub const DEFAULT_MAX_LINE_BYTES: usize = 64 * 1024;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UnsupportedMetadata {
+    MergedRegion {
+        start_row: usize,
+        start_column: usize,
+        end_row: usize,
+        end_column: usize,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExtractedRow {
+    pub source_row: usize,
+    pub block_indices: Vec<usize>,
+    pub blank: bool,
+    pub byte_span: Option<TableByteSpan>,
+    pub line_start: Option<usize>,
+    pub line_end: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExtractedSheet {
+    pub original_index: usize,
+    pub name: Option<String>,
+    pub rows: Vec<ExtractedRow>,
+    pub unsupported_metadata: Vec<UnsupportedMetadata>,
+}
+
+/// Extraction companion for opt-in table selection. It intentionally has no
+/// serde implementation; the canonical document remains the wire source model.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExtractedTable {
+    pub document: RawDocument,
+    pub manifest: Vec<ExtractedSheet>,
+}
+
+impl ExtractedTable {
+    fn inventory(&self) -> TableInventory {
+        TableInventory {
+            source_type: self.document.source.source_type.clone(),
+            sheets: self
+                .manifest
+                .iter()
+                .map(|sheet| TableInventorySheet {
+                    original_index: sheet.original_index,
+                    name: sheet.name.clone(),
+                    rows: sheet
+                        .rows
+                        .iter()
+                        .map(|row| TableInventoryRow {
+                            source_row: row.source_row,
+                            block_indices: row.block_indices.clone(),
+                            blank: row.blank,
+                            byte_span: row.byte_span,
+                            line_start: row.line_start,
+                            line_end: row.line_end,
+                        })
+                        .collect(),
+                    unsupported_metadata: sheet
+                        .unsupported_metadata
+                        .iter()
+                        .map(|metadata| match metadata {
+                            UnsupportedMetadata::MergedRegion {
+                                start_row,
+                                start_column,
+                                end_row,
+                                end_column,
+                            } => UnsupportedTableMetadata::MergedRegion {
+                                start_row: *start_row,
+                                start_column: *start_column,
+                                end_row: *end_row,
+                                end_column: *end_column,
+                            },
+                        })
+                        .collect(),
+                })
+                .collect(),
+        }
+    }
+}
+
+pub fn parse_extracted_table_with_plan(
+    table: &ExtractedTable,
+    plan: &ParsePlan,
+    options: &TableSelectionOptions,
+) -> Result<ParseResponse, Failure> {
+    parser_core::parse_document_with_plan_and_table_selection(
+        &table.document,
+        plan,
+        &table.inventory(),
+        options,
+    )
+}
+
+pub fn parse_extracted_table_with_plan_and_limits(
+    table: &ExtractedTable,
+    plan: &ParsePlan,
+    options: &TableSelectionOptions,
+    limits: parser_core::ParseLimits,
+) -> Result<ParseResponse, Failure> {
+    let response = parser_core::parse_document_with_plan_and_table_selection(
+        &table.document,
+        plan,
+        &table.inventory(),
+        options,
+    )?;
+    parser_core::enforce_parse_response_limits(&response, limits)?;
+    Ok(response)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TextLimits {
@@ -28,6 +149,13 @@ impl Default for TextLimits {
     }
 }
 
+/// TXT uses one byte limit for both validation and bounded extraction.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct TxtOptions {
+    pub limits: TextLimits,
+    pub empty_policy: EmptyFilePolicy,
+}
+
 pub enum InputSource<'a> {
     Text(&'a str),
     Stdin(&'a mut dyn Read),
@@ -43,25 +171,53 @@ pub fn read_input(source: InputSource<'_>, limits: TextLimits) -> Result<RawDocu
             let bytes = read_limited(reader, "<stdin>", limits)?;
             document_from_bytes(None, &bytes, "<stdin>", SourceType::Stdin, limits)
         }
-        InputSource::TxtFile(path) => {
-            let path_display = path.to_string_lossy().into_owned();
-            let bytes = read_file_limited(path, &path_display, limits)?;
-            let file_name = path
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned());
-            document_from_bytes(
-                file_name.as_deref(),
-                &bytes,
-                &path_display,
-                SourceType::Txt,
+        InputSource::TxtFile(path) => read_txt_with_options(
+            path,
+            TxtOptions {
                 limits,
-            )
-        }
+                empty_policy: EmptyFilePolicy::Accept,
+            },
+        ),
     }
 }
 
 pub fn read_txt(path: impl AsRef<Path>) -> Result<RawDocument, ParserError> {
-    read_input(InputSource::TxtFile(path.as_ref()), TextLimits::default())
+    read_txt_with_options(path, TxtOptions::default())
+}
+
+/// Validate a `.txt` path and extract from that same handle, following symlinks.
+pub fn read_txt_with_options(
+    path: impl AsRef<Path>,
+    options: TxtOptions,
+) -> Result<RawDocument, ParserError> {
+    let path = path.as_ref();
+    let input = open_validated_file(
+        path,
+        &FileValidationOptions {
+            enabled_formats: vec![FileFormat::Txt],
+            max_bytes: options.limits.max_bytes,
+            empty_policy: options.empty_policy,
+        },
+    )?;
+    read_validated_txt(input, path, options)
+}
+
+fn read_validated_txt(
+    input: ValidatedFile,
+    path: &Path,
+    options: TxtOptions,
+) -> Result<RawDocument, ParserError> {
+    let source = path.to_string_lossy();
+    let bytes = read_limited(&mut input.into_file(), &source, options.limits)?;
+    file_validation::check_empty(bytes.len() as u64, &source, options.empty_policy)?;
+    let file_name = path.file_name().map(|name| name.to_string_lossy());
+    document_from_bytes(
+        file_name.as_deref(),
+        &bytes,
+        &source,
+        SourceType::Txt,
+        options.limits,
+    )
 }
 
 pub fn read_txt_bytes(
@@ -111,12 +267,33 @@ impl CsvDelimiter {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct CsvOptions {
     pub delimiter: Option<CsvDelimiter>,
+    pub limits: CsvLimits,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CsvLimits {
+    pub max_bytes: u64,
+    pub max_rows: usize,
+    pub max_cells: usize,
+}
+impl Default for CsvLimits {
+    fn default() -> Self {
+        Self {
+            max_bytes: 16 * 1024 * 1024,
+            max_rows: 100_000,
+            max_cells: 1_000_000,
+        }
+    }
+}
 impl CsvOptions {
     pub const fn with_delimiter(delimiter: CsvDelimiter) -> Self {
         Self {
             delimiter: Some(delimiter),
+            limits: CsvLimits {
+                max_bytes: 16 * 1024 * 1024,
+                max_rows: 100_000,
+                max_cells: 1_000_000,
+            },
         }
     }
 }
@@ -131,15 +308,39 @@ pub fn read_csv_with_options(
 ) -> Result<RawDocument, ParserError> {
     let path = path.as_ref();
     let path_display = path.to_string_lossy().into_owned();
-    let bytes = fs::read(path).map_err(|error| ParserError::Io {
-        path: path_display.clone(),
-        kind: error.kind().into(),
-    })?;
+    let bytes = read_bounded_file(
+        path,
+        &path_display,
+        options.limits.max_bytes,
+        ResourceLimitKind::CsvBytes,
+    )?;
     let file_name = path
         .file_name()
         .map(|name| name.to_string_lossy().into_owned());
 
     read_csv_bytes(file_name.as_deref(), &bytes, &path_display, options)
+}
+
+pub fn read_csv_table(path: impl AsRef<Path>) -> Result<ExtractedTable, ParserError> {
+    read_csv_table_with_options(path, CsvOptions::default())
+}
+
+pub fn read_csv_table_with_options(
+    path: impl AsRef<Path>,
+    options: CsvOptions,
+) -> Result<ExtractedTable, ParserError> {
+    let path = path.as_ref();
+    let path_display = path.to_string_lossy().into_owned();
+    let bytes = read_bounded_file(
+        path,
+        &path_display,
+        options.limits.max_bytes,
+        ResourceLimitKind::CsvBytes,
+    )?;
+    let file_name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned());
+    read_csv_table_bytes(file_name.as_deref(), &bytes, &path_display, options)
 }
 
 pub fn read_csv_bytes(
@@ -148,10 +349,13 @@ pub fn read_csv_bytes(
     source_path: &str,
     options: CsvOptions,
 ) -> Result<RawDocument, ParserError> {
+    check_csv_limits(bytes, options.limits, source_path)?;
     let (delimiter, records) = match options.delimiter {
         Some(delimiter) => (delimiter, parse_csv_records(bytes, source_path, delimiter)?),
         None => detect_delimiter(bytes, source_path)?,
     };
+    let logical_rows = csv_logical_rows(bytes, delimiter.byte()).len();
+    check_record_limits(&records, logical_rows, options.limits)?;
 
     let blocks = records
         .into_iter()
@@ -182,6 +386,157 @@ pub fn read_csv_bytes(
         },
         blocks,
     ))
+}
+
+pub fn read_csv_table_bytes(
+    file_name: Option<&str>,
+    bytes: &[u8],
+    source_path: &str,
+    options: CsvOptions,
+) -> Result<ExtractedTable, ParserError> {
+    check_csv_limits(bytes, options.limits, source_path)?;
+    let (delimiter, records) = match options.delimiter {
+        Some(delimiter) => (delimiter, parse_csv_records(bytes, source_path, delimiter)?),
+        None => detect_delimiter(bytes, source_path)?,
+    };
+    let logical_rows = csv_logical_rows(bytes, delimiter.byte());
+    check_record_limits(&records, logical_rows.len(), options.limits)?;
+    let mut records = records.into_iter();
+    let mut blocks = Vec::new();
+    let mut rows = Vec::new();
+    for row in logical_rows {
+        let block_start = blocks.len();
+        if !row.blank {
+            let record = records.next().ok_or_else(|| ParserError::InvalidCsv {
+                path: source_path.to_owned(),
+                record: Some(row.source_row),
+                message: "CSV row inventory did not match parsed records".to_owned(),
+            })?;
+            for (column_index, value) in record.into_iter().enumerate() {
+                blocks.push(RawBlock {
+                    id: format!("row-{}-column-{}", row.source_row, column_index + 1),
+                    value: RawValue::text(value),
+                    location: SourceLocation {
+                        row: Some(row.source_row),
+                        column: Some(column_index + 1),
+                        ..SourceLocation::default()
+                    },
+                });
+            }
+        }
+        rows.push(ExtractedRow {
+            source_row: row.source_row,
+            block_indices: (block_start..blocks.len()).collect(),
+            blank: row.blank,
+            byte_span: Some(TableByteSpan {
+                byte_start: row.byte_start,
+                byte_end: row.byte_end,
+            }),
+            line_start: Some(row.line_start),
+            line_end: Some(row.line_end),
+        });
+    }
+    if records.next().is_some() {
+        return Err(ParserError::InvalidCsv {
+            path: source_path.to_owned(),
+            record: None,
+            message: "CSV row inventory did not match parsed records".to_owned(),
+        });
+    }
+    Ok(ExtractedTable {
+        document: RawDocument::new(
+            "csv-document",
+            SourceMetadata {
+                source_type: SourceType::Csv,
+                file_name: file_name.map(str::to_owned),
+                mime_type: Some("text/csv".to_owned()),
+                size_bytes: Some(bytes.len() as u64),
+                delimiter: Some(delimiter.symbol().to_owned()),
+            },
+            blocks,
+        ),
+        manifest: vec![ExtractedSheet {
+            original_index: 1,
+            name: None,
+            rows,
+            unsupported_metadata: Vec::new(),
+        }],
+    })
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CsvLogicalRow {
+    source_row: usize,
+    byte_start: usize,
+    byte_end: usize,
+    line_start: usize,
+    line_end: usize,
+    blank: bool,
+}
+
+fn csv_logical_rows(bytes: &[u8], delimiter: u8) -> Vec<CsvLogicalRow> {
+    let mut rows = Vec::new();
+    let mut row_start = 0;
+    let mut row_line_start = 1;
+    let mut line = 1;
+    let mut in_quotes = false;
+    let mut field_start = true;
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'"' if in_quotes && bytes.get(index + 1) == Some(&b'"') => index += 2,
+            b'"' if in_quotes => {
+                in_quotes = false;
+                field_start = false;
+                index += 1;
+            }
+            b'"' if field_start => {
+                in_quotes = true;
+                field_start = false;
+                index += 1;
+            }
+            b'\r' | b'\n' => {
+                let crlf = bytes[index] == b'\r' && bytes.get(index + 1) == Some(&b'\n');
+                if in_quotes {
+                    line += 1;
+                    index += if crlf { 2 } else { 1 };
+                    continue;
+                }
+                rows.push(CsvLogicalRow {
+                    source_row: rows.len() + 1,
+                    byte_start: row_start,
+                    byte_end: index,
+                    line_start: row_line_start,
+                    line_end: line,
+                    blank: row_start == index,
+                });
+                line += 1;
+                index += if crlf { 2 } else { 1 };
+                row_start = index;
+                row_line_start = line;
+                field_start = true;
+            }
+            byte if !in_quotes && byte == delimiter => {
+                field_start = true;
+                index += 1;
+            }
+            _ => {
+                field_start = false;
+                index += 1;
+            }
+        }
+    }
+    if row_start < bytes.len() {
+        rows.push(CsvLogicalRow {
+            source_row: rows.len() + 1,
+            byte_start: row_start,
+            byte_end: bytes.len(),
+            line_start: row_line_start,
+            line_end: line,
+            blank: row_start == bytes.len(),
+        });
+    }
+    rows
 }
 
 type DelimiterScore = (usize, usize, usize, usize);
@@ -339,74 +694,219 @@ fn validate_csv_quotes(bytes: &[u8], source_path: &str, delimiter: u8) -> Result
 }
 
 pub fn read_xlsx(path: impl AsRef<Path>) -> Result<RawDocument, ParserError> {
-    let path = path.as_ref();
-    let path_display = path.to_string_lossy().into_owned();
-    let size_bytes = fs::metadata(path)
-        .map_err(|error| ParserError::Io {
-            path: path_display.clone(),
-            kind: error.kind().into(),
-        })?
-        .len();
-    let mut workbook: Xlsx<_> = open_workbook(path).map_err(|error| ParserError::InvalidXlsx {
-        path: path_display.clone(),
-        message: format!("{error:?}"),
-    })?;
+    read_xlsx_with_limits(path, XlsxLimits::default())
+}
 
+pub fn read_xlsx_with_limits(
+    path: impl AsRef<Path>,
+    limits: XlsxLimits,
+) -> Result<RawDocument, ParserError> {
+    Ok(read_xlsx_table_path_with_limits(path.as_ref(), limits)?.document)
+}
+
+pub fn read_xlsx_table_with_limits(
+    path: impl AsRef<Path>,
+    limits: XlsxLimits,
+) -> Result<ExtractedTable, ParserError> {
+    read_xlsx_table_path_with_limits(path.as_ref(), limits)
+}
+
+pub fn read_xlsx_table(path: impl AsRef<Path>) -> Result<ExtractedTable, ParserError> {
+    read_xlsx_table_with_limits(path, XlsxLimits::default())
+}
+
+/// Reads borrowed XLSX bytes without filesystem or network access.
+///
+/// `file_name` is optional caller metadata, never a path to open. Stored cell
+/// values are read without evaluating formulas, macros or external links.
+/// Invalid input returns `InvalidXlsx` with an empty `path` and a generic
+/// message; filename and workbook contents are not copied into diagnostics.
+pub fn read_xlsx_bytes(file_name: Option<&str>, bytes: &[u8]) -> Result<RawDocument, ParserError> {
+    read_xlsx_bytes_with_limits(file_name, bytes, XlsxLimits::default())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct XlsxLimits {
+    pub max_bytes: u64,
+    pub max_sheets: usize,
+    pub max_cells: usize,
+}
+impl Default for XlsxLimits {
+    fn default() -> Self {
+        Self {
+            max_bytes: 64 * 1024 * 1024,
+            max_sheets: 256,
+            max_cells: 5_000_000,
+        }
+    }
+}
+
+pub fn read_xlsx_bytes_with_limits(
+    file_name: Option<&str>,
+    bytes: &[u8],
+    limits: XlsxLimits,
+) -> Result<RawDocument, ParserError> {
+    Ok(read_xlsx_table_bytes_with_limits(file_name, bytes, limits)?.document)
+}
+
+pub fn read_xlsx_table_bytes(
+    file_name: Option<&str>,
+    bytes: &[u8],
+) -> Result<ExtractedTable, ParserError> {
+    read_xlsx_table_bytes_with_limits(file_name, bytes, XlsxLimits::default())
+}
+
+pub fn read_xlsx_table_bytes_with_limits(
+    file_name: Option<&str>,
+    bytes: &[u8],
+    limits: XlsxLimits,
+) -> Result<ExtractedTable, ParserError> {
+    read_xlsx_table_bytes_inner(file_name, bytes, None, limits)
+}
+
+fn read_xlsx_table_path_with_limits(
+    path: &Path,
+    limits: XlsxLimits,
+) -> Result<ExtractedTable, ParserError> {
+    let source = path.to_string_lossy().into_owned();
+    let bytes = read_bounded_file(
+        path,
+        &source,
+        limits.max_bytes,
+        ResourceLimitKind::XlsxBytes,
+    )?;
+    let file_name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned());
+    read_xlsx_table_bytes_inner(file_name.as_deref(), &bytes, Some(&source), limits)
+}
+
+fn read_xlsx_table_bytes_inner(
+    file_name: Option<&str>,
+    bytes: &[u8],
+    source_path: Option<&str>,
+    limits: XlsxLimits,
+) -> Result<ExtractedTable, ParserError> {
+    if bytes.len() as u64 > limits.max_bytes {
+        return Err(ParserError::ResourceLimit {
+            resource: ResourceLimitKind::XlsxBytes,
+            limit: limits.max_bytes,
+            actual: bytes.len() as u64,
+        });
+    }
+    let workbook: Xlsx<_> = open_workbook_from_rs(Cursor::new(bytes))
+        .map_err(|error| xlsx_error(source_path, None, error))?;
+    extract_xlsx_table(workbook, file_name, bytes.len() as u64, source_path, limits)
+}
+
+fn extract_xlsx_table<RS: Read + Seek>(
+    mut workbook: Xlsx<RS>,
+    file_name: Option<&str>,
+    size_bytes: u64,
+    source_path: Option<&str>,
+    limits: XlsxLimits,
+) -> Result<ExtractedTable, ParserError> {
     let mut blocks = Vec::new();
-    for (sheet_index, sheet_name) in workbook.sheet_names().into_iter().enumerate() {
-        let _merged_regions = workbook
+    let mut manifest = Vec::new();
+    let sheet_names = workbook.sheet_names();
+    if sheet_names.len() > limits.max_sheets {
+        return Err(ParserError::ResourceLimit {
+            resource: ResourceLimitKind::XlsxSheets,
+            limit: limits.max_sheets as u64,
+            actual: sheet_names.len() as u64,
+        });
+    }
+    for (sheet_index, sheet_name) in sheet_names.into_iter().enumerate() {
+        let merged_regions = workbook
             .merge_cells_by_sheet_name(&sheet_name)
-            .map_err(|error| ParserError::InvalidXlsx {
-                path: path_display.clone(),
-                message: format!("sheet {sheet_name}: {error:?}"),
-            })?;
-        let range =
-            workbook
-                .worksheet_range(&sheet_name)
-                .map_err(|error| ParserError::InvalidXlsx {
-                    path: path_display.clone(),
-                    message: format!("sheet {sheet_name}: {error:?}"),
-                })?;
-        let Some((start_row, start_column)) = range.start() else {
-            continue;
-        };
-
-        for (row_offset, row) in range.rows().enumerate() {
-            for (column_offset, cell) in row.iter().enumerate() {
-                blocks.push(RawBlock {
-                    id: format!(
-                        "sheet-{}-row-{}-column-{}",
-                        sheet_index + 1,
-                        start_row as usize + row_offset + 1,
-                        start_column as usize + column_offset + 1
-                    ),
-                    value: raw_xlsx_value(cell),
-                    location: SourceLocation {
-                        row: Some(start_row as usize + row_offset + 1),
-                        column: Some(start_column as usize + column_offset + 1),
-                        sheet: Some(sheet_name.clone()),
-                        ..SourceLocation::default()
-                    },
+            .map_err(|error| xlsx_error(source_path, Some(&sheet_name), error))?;
+        let range = workbook
+            .worksheet_range(&sheet_name)
+            .map_err(|error| xlsx_error(source_path, Some(&sheet_name), error))?;
+        let mut rows = Vec::new();
+        if let Some((start_row, start_column)) = range.start() {
+            for (row_offset, row) in range.rows().enumerate() {
+                let source_row = start_row as usize + row_offset + 1;
+                let block_start = blocks.len();
+                let blank = row.iter().all(|cell| matches!(cell, Data::Empty));
+                let observed_cells = blocks.len().saturating_add(row.len());
+                if observed_cells > limits.max_cells {
+                    return Err(ParserError::ResourceLimit {
+                        resource: ResourceLimitKind::XlsxCells,
+                        limit: limits.max_cells as u64,
+                        actual: observed_cells as u64,
+                    });
+                }
+                for (column_offset, cell) in row.iter().enumerate() {
+                    blocks.push(RawBlock {
+                        id: format!(
+                            "sheet-{}-row-{}-column-{}",
+                            sheet_index + 1,
+                            source_row,
+                            start_column as usize + column_offset + 1
+                        ),
+                        value: raw_xlsx_value(cell),
+                        location: SourceLocation {
+                            row: Some(source_row),
+                            column: Some(start_column as usize + column_offset + 1),
+                            sheet: Some(sheet_name.clone()),
+                            ..SourceLocation::default()
+                        },
+                    });
+                }
+                rows.push(ExtractedRow {
+                    source_row,
+                    block_indices: (block_start..blocks.len()).collect(),
+                    blank,
+                    byte_span: None,
+                    line_start: None,
+                    line_end: None,
                 });
             }
         }
+        manifest.push(ExtractedSheet {
+            original_index: sheet_index + 1,
+            name: Some(sheet_name),
+            rows,
+            unsupported_metadata: merged_regions
+                .into_iter()
+                .map(|region| UnsupportedMetadata::MergedRegion {
+                    start_row: region.start.0 as usize + 1,
+                    start_column: region.start.1 as usize + 1,
+                    end_row: region.end.0 as usize + 1,
+                    end_column: region.end.1 as usize + 1,
+                })
+                .collect(),
+        });
     }
+    Ok(ExtractedTable {
+        document: RawDocument::new(
+            "xlsx-document",
+            SourceMetadata {
+                source_type: SourceType::Xlsx,
+                file_name: file_name.map(str::to_owned),
+                mime_type: Some(
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".to_owned(),
+                ),
+                size_bytes: Some(size_bytes),
+                delimiter: None,
+            },
+            blocks,
+        ),
+        manifest,
+    })
+}
 
-    Ok(RawDocument::new(
-        "xlsx-document",
-        SourceMetadata {
-            source_type: SourceType::Xlsx,
-            file_name: path
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned()),
-            mime_type: Some(
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".to_owned(),
-            ),
-            size_bytes: Some(size_bytes),
-            delimiter: None,
-        },
-        blocks,
-    ))
+fn xlsx_error(path: Option<&str>, sheet: Option<&str>, error: XlsxError) -> ParserError {
+    let message = match (path, sheet) {
+        (Some(_), Some(sheet)) => format!("sheet {sheet}: {error:?}"),
+        (Some(_), None) => format!("{error:?}"),
+        (None, _) => "could not read XLSX workbook".to_owned(),
+    };
+    ParserError::InvalidXlsx {
+        path: path.unwrap_or_default().to_owned(),
+        message,
+    }
 }
 
 fn raw_xlsx_value(cell: &Data) -> RawValue {
@@ -421,18 +921,6 @@ fn raw_xlsx_value(cell: &Data) -> RawValue {
         Data::Error(value) => RawValue::Error(value.to_string()),
         Data::Empty => RawValue::Null,
     }
-}
-
-fn read_file_limited(
-    path: &Path,
-    source: &str,
-    limits: TextLimits,
-) -> Result<Vec<u8>, ParserError> {
-    let mut file = File::open(path).map_err(|error| ParserError::Io {
-        path: source.to_owned(),
-        kind: error.kind().into(),
-    })?;
-    read_limited(&mut file, source, limits)
 }
 
 fn read_limited(
@@ -459,6 +947,84 @@ fn read_limited(
     }
 
     Ok(bytes)
+}
+
+fn read_bounded_file(
+    path: &Path,
+    source: &str,
+    max_bytes: u64,
+    resource: ResourceLimitKind,
+) -> Result<Vec<u8>, ParserError> {
+    let mut file = fs::File::open(path).map_err(|error| ParserError::Io {
+        path: source.to_owned(),
+        kind: error.kind().into(),
+    })?;
+    let metadata = file.metadata().map_err(|error| ParserError::Io {
+        path: source.to_owned(),
+        kind: error.kind().into(),
+    })?;
+    if !metadata.is_file() {
+        return Err(ParserError::NotRegularFile {
+            path: source.to_owned(),
+        });
+    }
+    if metadata.len() > max_bytes {
+        return Err(ParserError::ResourceLimit {
+            resource,
+            limit: max_bytes,
+            actual: metadata.len(),
+        });
+    }
+    let mut bytes = Vec::new();
+    file.by_ref()
+        .take(max_bytes.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(|error| ParserError::Io {
+            path: source.to_owned(),
+            kind: error.kind().into(),
+        })?;
+    if bytes.len() as u64 > max_bytes {
+        return Err(ParserError::ResourceLimit {
+            resource,
+            limit: max_bytes,
+            actual: bytes.len() as u64,
+        });
+    }
+    Ok(bytes)
+}
+
+fn check_csv_limits(bytes: &[u8], limits: CsvLimits, _source: &str) -> Result<(), ParserError> {
+    if bytes.len() as u64 > limits.max_bytes {
+        return Err(ParserError::ResourceLimit {
+            resource: ResourceLimitKind::CsvBytes,
+            limit: limits.max_bytes,
+            actual: bytes.len() as u64,
+        });
+    }
+    Ok(())
+}
+
+fn check_record_limits(
+    records: &[Vec<String>],
+    logical_rows: usize,
+    limits: CsvLimits,
+) -> Result<(), ParserError> {
+    if logical_rows > limits.max_rows {
+        return Err(ParserError::ResourceLimit {
+            resource: ResourceLimitKind::CsvRows,
+            limit: limits.max_rows as u64,
+            actual: logical_rows as u64,
+        });
+    }
+    let cells = records.iter().map(Vec::len).sum::<usize>();
+    if cells > limits.max_cells {
+        return Err(ParserError::ResourceLimit {
+            resource: ResourceLimitKind::CsvCells,
+            limit: limits.max_cells as u64,
+            actual: cells as u64,
+        });
+    }
+    Ok(())
 }
 
 fn document_from_bytes(
@@ -557,268 +1123,5 @@ pub fn formats_ready() -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use parser_core::RawValue;
-    use std::{io::Cursor, path::PathBuf};
-
-    #[test]
-    fn extracts_lines_without_normalizing_content() {
-        let document = read_txt_bytes(Some("sample.txt"), b"Ada  \n\n Grace\r\n", "sample.txt")
-            .expect("valid text should be read");
-
-        assert_eq!(document.blocks.len(), 3);
-        assert_eq!(document.blocks[0].value, RawValue::text("Ada  "));
-        assert_eq!(document.blocks[1].value, RawValue::text(""));
-        assert_eq!(document.blocks[2].value, RawValue::text(" Grace"));
-        assert_eq!(document.blocks[2].location.line, Some(3));
-        assert_eq!(document.blocks[2].location.byte_start, Some(7));
-        assert_eq!(document.blocks[2].location.byte_end, Some(13));
-    }
-
-    #[test]
-    fn text_and_stdin_use_the_same_block_extraction() {
-        let content = "Ada Lovelace\nGrace Hopper";
-        let text_document = read_input(InputSource::Text(content), TextLimits::default())
-            .expect("text should be read");
-        let mut stdin = Cursor::new(content.as_bytes());
-        let stdin_document = read_input(InputSource::Stdin(&mut stdin), TextLimits::default())
-            .expect("stdin should be read");
-
-        assert_eq!(text_document.blocks, stdin_document.blocks);
-        assert_eq!(text_document.source.source_type, SourceType::Text);
-        assert_eq!(stdin_document.source.source_type, SourceType::Stdin);
-    }
-
-    #[test]
-    fn detects_comma_delimiter_and_cell_provenance() {
-        let document = read_csv_bytes(
-            Some("sample.csv"),
-            b"name,email\nAda,ada@example.test\n",
-            "sample.csv",
-            CsvOptions::default(),
-        )
-        .expect("comma CSV should be read");
-
-        assert_eq!(document.source.delimiter.as_deref(), Some(","));
-        assert_eq!(document.blocks.len(), 4);
-        assert_eq!(document.blocks[2].value, RawValue::text("Ada"));
-        assert_eq!(document.blocks[2].location.row, Some(2));
-        assert_eq!(document.blocks[2].location.column, Some(1));
-    }
-
-    #[test]
-    fn supports_semicolon_and_multiline_quoted_cells() {
-        let document = read_csv_bytes(
-            None,
-            b"name;note\nAda;\"line one\nline two\"\nGrace;;\n",
-            "messy.csv",
-            CsvOptions::default(),
-        )
-        .expect("semicolon CSV should be read");
-
-        assert_eq!(document.source.delimiter.as_deref(), Some(";"));
-        assert_eq!(
-            document.blocks[3].value,
-            RawValue::text("line one\nline two")
-        );
-        assert_eq!(document.blocks[3].location.row, Some(2));
-        assert_eq!(document.blocks[5].value, RawValue::text(""));
-    }
-
-    #[test]
-    fn supports_explicit_delimiter_override() {
-        let document = read_csv_bytes(
-            None,
-            b"left;right\n1;2\n",
-            "values.csv",
-            CsvOptions::with_delimiter(CsvDelimiter::Comma),
-        )
-        .expect("explicit delimiter should be honored");
-
-        assert_eq!(document.source.delimiter.as_deref(), Some(","));
-        assert_eq!(document.blocks.len(), 2);
-        assert_eq!(document.blocks[0].value, RawValue::text("left;right"));
-    }
-
-    #[test]
-    fn detects_pipe_delimiter() {
-        let document = read_csv_bytes(None, b"a|b\n1|2\n", "values.psv", CsvOptions::default())
-            .expect("pipe-delimited data should be read");
-
-        assert_eq!(document.source.delimiter.as_deref(), Some("|"));
-    }
-
-    #[test]
-    fn rejects_malformed_csv_structurally() {
-        let error = read_csv_bytes(
-            None,
-            b"name,note\nAda,\"unclosed\n",
-            "broken.csv",
-            CsvOptions::default(),
-        )
-        .expect_err("malformed CSV should fail");
-
-        assert_eq!(error.code(), "invalid_csv");
-    }
-
-    #[test]
-    fn reads_xlsx_fixture_with_typed_cells_and_sheet_provenance() {
-        let path =
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/xlsx/sample.xlsx");
-        let document = read_xlsx(path).expect("XLSX fixture should be readable");
-
-        assert_eq!(document.source.source_type, SourceType::Xlsx);
-        assert_eq!(document.source.file_name.as_deref(), Some("sample.xlsx"));
-        assert_eq!(document.blocks.len(), 12);
-        assert_eq!(document.blocks[4].value, RawValue::Text("Ada".to_owned()));
-        assert_eq!(document.blocks[5].value, RawValue::Decimal(42.0));
-        assert_eq!(document.blocks[6].value, RawValue::Boolean(true));
-        assert_eq!(document.blocks[7].value, RawValue::DateTime(45943.5));
-        assert_eq!(document.blocks[10].value, RawValue::Null);
-        assert_eq!(document.blocks[5].location.sheet.as_deref(), Some("Data"));
-        assert_eq!(document.blocks[5].location.row, Some(2));
-        assert_eq!(document.blocks[5].location.column, Some(2));
-    }
-
-    #[test]
-    fn rejects_invalid_xlsx_structurally() {
-        let error = read_xlsx("fixtures/xlsx/does-not-exist.xlsx")
-            .expect_err("missing XLSX should return an error");
-
-        assert_eq!(error.code(), "io_error");
-    }
-
-    #[test]
-    fn rejects_input_that_exceeds_byte_limit() {
-        let error = read_input(InputSource::Text("12345"), TextLimits::new(4, 100))
-            .expect_err("oversized text should be rejected");
-
-        assert_eq!(
-            error,
-            ParserError::InputTooLarge {
-                source: "<text>".to_owned(),
-                limit: 4,
-                actual: 5,
-            }
-        );
-    }
-
-    #[test]
-    fn enforces_byte_limit_while_reading_stdin() {
-        let mut stdin = Cursor::new(b"12345".to_vec());
-        let error = read_input(InputSource::Stdin(&mut stdin), TextLimits::new(4, 100))
-            .expect_err("oversized stdin should be rejected");
-
-        assert_eq!(
-            error,
-            ParserError::InputTooLarge {
-                source: "<stdin>".to_owned(),
-                limit: 4,
-                actual: 5,
-            }
-        );
-    }
-
-    #[test]
-    fn rejects_line_that_exceeds_line_limit() {
-        let error = read_input(InputSource::Text("12345"), TextLimits::new(100, 4))
-            .expect_err("long line should be rejected");
-
-        assert_eq!(
-            error,
-            ParserError::LineTooLong {
-                source: "<text>".to_owned(),
-                line: 1,
-                limit: 4,
-                actual: 5,
-            }
-        );
-    }
-
-    #[test]
-    fn rejects_invalid_utf8_with_byte_offset() {
-        let error = read_txt_bytes(None, b"ok\xFF", "broken.txt").expect_err("invalid UTF-8");
-
-        assert_eq!(
-            error,
-            ParserError::InvalidUtf8 {
-                path: "broken.txt".to_owned(),
-                valid_up_to: 2,
-            }
-        );
-    }
-
-    #[test]
-    fn reads_repository_fixture() {
-        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/text/simple.txt");
-        let document = read_txt(path).expect("fixture should be valid UTF-8");
-
-        assert_eq!(document.source.file_name.as_deref(), Some("simple.txt"));
-        assert_eq!(document.blocks.len(), 2);
-        assert_eq!(document.blocks[0].value, RawValue::text("Ada Lovelace"));
-        assert_eq!(document.blocks[1].value, RawValue::text("Grace Hopper"));
-    }
-
-    #[test]
-    fn missing_file_is_structured_as_an_io_error() {
-        let error = read_txt("fixtures/text/does-not-exist.txt")
-            .expect_err("missing file should return an error");
-
-        assert_eq!(error.code(), "io_error");
-    }
-
-    #[test]
-    fn csv_document_parses_with_header_driven_assignment() {
-        let bytes = b"Email,Age\nada@example.test,30\ngrace@example.test,45\n";
-        let document = read_csv_bytes(
-            Some("people.csv"),
-            bytes,
-            "people.csv",
-            CsvOptions::default(),
-        )
-        .expect("csv should parse");
-        let fields = [parser_core::AssignmentField {
-            name: "email".to_owned(),
-            aliases: vec!["contact".to_owned()],
-            candidate_type: parser_core::CandidateType::Email,
-            required: true,
-            multiple: false,
-            unique: false,
-            constraints: Vec::new(),
-            expected_column: None,
-        }];
-
-        let result = parser_core::parse_document_rows_with_assignment(&document, &fields, &[]);
-
-        assert_eq!(result.warnings.len(), 0);
-        assert_eq!(result.sheets.len(), 1);
-        let sheet = &result.sheets[0];
-        assert!(sheet.header.context().is_some());
-        assert_eq!(
-            sheet.header.context().unwrap().labels,
-            vec![(1, "Email".to_owned()), (2, "Age".to_owned())]
-        );
-        assert_eq!(sheet.records.len(), 2);
-        for record in &sheet.records {
-            let email = &record.parse.assignment.fields[0].candidates[0];
-            assert_eq!(email.candidate_type, parser_core::CandidateType::Email);
-            assert_eq!(email.source_column, Some(1));
-            assert!(
-                email
-                    .reasons
-                    .iter()
-                    .any(|reason| reason.code == "header_label_match")
-            );
-        }
-        assert_eq!(
-            sheet.records[1].parse.assignment.fields[0].candidates[0].raw_value,
-            "grace@example.test"
-        );
-    }
-
-    #[test]
-    fn empty_formats_test() {
-        assert!(formats_ready());
-    }
-}
+#[path = "../tests/unit/mod.rs"]
+mod tests;

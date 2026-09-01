@@ -1,0 +1,36 @@
+{
+  "name": "@fuzzy-parser/node",
+  "version": "0.1.0",
+  "description": "Domain-neutral Fuzzy Parser WebAssembly library for Node.js",
+  "license": "Apache-2.0",
+  "private": false,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node ./scripts/build.mjs",
+    "lint": "node --check ./src/index.cjs && node --check ./src/index.mjs && node --check ./src/runtime.cjs && node --check ./src/worker.cjs && node --check ./scripts/build.mjs",
+    "typecheck": "tsc --project ./tsconfig.json",
+    "test": "node --test ./test/*.test.mjs",
+    "pack:local": "npm pack --ignore-scripts"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2"
+  }
+}

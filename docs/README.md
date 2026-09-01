@@ -1,34 +1,56 @@
 # Fuzzy Parser Documentation
 
-This is the project map. Start with the question you need answered.
+Choose the path that matches what you are trying to do. You do not need to read
+the entire repository documentation before using the parser.
 
-## Find Your Way
+## I want to try the parser
 
-| Question | Document |
-| --- | --- |
-| What can I use today? | [Current state](current-state.md) |
-| How do I run or deploy it? | [README](../README.md) and [release strategy](release-and-environment-strategy.md) |
-| What problem does it solve? | [Product direction](product-direction.md) |
-| How does input become structured output? | [Parsing pipeline](parsing-pipeline.md) |
-| What models and JSON contracts exist? | [Data contracts](data-contracts.md) |
-| How are errors and uncertainty represented? | [Error and confidence model](error-and-confidence-model.md) |
-| Which crate owns a behavior? | [Architecture](architecture.md) |
-| How should changes be tested? | [Testing strategy](testing-strategy.md) |
-| What is planned next? | [Roadmap](roadmap.md) |
-| How are releases and containers handled? | [Release and environment strategy](release-and-environment-strategy.md) |
-| How will other runtimes integrate? | [Integration strategy](integration-strategy.md) |
-| Why was a design decision made? | [Architecture decisions](decisions/README.md) |
+1. [Getting started](getting-started.md)
+2. [Capability matrix](current-state.md)
+3. [Results and review](results-and-review.md)
 
-## Documentation rules
+This path explains the CLI, the shape of a result, and what `needs_review`
+means.
 
-Each document has one primary responsibility:
+## I am integrating an application
 
-- `current-state.md` must remain factual. Planned work belongs elsewhere.
-- `product-direction.md` explains user value and project boundaries, not implementation detail.
-- `architecture.md` owns component and crate boundaries.
-- `parsing-pipeline.md` owns stage behavior and invariants.
-- `data-contracts.md` owns public model shapes and serialization expectations.
-- `roadmap.md` may change frequently and must not be treated as implemented behavior.
-- Architecture decisions should be captured as ADRs [architecture decision records] when reversing the decision later would be expensive or confusing.
+1. [Integration guide](integration-strategy.md)
+2. [Application profiles](application-profiles.md)
+3. [Results and review](results-and-review.md)
+4. [Advanced data contracts](data-contracts.md)
+5. [Errors and confidence](error-and-confidence-model.md)
 
-When behavior changes, update the narrowest authoritative document instead of copying the same explanation into several files.
+An application defines and versions a profile once. Its end users paste or
+upload data; they do not construct a schema for every import.
+
+## I am contributing code
+
+- [Contributor guide](contributing.md)
+- [Architecture](architecture.md)
+- [Parsing pipeline](parsing-pipeline.md)
+- [Testing strategy](testing-strategy.md)
+- [File validation](file-validation.md)
+- [Cross-profile conformance](conformance.md)
+
+## I maintain releases and infrastructure
+
+- [Continuous integration](ci.md)
+- [Release operator guide](releasing.md)
+- [Release and environment policy](release-and-environment-strategy.md)
+
+## Product direction
+
+- [Product direction](product-direction.md)
+- [Roadmap](roadmap.md)
+
+## Internal and historical records
+
+These records explain how decisions were reached. They are not API guides,
+current capability specifications, or required integration reading:
+
+- [Internal documentation index](internal/README.md)
+- [Architecture decisions](decisions/README.md)
+
+Public capability claims belong in [current state](current-state.md). Exact wire
+contracts belong in [data contracts](data-contracts.md). Planned work belongs in
+the [roadmap](roadmap.md). Avoid copying the same status into multiple documents.

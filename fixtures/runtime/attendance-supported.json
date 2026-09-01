@@ -1,0 +1,23 @@
+{
+  "schema_version": "0.1",
+  "record_name": "attendance_draft",
+  "fields": [
+    {
+      "name": "party_size",
+      "field_type": "integer",
+      "required": true,
+      "multiple": false,
+      "aliases": ["Count"],
+      "constraints": []
+    },
+    {
+      "name": "attending",
+      "field_type": "boolean",
+      "required": true,
+      "multiple": false,
+      "aliases": ["Enabled"],
+      "constraints": []
+    }
+  ],
+  "options": { "allow_unknown_fields": true }
+}

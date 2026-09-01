@@ -1,0 +1,23 @@
+{
+  "schema_version": "0.1",
+  "record_name": "stock_check",
+  "fields": [
+    {
+      "name": "units",
+      "field_type": "integer",
+      "required": true,
+      "multiple": false,
+      "aliases": ["Count"],
+      "constraints": []
+    },
+    {
+      "name": "available",
+      "field_type": "boolean",
+      "required": true,
+      "multiple": false,
+      "aliases": ["Enabled"],
+      "constraints": []
+    }
+  ],
+  "options": { "allow_unknown_fields": true }
+}

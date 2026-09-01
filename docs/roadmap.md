@@ -1,180 +1,87 @@
 # Roadmap
 
-This roadmap defines implementation order, not guaranteed dates. Each release should produce a working vertical slice before the next layer is added.
+This roadmap describes product outcomes, not completed-ticket history. Current
+capabilities belong in [Current state](current-state.md); old audits and
+implementation evidence live under [Internal documentation](internal/README.md).
 
-## 0.1 — Workspace foundation
+## Available foundation
 
-Status: complete.
+The `development` branch contains:
 
-- Rust workspace.
-- Four initial crates.
-- Formatting, Clippy, tests, and build checks in CI.
-- Apache 2.0 license.
-- Project documentation baseline.
+- reusable Rust application profiles;
+- TXT, CSV, XLSX, pasted-text, and standard-input adapters;
+- deterministic candidate detection and schema assignment;
+- contextual text and possible-name fields;
+- reversible source evidence and unused-content tracking;
+- table header, row, and sheet selection;
+- typed resource limits and safe structured errors;
+- a CLI and an installable, unpublished Node/WebAssembly package;
+- cross-profile native, CLI, CommonJS, and ESM conformance checks;
+- CI on Linux and macOS plus container and package verification.
 
-## 0.2 — TXT inspection path
+This foundation is an engine and integration boundary. It is not a standalone
+review product and does not mean any consuming application has completed its
+own migration.
 
-Status: complete.
+## Next: understand more real-world input
 
-Goal: prove the first complete source-to-JSON path.
+Prioritize generic capabilities repeatedly needed by independent consumers:
 
-- Structured errors.
-- Canonical `RawDocument`, `RawBlock`, and source-location models.
-- UTF-8 TXT validation and reading.
-- One raw block per source line.
-- CLI `inspect` command.
-- JSON output.
-- Fixture-backed tests and CLI end-to-end tests.
+1. Locale-aware phone interpretation with caller-provided country context.
+2. Currency codes, common locale formats, and caller-defined money hints.
+3. Datetime execution and broader date interpretation.
+4. Declared TSV and delimited-text input.
+5. Legacy XLS only if a real consumer still requires it.
+6. Workbook display values and additional non-executed metadata where source
+   libraries can preserve them truthfully.
 
-The parser must still make no fuzzy interpretation in this release.
+Each capability must retain unresolved evidence and pass cross-profile tests. A
+consumer-specific shortcut is not an engine feature.
 
-## 0.3 — Pasted text and input dispatch
+## Next: make review understandable
 
-Status: complete.
+Build a standalone review/export experience on the existing contracts:
 
-- Raw text input.
-- Standard input.
-- Unified input dispatcher.
-- Equivalent canonical output for pasted and uploaded text.
-- Resource limits for text size and line length.
+- paste or upload without writing a schema during each import;
+- select a saved application profile;
+- show a clean editable table;
+- explain only the rows that need attention;
+- preserve access to original and unresolved evidence;
+- copy or export corrected results as TXT, CSV, or XLSX;
+- keep confirmation and persistence outside the parser.
 
-## 0.4 — CSV extraction
+This interface should also provide a reference composition for applications
+embedding the parser.
 
-Status: complete.
+## Release path
 
-- CSV adapter.
-- Comma, semicolon, tab, and pipe delimiter scoring.
-- Explicit delimiter override.
-- Quoted and multiline cells.
-- Row and column provenance.
-- Clean and deliberately messy CSV fixtures.
+Before the first public package release:
 
-## 0.5 — XLSX extraction
+1. Select the release version and produce candidate artifacts.
+2. Verify Rust, CLI, Node/WASM, checksums, and supported platforms.
+3. Review migration notes and capability documentation.
+4. Exercise installation from the exact candidate artifacts.
+5. Publish only through the protected manual release workflow from `main`.
 
-Status: complete.
+Candidate builds do not imply publication. Rust crates, npm packages, containers,
+tags, and GitHub Releases require explicit authorization.
 
-- Workbook inspection.
-- Sheet metadata.
-- Cell extraction with row, column, and sheet provenance.
-- Numeric, text, date, blank, formula-result, and merged-cell handling.
-- No macro or formula execution.
+## Consumer adoption
 
-## 0.6 — Normalization
+Each application owns its own staged adoption:
 
-Status: complete.
+1. Define and test profiles.
+2. Add preview and correction without persistence.
+3. Add export.
+4. Add explicit confirmation through existing domain services.
+5. Compare supported inputs with the legacy path.
+6. Cut over only the inputs with proven parity and rollback.
 
-- Normalized block model.
-- Whitespace and punctuation normalization.
-- Recorded transformations.
-- Noise marking for list prefixes, headings, timestamps, and sender prefixes.
-- Raw source preservation.
+Engine readiness does not authorize host deployment or data migration.
 
-## 0.7 — Record segmentation
+## Later
 
-Status: complete.
-
-- Record candidate model.
-- One-line and one-row strategies.
-- Multiline continuation heuristics.
-- Conservative repeated-identifier splits for multiple records per line, using generic defaults or caller-provided markers.
-- Heading-aware boundaries that preserve section markers and warn on ambiguous indented content.
-- Boundary confidence, reasons, and ambiguity warnings.
-
-## 0.8 — Schema contract
-
-Status: in progress. The reusable schema model, supported-version and alias validation, and CLI loading/validation are implemented. A CLI `parse <path> --schema <path>` command now runs the schema-driven pipeline end to end for supported field types; the remainder is converting unsupported field types as their detectors land.
-
-- Versioned target schema JSON.
-- Generic field types.
-- Required and optional fields.
-- Enum values and aliases.
-- Locale and caller hints.
-- Schema validation.
-- CLI schema loading and validation output from paths, standard input, and inline text.
-
-## 0.9 — Candidate detection
-
-Status: in progress. Detection for email, integer, decimal, phone, boolean, date, currency, and caller-defined enum values is implemented in `parser-core` with source spans and confidence reasons. Residual text and conservative person-name detectors remain.
-
-- Phone.
-- Email.
-- Integer and decimal.
-- Currency.
-- Date and datetime.
-- Boolean.
-- Enum alias.
-- Residual text and conservative person-name candidates (not yet implemented).
-- Source spans and candidate confidence (implemented).
-
-## 0.10 — Assignment and validation
-
-Status: in progress. Type-compatible assignment with nearby-label, source-column, and detected-header context, required-field warnings, multiple-candidate ambiguity, unassigned-candidate reporting, and caller validation constraints are implemented in `parser-core` and exposed through the CLI `parse` command. Position/uniqueness scoring remains.
-
-- Type-compatible assignment (implemented).
-- Label and header context scoring (implemented; exposed through the CLI `parse` command).
-- Position and uniqueness scoring (not yet implemented).
-- Required-field warnings (implemented).
-- Multiple-candidate ambiguity (implemented).
-- Unassigned candidate reporting (implemented).
-- Caller-provided validation constraints (implemented).
-
-## 0.11 — Explainable parse result
-
-- Layered confidence.
-- Stable reason codes.
-- Record statuses.
-- Rejected fragments.
-- Statistics.
-- Versioned public parse result contract.
-- Golden JSON tests.
-
-## 0.12 — Standalone review tool
-
-- TypeScript interface.
-- Paste and upload controls.
-- Custom schema editor.
-- Review table.
-- Source evidence.
-- Edit, approve, reject, split, and merge actions.
-- JSON, CSV, and clipboard export.
-
-The first UI integration may use a local service or CLI bridge before WebAssembly.
-
-## 0.13 — TypeScript and WebAssembly
-
-- Stable TypeScript request and response types.
-- WebAssembly build.
-- Browser-side text parsing.
-- Shared fixtures proving CLI and WebAssembly parity.
-- npm package preparation.
-
-## 0.14 — Reliability and performance
-
-- Property-based tests.
-- Fuzz targets.
-- Resource-limit coverage.
-- Benchmarks by stage and input size.
-- Memory profiling for large tables.
-
-## Later candidates
-
-- XLSX export.
-- Duplicate candidate detection.
-- Saved parser profiles.
-- Text-based PDF extraction.
-- OCR adapter.
-- Native Node binding.
-- HTTP service.
-- Optional correction-learning system.
-
-These should not interrupt the deterministic text/table path unless a concrete user requirement changes priorities.
-
-## Milestone rule
-
-Do not begin the next release merely because code for the current one exists. The current release must have:
-
-- Passing tests.
-- Documented public behavior.
-- Structured failure behavior.
-- A usable end-to-end demonstration.
-- No known silent data loss.
+- Additional runtime surfaces justified by measured deployment needs.
+- Property testing, fuzzing, and benchmarks beyond current safety regressions.
+- Text-based PDF extraction, followed later by OCR.
+- Optional correction-learning research with explicit privacy controls.

@@ -2,22 +2,27 @@
 
 ## Branch roles
 
+### `development`
+
+`development` is the long-lived integration branch.
+
+- Reviewed and verified feature work is merged into `development`.
+- Pull requests from `development` to `main` are opened deliberately after integration verification.
+- `development` is not permission to publish packages automatically.
+
 ### `main`
 
-`main` is the stable integrated development branch.
-
-- Pull requests target `main` unless an explicit release process says otherwise.
-- Only reviewed and verified work should be merged.
-- `main` is not permission to publish packages automatically.
+`main` is the stable branch and receives reviewed integration pull requests from
+`development`. It is not permission to publish packages automatically.
 
 ### Feature branches
 
 Use short-lived branches named by purpose:
 
 ```text
-agent/add-project-documentation
-feature/txt-reader
-fix/csv-empty-cell
+codex/add-project-documentation
+codex/txt-reader
+codex/csv-empty-cell
 ```
 
 Avoid long-lived parallel product branches unless the project reaches a release cadence that requires them.
@@ -30,6 +35,14 @@ If a maintenance branch is later required, document its support window and merge
 
 ## Versioning
 
+The current workspace/package version is `0.1.0`; the parse response contract and
+schema contract each use `0.1`; the separate [error contract](data-contracts.md#error-contract-01-and-migration-from-unversioned-errors)
+now uses `0.1`. The error migration does not bump packages or imply publication.
+Planning milestones are named outcomes
+(`Reviewable import engine`, `Extended format and profile coverage`), not software versions.
+The historical roadmap `0.1`–`0.14` sequence and TXT-only `v0.1` epic are
+reconciled in [roadmap](roadmap.md); they do not establish published releases.
+
 The project starts at `0.x` and follows semantic versioning in spirit:
 
 - Patch: compatible bug fix or documentation improvement.
@@ -37,6 +50,13 @@ The project starts at `0.x` and follows semantic versioning in spirit:
 - Major: stable-contract breaking change after `1.0`.
 
 Pre-1.0 does not mean careless. Any serialized contract already used by another project should receive migration notes when changed.
+
+The Rust workspace, `@fuzzy-parser/node`, its WASM crate, lockfile entries,
+binary response `parser_version`, package identity and container label all use
+one implementation version. `node tools/release/check-version.mjs` fails when
+those package surfaces diverge. JSON schema, parse-response and error-contract
+versions remain independent compatibility axes and are not forced to equal the
+package version.
 
 Separate versions may eventually exist for:
 
@@ -64,26 +84,25 @@ The core Rust workspace should remain buildable and testable offline after depen
 
 ### CI
 
-CI currently runs on Ubuntu and performs:
-
-```bash
-cargo fmt --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-cargo build --workspace
-```
+CI [automated checks after code changes] is test-only. The authoritative
+[CI guide](ci.md) describes the Rust/platform, Node invocation, WASM compilation,
+advisory and container gates, local reproduction, and hosted-verification limits.
 
 CI must:
 
 - Use synthetic test data.
 - Avoid secrets for ordinary parser tests.
-- Avoid publishing artifacts on pull requests.
+- Never publish or deploy on ordinary CI runs, including pushes to `main`.
 - Fail on warnings and contract regressions.
 - Add platform matrices only when platform-specific code or artifacts justify them.
 
 ### Preview or integration environment
 
-A future standalone UI or parser service may use a preview environment.
+A future published package or standalone review tool may need a separately
+authorized preview environment. The [Integration guide](integration-strategy.md)
+defines the current library boundary. Package and framework tests do not prove
+consumer deployment. The initial integration does not require a separately
+operated service or message queue.
 
 Preview environments must:
 
@@ -95,7 +114,8 @@ Preview environments must:
 
 ### Production service environment
 
-A production parser service is optional and later-stage.
+A production parser service is only a later possibility if a cross-language
+need justifies it. It is not a prerequisite for the current library integration.
 
 Before it exists, define:
 
@@ -127,10 +147,14 @@ Potential artifacts are released independently when ready:
 
 ### npm/WebAssembly package
 
-- Generate or verify TypeScript declarations.
-- Prove fixture parity with the Rust CLI.
-- Document browser and Node support separately.
-- Do not bundle CLI-only dependencies.
+- `@fuzzy-parser/node` is implemented at package version `0.1.0` with generated
+  TypeScript declarations, Node 22 support, CJS/ESM entry points and one WASM
+  backend. It is pack-installed in CI and verified in generic Node/Next.js
+  consumers; it has not been published.
+- Its identity manifest pins adapter/parser/schema/contract versions, Rust source
+  identity, wasm-bindgen version, and generated JS/WASM hashes.
+- Browser support, Vercel deployment and publication require separate evidence
+  and authorization. Do not bundle a CLI fallback or CLI-only dependencies.
 
 ### Container image
 
@@ -139,7 +163,12 @@ Potential artifacts are released independently when ready:
 - Expose no implicit persistence.
 - Pin parser version in the image tag.
 
-The current `parser-cli` image is a batch deployment artifact rather than an HTTP service. CI builds and smoke-tests it on pull requests and publishes `ghcr.io/<owner>/<repository>:latest` from `main`. Production consumers should use an immutable release tag when one is available.
+The current `parser-cli` image is a batch artifact, not an HTTP service. The
+[workflow](../.github/workflows/ci.yml) builds/loads and tests it locally on its
+runner; it does not log in to a registry or push an image. Build inputs are pinned
+and Cargo uses the committed lockfile. A future release still needs an explicit
+artifact/version/verification decision. Historical `latest` images are not
+immutable releases or evidence of a tested QualEvents deployment.
 
 ## Publication rules
 
@@ -148,6 +177,18 @@ The current `parser-cli` image is a batch deployment artifact rather than an HTT
 - Publication credentials must never be committed.
 - Release automation must not run on ordinary pull requests.
 - Prefer dry runs before irreversible publication.
+
+The manual [Release workflow](../.github/workflows/release.yml) implements these
+rules. A run from `development` may validate version `0.1.0` and build candidate
+CLI/npm artifacts, but cannot publish. Publishing GitHub, npm or GHCR artifacts
+requires a separate boolean input, the `main` ref, the protected `release`
+environment and the relevant GitHub/npm credentials. Rust crates are not part
+of this first publication workflow.
+
+The `development` workflow removes earlier automatic main-push image
+publication. That policy reaches `main` only through a reviewed pull request;
+refs containing an older workflow retain their own behavior. No historical
+image is deleted, and ordinary CI introduces no publication credentials.
 
 ## Compatibility and rollback
 
