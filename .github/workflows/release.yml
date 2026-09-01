@@ -103,7 +103,7 @@ jobs:
           cp LICENSE README.md "$stage/"
           archive="$RUNNER_TEMP/fuzzy-parser-$RELEASE_VERSION-$RELEASE_LABEL.tar.gz"
           tar -C "$stage" -czf "$archive" .
-          shasum -a 256 "$archive" > "$archive.sha256"
+          tools/release/write-checksum.sh "$archive"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cli-${{ matrix.label }}
@@ -134,7 +134,7 @@ jobs:
           node tools/ci/verify-node-package.mjs
           archive_name="$(cd packages/fuzzy-parser-node && npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP" | tail -1)"
           test -f "$RUNNER_TEMP/$archive_name"
-          shasum -a 256 "$RUNNER_TEMP/$archive_name" > "$RUNNER_TEMP/$archive_name.sha256"
+          tools/release/write-checksum.sh "$RUNNER_TEMP/$archive_name"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: node-package
@@ -175,6 +175,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: release
+    permissions:
+      id-token: write
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:

@@ -183,7 +183,9 @@ rules. A run from `development` may validate version `0.1.0` and build candidate
 CLI/npm artifacts, but cannot publish. Publishing GitHub, npm or GHCR artifacts
 requires a separate boolean input, the `main` ref, the protected `release`
 environment and the relevant GitHub/npm credentials. Rust crates are not part
-of this first publication workflow.
+of this first publication workflow. The npm publication job alone receives the
+OIDC identity-token permission required for provenance. CLI and npm checksum
+files contain portable archive basenames rather than runner-local paths.
 
 The `development` workflow removes earlier automatic main-push image
 publication. That policy reaches `main` only through a reviewed pull request;

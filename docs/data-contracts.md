@@ -328,8 +328,10 @@ limit fails with `resource_limit`. Bounded streaming reads may report
 CSV path and byte APIs share `CsvLimits`. Path reads check regular-file metadata,
 then read at most one byte beyond the limit from the same handle. Row limits count
 logical CSV records, including blank records and quoted multiline records; cells
-count parsed cells. Delimiter candidate parsing is still materialized within the
-already bounded byte input before row/cell counts are known.
+count parsed cells. The logical-row inventory stops at the first disallowed row
+and reports `limit + 1`, so blank rows cannot allocate an inventory for the rest
+of the bounded byte input. Delimiter candidate parsing is still materialized
+within the already bounded byte input before row/cell counts are known.
 
 XLSX path, byte, document and table-manifest APIs share `XlsxLimits`. A path read
 checks metadata and performs a bounded read on the same handle; byte callers have
