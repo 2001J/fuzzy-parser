@@ -85,10 +85,10 @@ Rust toolchain on its `PATH`, then builds and invokes a generic Next.js
 standalone fixture while checking Worker/WASM assets and hashes. Permanent tests
 cover CJS/ESM parity, two unrelated profiles, all supported byte formats,
 source-reference resolution, #17 exact boundaries, safe failures, missing or
-corrupt assets, actual-parser abort/deadline termination, recovery, concurrency,
-determinism, and absence of sensitive logging. Combined with the dedicated
-conformance corpus below, it completes #19; it is not publication or Vercel
-deployment evidence.
+corrupt assets, after-entry abort termination, end-to-end deadlines, recovery,
+concurrency, determinism, and absence of sensitive logging. Combined with the
+dedicated conformance corpus below, it completes #19; it is not publication or
+Vercel deployment evidence.
 
 ### Fixture tests
 

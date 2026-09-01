@@ -3,6 +3,7 @@
 const { createHash } = require('node:crypto');
 const { readFileSync } = require('node:fs');
 const { parentPort } = require('node:worker_threads');
+const { version: PACKAGE_VERSION } = require('../package.json');
 
 const PROTOCOL_VERSION = 1;
 const IDENTITY_PATH = require.resolve('./runtime/identity.json');
@@ -23,9 +24,9 @@ function loadRuntime() {
   const identity = JSON.parse(readFileSync(IDENTITY_PATH, 'utf8'));
   if (
     identity.adapterName !== '@fuzzy-parser/node' ||
-    identity.adapterVersion !== '0.1.0' ||
+    identity.adapterVersion !== PACKAGE_VERSION ||
     identity.contractVersion !== '0.1' ||
-    identity.parserVersion !== '0.1.0' ||
+    identity.parserVersion !== PACKAGE_VERSION ||
     identity.schemaVersion !== '0.1' ||
     identity.wasmBindgenVersion !== '0.2.115' ||
     identity.assets?.glue?.file !== 'parser_wasm.cjs' ||

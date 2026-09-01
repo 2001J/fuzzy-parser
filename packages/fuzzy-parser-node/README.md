@@ -4,8 +4,10 @@
 Fuzzy Parser. It accepts bytes, a declared format, and a caller-owned schema,
 then returns the existing parse-response `0.1` object. Each call runs in its
 own Worker; deadlines and `AbortSignal` cancel by terminating and reaping that
-Worker. The package does not use a CLI fallback, network service, queue, or
-consumer-specific rules.
+Worker. A deadline covers the complete call, including Worker/runtime startup;
+it may therefore expire before parser entry on a slower host. `AbortSignal`
+coverage separately proves termination after actual parser entry. The package
+does not use a CLI fallback, network service, queue, or consumer-specific rules.
 
 The package is implemented and locally pack-tested, but is not published by
 this repository's CI.
