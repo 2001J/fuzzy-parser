@@ -18,4 +18,5 @@ readonly FP_CHECKSUM_DIRECTORY="$(cd "$(dirname "$FP_CHECKSUM_ARCHIVE")" && pwd)
 readonly FP_CHECKSUM_BASENAME="$(basename "$FP_CHECKSUM_ARCHIVE")"
 
 cd "$FP_CHECKSUM_DIRECTORY"
+echo "writing SHA-256 checksum: $FP_CHECKSUM_BASENAME.sha256"
 shasum -a 256 "$FP_CHECKSUM_BASENAME" > "$FP_CHECKSUM_BASENAME.sha256"

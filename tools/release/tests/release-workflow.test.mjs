@@ -57,6 +57,7 @@ test('checksum files contain a basename and verify after download elsewhere', as
 
     const writeResult = spawnSync(checksumWriter, [archive], { encoding: 'utf8' });
     assert.equal(writeResult.status, 0, writeResult.stderr);
+    assert.equal(writeResult.stdout, `writing SHA-256 checksum: ${archiveName}.sha256\n`);
 
     const checksum = `${archive}.sha256`;
     const checksumText = await readFile(checksum, 'utf8');
