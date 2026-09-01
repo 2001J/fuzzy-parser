@@ -121,7 +121,7 @@ cargo build --workspace --locked
 CI runs on pull requests and pushes to `development` and `main`. The manual
 release workflow can build candidate artifacts without publishing them; public
 release actions require an explicit protected invocation from `main`. See the
-[contributor guide](docs/contributing.md) and [release guide](docs/releasing.md).
+[contributor guide](CONTRIBUTING.md) and [release guide](docs/releasing.md).
 
 ## License
 
