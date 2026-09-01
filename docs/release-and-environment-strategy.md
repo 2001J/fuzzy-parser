@@ -20,9 +20,9 @@
 Use short-lived branches named by purpose:
 
 ```text
-agent/add-project-documentation
-feature/txt-reader
-fix/csv-empty-cell
+codex/add-project-documentation
+codex/txt-reader
+codex/csv-empty-cell
 ```
 
 Avoid long-lived parallel product branches unless the project reaches a release cadence that requires them.
@@ -98,11 +98,11 @@ CI must:
 
 ### Preview or integration environment
 
-A future library package or later standalone tooling may need a
-separately authorized preview environment. [Integration strategy](integration-strategy.md)
-links the #11 runtime selection and its open packaging/deployment gates; no production
-adapter or deployment is established by local testing. The initial integration
-does not require a separately operated service or message queue.
+A future published package or standalone review tool may need a separately
+authorized preview environment. The [Integration guide](integration-strategy.md)
+defines the current library boundary. Package and framework tests do not prove
+consumer deployment. The initial integration does not require a separately
+operated service or message queue.
 
 Preview environments must:
 
@@ -114,9 +114,8 @@ Preview environments must:
 
 ### Production service environment
 
-A production parser service is only a later possibility if separately requested
-for another need. It is outside the initial #11 library integration direction
-and is not a prerequisite for engine readiness.
+A production parser service is only a later possibility if a cross-language
+need justifies it. It is not a prerequisite for the current library integration.
 
 Before it exists, define:
 
@@ -150,7 +149,7 @@ Potential artifacts are released independently when ready:
 
 - `@fuzzy-parser/node` is implemented at package version `0.1.0` with generated
   TypeScript declarations, Node 22 support, CJS/ESM entry points and one WASM
-  backend. It is locally pack-installed and verified in generic Node/Next.js
+  backend. It is pack-installed in CI and verified in generic Node/Next.js
   consumers; it has not been published.
 - Its identity manifest pins adapter/parser/schema/contract versions, Rust source
   identity, wasm-bindgen version, and generated JS/WASM hashes.
@@ -186,11 +185,10 @@ requires a separate boolean input, the `main` ref, the protected `release`
 environment and the relevant GitHub/npm credentials. Rust crates are not part
 of this first publication workflow.
 
-[#23](https://github.com/2001J/fuzzy-parser/issues/23) removes the earlier automatic
-main-push image publication and its mismatch with this policy. Until that change
-is integrated, branches still running the old workflow can publish on main
-pushes; a local commit does not disable the remote workflow. No historical image
-is deleted, and no release pipeline or publication permission is introduced.
+The `development` workflow removes earlier automatic main-push image
+publication. That policy reaches `main` only through a reviewed pull request;
+refs containing an older workflow retain their own behavior. No historical
+image is deleted, and ordinary CI introduces no publication credentials.
 
 ## Compatibility and rollback
 

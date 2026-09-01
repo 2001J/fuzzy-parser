@@ -2,174 +2,114 @@
 
 [![CI](https://github.com/2001J/fuzzy-parser/actions/workflows/ci.yml/badge.svg?branch=development)](https://github.com/2001J/fuzzy-parser/actions/workflows/ci.yml?query=branch%3Adevelopment)
 
-Fuzzy Parser turns messy text and tabular data into reviewable, traceable
-records. It is a domain-neutral Rust engine: callers provide the fields,
-aliases, enum values, and constraints; the parser provides extraction,
-normalization, provenance, confidence, and uncertainty.
+Fuzzy Parser turns inconsistent text, CSV, and XLSX input into structured records
+that an application can review. It preserves the original source, explains its
+assignments, and keeps uncertain or unused content visible.
 
-QualEvents is the first consumer and validation case, not an engine
-dependency. Like any caller, it supplies input and its own schema/options; it
-owns business rules, review/correction, export, and confirmed persistence.
-Its adoption goal covers supported text and tabular imports. Independent Rust
-library and CLI use remain part of the product.
+```text
+messy input + reusable application profile
+    -> structured draft
+    -> assigned fields + warnings + unresolved evidence
+    -> application-owned review, export, or confirmation
+```
 
-The usable surfaces today are the Rust libraries, `parser-cli`, and the locally
-pack-tested [`@fuzzy-parser/node`](packages/fuzzy-parser-node/README.md) WebAssembly
-package. QualEvents has a feature-gated, preview-only product-branch integration
-for paste/CSV draft review; it does not save or deploy anything and is not the
-full import cutover. See
-[current limitations](docs/current-state.md) and the [engine roadmap](docs/roadmap.md).
+The parser is domain-neutral. An application defines its field vocabulary once;
+people uploading or pasting data do **not** write parser schemas for every import.
+The application still owns permissions, duplicate rules, business validation,
+corrections, persistence, and downstream side effects.
 
-## Quick Start
+## What it does
+
+- Reads pasted text, UTF-8 TXT, CSV, and XLSX input.
+- Detects supported values such as names, text, phones, emails, numbers,
+  currency, dates, booleans, and caller-defined enums.
+- Assigns values using caller-provided field names, aliases, constraints, and
+  table context.
+- Returns source references, review reasons, warnings, and unused content.
+- Produces deterministic drafts; it never treats a heuristic score as approval.
+
+Fuzzy Parser does not save records, send messages, execute workbook formulas, or
+invent application-specific rules.
+
+## Quick start from source
+
+The repository currently exposes Rust libraries, a CLI, and an installable but
+not yet published Node/WebAssembly package.
 
 ```bash
-cargo run -p parser-cli -- inspect fixtures/text/simple.txt
 cargo run -p parser-cli -- inspect fixtures/csv/comma.csv
 cargo run -p parser-cli -- schema validate fixtures/schema/contact.json
+cargo run -p parser-cli -- parse fixtures/csv/comma.csv \
+  --schema fixtures/schema/contact.json
 ```
 
-Inspection preserves source locations and raw values. Valid output goes to
-stdout; processing failures are structured JSON on stderr with exit code `1`.
-Usage errors are plain text on stderr with exit code `2`.
+The CLI writes successful JSON to stdout. Processing failures are structured
+JSON on stderr with exit code `1`; command-usage errors use exit code `2`.
 
-### Application profiles
+For applications that repeatedly import the same kind of data, define a profile
+once and reuse it:
 
-Applications that import more than one file can define their field vocabulary
-once, version it in the application, and reuse it. The engine surfaces universal
-evidence; the application owns field meaning and approval.
+```js
+import {
+  defineProfile,
+  parseProfile,
+  reviewRecords,
+  unresolvedEvidence,
+} from "@fuzzy-parser/node";
 
-```rust
-use parser_api::{ApplicationInput, ApplicationProfile, ProfileField};
-use parser_schema::FieldType;
+const contacts = await defineProfile({
+  name: "contacts",
+  version: "1",
+  recordName: "contact",
+  fields: [
+    { name: "name", fieldType: "person_name", required: true, aliases: ["Full name"] },
+    { name: "phone", fieldType: "phone_number", aliases: ["Mobile", "Telephone"] },
+    { name: "amount", fieldType: "currency", aliases: ["Pledge", "Total"] },
+    { name: "notes", fieldType: "text" },
+  ],
+});
 
-let contacts = ApplicationProfile::define("contacts-import", "2026-08")
-    .record_name("contact")
-    .field(ProfileField::required("person", FieldType::PersonName).aliases(["Name"]))
-    .field(ProfileField::required("phone", FieldType::PhoneNumber))
-    .field(ProfileField::optional("amount", FieldType::Currency))
-    .field(ProfileField::optional("notes", FieldType::Text))
-    .build()?;
-let result = contacts.parse(
-    ApplicationInput::Csv { bytes: uploaded_csv, file_name: Some("contacts.csv") },
-    Default::default(),
-)?;
+const result = await parseProfile(contacts, {
+  format: "csv",
+  bytes: uploadedBytes,
+  filename: "contacts.csv",
+});
+
+const recordsToReview = reviewRecords(result);
+const unresolved = unresolvedEvidence(result);
 ```
 
-`build` validates supported capabilities before uploaded input arrives.
-`ApplicationInput` accepts pasted text, TXT, CSV and XLSX bytes; optional
-fields may be absent without a new profile. The profile version is separate
-from parser schema/result versions; see [profile versioning and migration](docs/data-contracts.md#application-profiles-and-migration).
+Optional fields may be absent from an input without creating a new profile.
+Change the profile version when field meaning, aliases, requiredness, or
+constraints change.
+
+## Choose an interface
+
+| Interface | Use it for | Status |
+| --- | --- | --- |
+| `parser-api` Rust crate | Native applications and reusable typed profiles | Implemented in this workspace |
+| `@fuzzy-parser/node` | Node.js and Next.js through Worker-isolated WebAssembly | Pack/install tested; not published |
+| `parser-cli` | Inspection, automation, debugging, and contract verification | Implemented |
+| HTTP service | Cross-language network integration | Not implemented |
+| Graphical review application | Standalone human review | Not implemented |
+
+There is one parser core behind these interfaces. The Node package is not a CLI
+wrapper, queue, or separately operated service.
 
 ## Documentation
 
-Start with the [documentation guide](docs/README.md). It routes you by task:
+- [Getting started](docs/getting-started.md) — run the parser and understand the output.
+- [Application profiles](docs/application-profiles.md) — define reusable fields and aliases.
+- [Integration guide](docs/integration-strategy.md) — embed the parser safely.
+- [Results and review](docs/results-and-review.md) — assignments, warnings, and source evidence.
+- [Capability matrix](docs/current-state.md) — what is supported and what remains limited.
+- [Documentation index](docs/README.md) — user, integrator, contributor, and maintainer paths.
 
-- [Documentation index](docs/README.md)
-- [Current state](docs/current-state.md)
-- [Product direction](docs/product-direction.md)
-- [Architecture](docs/architecture.md)
-- [Parsing pipeline](docs/parsing-pipeline.md)
-- [Data contracts](docs/data-contracts.md)
-- [Error and confidence model](docs/error-and-confidence-model.md)
-- [Testing strategy](docs/testing-strategy.md)
-- [Cross-profile conformance](docs/conformance.md)
-- [Continuous integration](docs/ci.md)
-- [Roadmap](docs/roadmap.md)
-- [Release and environment strategy](docs/release-and-environment-strategy.md)
-- [Integration strategy](docs/integration-strategy.md)
-- [Architecture decisions](docs/decisions/README.md)
-- [Agent working rules](AGENTS.md)
-
-## CLI Workflows
-
-Inspect text or tables from a path, standard input, or inline content:
-
-```bash
-cargo run -p parser-cli -- inspect fixtures/text/simple.txt
-cargo run -p parser-cli -- inspect fixtures/csv/comma.csv
-cargo run -p parser-cli -- inspect fixtures/xlsx/sample.xlsx
-printf 'Ada Lovelace\nGrace Hopper\n' | cargo run -p parser-cli -- inspect --stdin
-cargo run -p parser-cli -- inspect --text $'Ada Lovelace\nGrace Hopper'
-cargo run -p parser-cli -- schema validate fixtures/schema/contact.json
-cat fixtures/schema/contact.json | cargo run -p parser-cli -- schema validate --stdin
-cargo run -p parser-cli -- schema validate --text '{"schema_version":"0.1","record_name":"inline","fields":[],"options":{"allow_unknown_fields":true}}'
-cargo run -p parser-cli -- schema validate --compact fixtures/schema/contact.json
-```
-
-Parse a CSV or text input against a caller schema, emitting a versioned parse result:
-
-```bash
-cargo run -p parser-cli -- parse fixtures/csv/comma.csv --schema fixtures/schema/contact.json
-printf 'Ada Lovelace,ada@example.test\n' | cargo run -p parser-cli -- parse --stdin --schema fixtures/schema/contact.json
-```
-
-These examples assign **email only**: `contact.json` has no name field. The stdin
-mode reads plain text, not CSV. The comma example assigns `ada@example.test`
-at original UTF-8 bytes `13..29` (end exclusive), while `Ada Lovelace,` remains
-unused source content. See [email boundary limits](docs/current-state.md#known-limitations).
-Exit code `0` means processing succeeded; missing-field and ambiguity warnings
-still require inspection. `source_evidence` embeds the unchanged canonical
-document and accounts for unused, header and excluded content. Candidate source
-references resolve to stored values; `parse.review` flags record-level reasons
-for review. Neither `draft` nor `needs_review` means approval. See the
-[source-coordinate and compatibility contract](docs/data-contracts.md#source-evidence-extension-and-compatibility).
-
-For caller-directed multiword text, use a schema that requests it:
-
-```bash
-cargo run -p parser-cli -- parse fixtures/csv/comma.csv --schema fixtures/schema/contact_with_text.json
-printf 'name: Ada Lovelace\n' | cargo run -p parser-cli -- parse --stdin --schema fixtures/schema/contact_with_text.json
-```
-
-The CSV header and literal `name:` label direct assignment. Unlabeled residual
-names/notes stay unresolved, and missing required fields still warn. Possible
-`person_name` fields use the same caller direction with a conservative alphabetic
-guard. See [text/name semantics and limits](docs/data-contracts.md#contextual-text-and-possible-person-names).
-
-Use `cargo run -p parser-cli -- --help` for command syntax. Schema validation
-accepts a path, stdin, or inline text; `--compact <path>` emits one JSON line.
-Arguments are exact: unknown, duplicate, misplaced or extra tokens fail with
-usage exit `2`. TXT file inputs alone accept trailing `--max-bytes N` and
-`--empty accept|reject` (defaults: 1048576 bytes and `accept`):
-
-```bash
-cargo run -p parser-cli -- inspect fixtures/text/simple.txt --max-bytes 4096 --empty reject
-```
-
-These options never limit schema, CSV/XLSX, stdin or inline input. See the
-[CLI grammar and compatibility notes](docs/integration-strategy.md#cli-grammar-and-validation-options).
-Validation accepts more field types than parsing: `datetime` is still rejected
-by `parse` with `schema_field_type_unsupported`.
-Parsing uses the same executable schema compiler available to Rust callers.
-Only permissive `allow_unknown_fields=true` is supported; unknown schema members,
-inapplicable constraints and unsupported enum definitions fail explicitly.
-Enum ownership ties remain unassigned with warnings. See the
-[executable schema capabilities and migration](docs/data-contracts.md#executable-schema).
-See [integration usage](docs/integration-strategy.md) and
-[the actual JSON contracts](docs/data-contracts.md).
-
-## Container verification
-
-CI [automated checks after code changes] builds and smoke-tests a non-root batch
-CLI image without publishing it. It is not an HTTP service or a proven
-QualEvents deployment boundary. See [CI checks and local reproduction](docs/ci.md)
-and [release and publication rules](docs/release-and-environment-strategy.md).
-
-## Node library
-
-`@fuzzy-parser/node` exposes the same byte/schema pipeline through one
-Worker-isolated WebAssembly backend. CJS and ESM consumers receive the existing
-parse-response object; safe parser reports are distinct from adapter lifecycle
-errors. The package verifies its generated JS/WASM identity and supports
-deadlines and `AbortSignal` by terminating the per-call Worker. It has been
-pack-installed in synthetic Node and Next.js consumers, but has not been
-published or deployed. See the [package README](packages/fuzzy-parser-node/README.md)
-and [integration contract](docs/integration-strategy.md#node-webassembly-library).
+Advanced wire-format details live in [data contracts](docs/data-contracts.md).
+Implementation history, architecture decisions, audits, and runtime evaluations
+are retained for maintainers but are not required reading.
 
 ## Development
-
-Requires a stable Rust toolchain with edition 2024 support. The standard local
-verification is:
 
 ```bash
 cargo fmt --check
@@ -178,13 +118,10 @@ cargo test --workspace --locked
 cargo build --workspace --locked
 ```
 
-The [workflow](.github/workflows/ci.yml) also checks Linux/macOS behavior, the
-Node invocation prototype, WASM library compilation, dependency advisories,
-and container semantics on pull requests plus pushes to `development` and
-`main`. Its tested Rust baseline is 1.96.0. The separate manual
-[release workflow](.github/workflows/release.yml) can build release candidates
-without publishing; publication is an explicit, protected choice from `main`.
-See the [release operator guide](docs/releasing.md).
+CI runs on pull requests and pushes to `development` and `main`. The manual
+release workflow can build candidate artifacts without publishing them; public
+release actions require an explicit protected invocation from `main`. See the
+[contributor guide](docs/contributing.md) and [release guide](docs/releasing.md).
 
 ## License
 

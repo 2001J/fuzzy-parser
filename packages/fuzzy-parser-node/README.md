@@ -9,8 +9,8 @@ it may therefore expire before parser entry on a slower host. `AbortSignal`
 coverage separately proves termination after actual parser entry. The package
 does not use a CLI fallback, network service, queue, or consumer-specific rules.
 
-The package is implemented and locally pack-tested, but is not published by
-this repository's CI.
+The package is implemented and pack/install tested in CI, but is not published
+by this repository's CI.
 
 ## Application profiles
 
@@ -76,7 +76,7 @@ Parser failures throw `ParserFailure` and retain the safe structured
 failures throw `AdapterError` with one of the documented codes in
 `dist/index.d.ts`. Results are never truncated. Default package guards are a
 70 MiB request message, 64 KiB adapter options, 16 MiB result, 30 second
-deadline, and 120 second maximum deadline; the engine's narrower typed #17
+deadline, and 120 second maximum deadline; the engine's narrower typed resource
 limits still apply and remain visible as `ParserFailure` reports.
 
 The installed package verifies its adapter/parser/schema/contract versions,

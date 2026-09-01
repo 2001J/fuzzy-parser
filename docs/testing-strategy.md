@@ -1,5 +1,10 @@
 # Testing Strategy
 
+> **Contributor reference.** Parser users and application integrators do not
+> need this ticket-level evidence. Start with the
+> [documentation index](README.md). Historical acceptance details are retained
+> here for maintainers and regression authors.
+
 Testing is part of each implementation ticket. The parser deals with ambiguous and malformed input, so examples that only cover happy paths are insufficient.
 This is the required testing approach, not an inventory of tests already
 implemented. See [current state](current-state.md) and the

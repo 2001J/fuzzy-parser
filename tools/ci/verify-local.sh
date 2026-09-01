@@ -41,6 +41,7 @@ run cargo test --workspace --locked
 run cargo build --workspace --locked
 run node --test tools/release/tests/*.test.mjs
 run node tools/release/check-version.mjs
+run node tools/ci/check-doc-links.mjs
 run node tools/ci/verify-node-package.mjs
 
 if [[ "$FP_VERIFY_PROFILE" == "full" ]]; then

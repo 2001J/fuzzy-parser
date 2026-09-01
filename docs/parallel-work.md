@@ -1,5 +1,10 @@
 # Parallel work board
 
+> **Internal historical record.** This completed coordination ledger is not
+> current API, capability, or integration documentation. See
+> [Internal documentation](internal/README.md) for context and
+> [Current state](current-state.md) for present behavior.
+
 Coordinator snapshot: 2026-08-30. This document tracks assigned work and local
 integration, not automatic live monitoring. GitHub issues retain acceptance
 criteria; [current state](current-state.md) describes implemented capabilities

@@ -7,9 +7,13 @@ pushes without a pull request do not trigger duplicate runs.
 
 ## Required checks
 
+The quality job also runs `node tools/ci/check-doc-links.mjs` so local
+documentation paths and heading anchors cannot silently drift during
+restructuring.
+
 | Check | What it verifies |
 | --- | --- |
-| Formatting, lint, version, and workflow | Rust formatting, warnings-as-errors Clippy across all targets, actionlint including embedded shell checks, and one aligned Rust/npm/WASM package version |
+| Formatting, lint, version, workflow, and docs | Rust formatting, warnings-as-errors Clippy across all targets, actionlint including embedded shell checks, aligned Rust/npm/WASM versions, and valid local Markdown links/anchors |
 | Rust and Node | Locked workspace tests/builds on Ubuntu 24.04 x64 and macOS 15 arm64; fresh release CLI; CI guard tests; the existing Node 22 invocation/parity evaluation |
 | WASM libraries (compilation only) | Application API, core, schema and formats libraries compile for `wasm32-unknown-unknown` |
 | Installable Node/WASM package | Build/typecheck/test the selected package, pack/install it without consumer Rust tooling, and build/invoke a generic Next.js standalone fixture with Worker/WASM assets |
@@ -26,9 +30,8 @@ parity, source resolution and bounded invocation controls; its
 Reusable-library WASM compilation alone is not JavaScript execution. The
 separate package job executes the selected Node adapter and verifies local
 installation/framework packaging; it is still not publication or deployment.
-Green CI does not establish full
-[#19 independence](https://github.com/2001J/fuzzy-parser/issues/19), arbitrary
-untrusted-file resource safety, benchmark targets or QualEvents integration.
+Green CI does not establish arbitrary untrusted-file sandboxing, benchmark
+targets, consumer adoption, or deployment.
 The advisory job covers Rust dependencies, not operating-system image packages.
 
 ## Safety and maintenance
@@ -84,6 +87,7 @@ cargo +1.96.0 test --workspace --locked
 cargo +1.96.0 build --workspace --locked
 node --test tools/release/tests/*.test.mjs
 node tools/release/check-version.mjs
+node tools/ci/check-doc-links.mjs
 node tools/ci/verify-node-package.mjs
 cargo +1.96.0 build --release --locked -p parser-cli
 node --test tools/ci/tests/*.test.mjs
@@ -116,16 +120,11 @@ an artifact.
 
 ## Hosted verification and merge protection
 
-[#23](https://github.com/2001J/fuzzy-parser/issues/23) tracks implementation and
-evidence. The first GitHub-hosted run of this revision remains outstanding
-until an authorized push/pull request makes it available. Local macOS checks or
-Linux containers cannot certify GitHub checkout, permissions, caches or runner
-orchestration. Record the actual run URL and both platform results there.
-
-After a green hosted run, `CI passed` is the intended stable required status
-check for a repository ruleset or branch protection. This change does not alter
-those settings: without required-check rules CI reports failures but does not
-prevent merging. Reconcile any old required-check names when enabling the gate.
+The `development` workflow has completed successfully on GitHub-hosted Linux
+and macOS runners. `CI passed` is the stable aggregate status intended for a
+repository ruleset or branch protection. The workflow itself does not configure
+repository rules: without a required-check rule, CI reports failures but cannot
+prevent an authorized merge.
 
 The manual [release workflow](../.github/workflows/release.yml) is separate from
 CI. Its default execution validates and uploads candidate artifacts only. It can
@@ -133,7 +132,7 @@ publish only when an operator selects an explicit publication input on `main`;
 ordinary `development`, `main`, pull-request and CI runs have read-only content
 permissions and no registry credentials.
 
-The old main-push workflow published a container independently of its Rust test
-job. This checkout removes that behavior, but branches using the old workflow
-retain it until integration. Historical images are not deleted. See
+This workflow contains no publication job. A branch or tag executes the workflow
+stored on that ref, so review older refs independently rather than assuming they
+inherit `development` policy. Historical images are not deleted. See
 [publication rules](release-and-environment-strategy.md#publication-rules).

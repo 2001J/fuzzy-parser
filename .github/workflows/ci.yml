@@ -55,6 +55,8 @@ jobs:
         run: |
           node --test tools/release/tests/*.test.mjs
           node tools/release/check-version.mjs
+      - name: Check documentation links
+        run: node tools/ci/check-doc-links.mjs
       - name: Check formatting
         run: cargo fmt --check
       - name: Lint with Clippy

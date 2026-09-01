@@ -55,8 +55,9 @@ No comparison assumes names, free text or datetime execution already works.
 The production adapter belongs to [#18](https://github.com/2001J/fuzzy-parser/issues/18),
 not the evaluation harness. Initial validation targets server-side Node.js;
 browser/Edge support is not promised. Independent Rust library and standalone
-CLI use remain supported. The [integration strategy](../integration-strategy.md#proposed-library-caller-experience)
-owns an illustrative call, explicitly not an existing npm/package API.
+CLI use remain supported. The [integration guide](../integration-strategy.md#recommended-application-flow)
+owns the current application-facing call pattern; this ADR retains the
+historical selection rationale.
 
 - Accept raw bytes with a declared supported format, caller-owned schema and
   supported options. Original filename metadata must have defined, safe

@@ -1,5 +1,12 @@
 # Data Contracts
 
+> **Advanced reference.** Start with [Getting started](getting-started.md),
+> [Application profiles](application-profiles.md), and
+> [Results and review](results-and-review.md). This document is for implementers
+> who need exact Rust and JSON compatibility details. Sections named
+> “migration” retain pre-1.0 compatibility history and are not required for a
+> first integration.
+
 This document owns public model shapes. Sections marked **proposed** are design
 sketches, not available APIs. Other models reflect the Rust sources in
 [`parser-core`](../crates/parser-core/src/lib.rs) and

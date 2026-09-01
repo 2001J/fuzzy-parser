@@ -1,130 +1,87 @@
 # Roadmap
 
-This document owns development order. [Current state](current-state.md) owns
-implemented capabilities; [integration strategy](integration-strategy.md) owns
-the consumer boundary and rollout. Milestones below are plans, not releases.
+This roadmap describes product outcomes, not completed-ticket history. Current
+capabilities belong in [Current state](current-state.md); old audits and
+implementation evidence live under [Internal documentation](internal/README.md).
 
-## First direction: independently reviewable imports
+## Available foundation
 
-Prioritize generic pasted/TXT and tabular parsing, review evidence, and one
-reusable runtime boundary. QualEvents is the first real consumer and validation
-case, not the owner of the engine contract or a build/runtime dependency.
-Independent Rust library and CLI operation remain supported.
+The `development` branch contains:
 
-Its eventual adoption should cover all its supported text/tabular imports, not
-just optional pasted-text help. Host review, UI, migration and cutover are
-separate work described in [integration strategy](integration-strategy.md);
-they neither block nor establish generic engine readiness.
+- reusable Rust application profiles;
+- TXT, CSV, XLSX, pasted-text, and standard-input adapters;
+- deterministic candidate detection and schema assignment;
+- contextual text and possible-name fields;
+- reversible source evidence and unused-content tracking;
+- table header, row, and sheet selection;
+- typed resource limits and safe structured errors;
+- a CLI and an installable, unpublished Node/WebAssembly package;
+- cross-profile native, CLI, CommonJS, and ESM conformance checks;
+- CI on Linux and macOS plus container and package verification.
 
-[#10 — Preserve source evidence and unused content in the versioned parse
-response](https://github.com/2001J/fuzzy-parser/issues/10) is implemented and
-independently verified; [data contracts](data-contracts.md) describes the
-canonical source-review extension. The focused fix for
-[#21 — Prevent Unicode label-context slicing from crashing assignment](https://github.com/2001J/fuzzy-parser/issues/21),
-a pre-existing bug found during that review, is also independently verified.
-The bounded and independently reviewed [#11](https://github.com/2001J/fuzzy-parser/issues/11)
-evaluation selects one Node WASM package with Worker isolation in
-[ADR 0006](decisions/0006-library-interface-runtime-evaluation.md); #18 owns
-the remaining package, limits, lifecycle and framework-integration gates.
-[#22's generic XLSX byte input](https://github.com/2001J/fuzzy-parser/issues/22)
-is implemented and independently verified locally with parity regressions.
-#2's bounded error migration and #12's shared schema compiler are independently
-reviewed, locally integrated and closed, enabling the next text/name and
-runtime evaluation slices. No queue or
-separate service is part of this initial direction. These individual
-steps do not establish complete engine readiness or authorize publication.
+This foundation is an engine and integration boundary. It is not a standalone
+review product and does not mean any consuming application has completed its
+own migration.
 
-The test-only [CI pipeline (#23)](https://github.com/2001J/fuzzy-parser/issues/23)
-is a separate verification slice. See [its gates and hosted-run limits](ci.md);
-it does not select a runtime, publish artifacts or complete the independence gate.
+## Next: understand more real-world input
 
-## Milestone: Reviewable import engine
+Prioritize generic capabilities repeatedly needed by independent consumers:
 
-[GitHub milestone](https://github.com/2001J/fuzzy-parser/milestone/1) ·
-[tracking epic #9](https://github.com/2001J/fuzzy-parser/issues/9)
+1. Locale-aware phone interpretation with caller-provided country context.
+2. Currency codes, common locale formats, and caller-defined money hints.
+3. Datetime execution and broader date interpretation.
+4. Declared TSV and delimited-text input.
+5. Legacy XLS only if a real consumer still requires it.
+6. Workbook display values and additional non-executed metadata where source
+   libraries can preserve them truthfully.
 
-Every implementation ticket has explicit tests and dependencies. A dependency
-must be satisfied before the dependent ticket completes; ready work can be
-selected independently.
+Each capability must retain unresolved evidence and pass cross-profile tests. A
+consumer-specific shortcut is not an engine feature.
 
-| Work | Dependency / gate |
-| --- | --- |
-| [#10 Source-complete result and review reasons](https://github.com/2001J/fuzzy-parser/issues/10) | Implemented and independently verified; includes retained raw-model compatibility tests |
-| [#21 Unicode-safe assignment context](https://github.com/2001J/fuzzy-parser/issues/21) | Implemented and independently verified with permanent core/CLI regressions |
-| [#11 Select one reusable runtime boundary](https://github.com/2001J/fuzzy-parser/issues/11) | Independently reviewed CJS/ESM WASM execution and native parity select one Node WASM package with Worker isolation; closed. Packaging/deployment gates remain #18 |
-| [#22 Filesystem-free XLSX byte input](https://github.com/2001J/fuzzy-parser/issues/22) | Implemented and independently verified locally. File/byte canonical parity is tested, not WASM execution or resource safety |
-| [#2 Finish safe structured errors](https://github.com/2001J/fuzzy-parser/issues/2) | Independently reviewed and verified locally; safe error-contract migration and privacy/compatibility regressions |
-| [#4 Permanent TXT adapter edge-case fixtures](https://github.com/2001J/fuzzy-parser/issues/4) | [Fixture coverage](../fixtures/text/README.md) independently reviewed, locally integrated and verified |
-| [#5 Reusable file validation and empty policy](https://github.com/2001J/fuzzy-parser/issues/5) | [TXT-integrated validation](file-validation.md) independently reviewed, locally integrated and verified on macOS/Linux; closed |
-| [#6 Strict CLI dispatch and arguments](https://github.com/2001J/fuzzy-parser/issues/6) | Exact OS argument grammar, explicit routing and TXT-only overrides independently reviewed, locally integrated and verified on macOS/Linux; closed |
-| [#7 Complete TXT subprocess matrix](https://github.com/2001J/fuzzy-parser/issues/7) | Full synthetic fixture matrix independently reviewed, integrated and verified on macOS/Linux; closed |
-| [#12 Shared schema compilation/capability validation](https://github.com/2001J/fuzzy-parser/issues/12) | Shared compiler/core plan independently reviewed, locally integrated and verified on macOS/Linux; closed |
-| [#13 Caller-directed text and name fields](https://github.com/2001J/fuzzy-parser/issues/13) | Contextual extraction/residual abstention independently reviewed, integrated and verified on macOS/Linux; closed |
-| [#14 Compose text normalization/segmentation](https://github.com/2001J/fuzzy-parser/issues/14) | Reversible opt-in composition independently reviewed, locally integrated and verified; closed |
-| [#15 Delimiter-adjacent email regression](https://github.com/2001J/fuzzy-parser/issues/15) | Independently reviewed, locally integrated and verified with core/CLI source-span regressions |
-| [#16 Explicit table headers/selection/provenance](https://github.com/2001J/fuzzy-parser/issues/16) | Opt-in headers/rows/sheets and table-manifest evidence independently reviewed, locally integrated and verified; closed |
-| [#17 Bound CSV/XLSX/schema/result resource use](https://github.com/2001J/fuzzy-parser/issues/17) | Typed defaults and exact boundary failures for CSV/XLSX/schema/records/results independently reviewed, locally integrated and verified; closed |
-| [#18 Implement the selected runtime adapter](https://github.com/2001J/fuzzy-parser/issues/18) | Installable Node/WASM package, API, identity, limits, Worker lifecycle and generic Node/Next packaging integrated and verified; closed |
-| [#19 Cross-profile conformance and independence](https://github.com/2001J/fuzzy-parser/issues/19) | Native/CLI/CJS/ESM two-profile corpus, provenance, uncertainty and implementation-independence checks integrated and verified; closed |
+## Next: make review understandable
 
-The milestone ends with a tested independent engine and reusable boundary.
-It includes the [cross-profile independence gate](testing-strategy.md#cross-profile-conformance-and-independence--implemented)
-completed in #19. It does **not** assert that any host
-review flow, production deployment, or migration has shipped.
+Build a standalone review/export experience on the existing contracts:
 
-## Milestone: Extended format and profile coverage
+- paste or upload without writing a schema during each import;
+- select a saved application profile;
+- show a clean editable table;
+- explain only the rows that need attention;
+- preserve access to original and unresolved evidence;
+- copy or export corrected results as TXT, CSV, or XLSX;
+- keep confirmation and persistence outside the parser.
 
-[GitHub milestone](https://github.com/2001J/fuzzy-parser/milestone/2) ·
-[tracking epic #20](https://github.com/2001J/fuzzy-parser/issues/20)
+This interface should also provide a reference composition for applications
+embedding the parser.
 
-Extend the generic capability matrix: legacy XLS, declared TSV/delimited TXT,
-display/date/number handling, sheet/style metadata, and caller-supplied fields
-and interpretation options. Split concrete implementation children with tests
-before execution. Added capabilities must retain the cross-profile independence
-gate. No Event/Guest/Contributor types or consumer-specific schemas/constants
-belong in the engine.
+## Release path
 
-This milestone does not track legacy-path retirement or QualEvents cutover.
-Those remain external host work, informed by the engine capability matrix.
-Working host imports must remain available until their replacement passes
-host-owned parity tests; engine completion alone does not authorize migration.
+Before the first public package release:
 
-## Later work
+1. Select the release version and produce candidate artifacts.
+2. Verify Rust, CLI, Node/WASM, checksums, and supported platforms.
+3. Review migration notes and capability documentation.
+4. Exercise installation from the exact candidate artifacts.
+5. Publish only through the protected manual release workflow from `main`.
 
-- Additional consumers and reusable profiles, justified by actual integration needs.
-- Standalone schema editor/review/export tool using the same engine.
-- Other runtime surfaces only when a measured deployment need justifies them.
-- More generic datetime/locale/assignment capabilities outside the readiness slice.
-- Broader property tests, fuzzing, and measured benchmarks; minimum input safety
-  and regressions are engine-readiness requirements, not postponed here.
-- Text-based PDF, then OCR; neither precedes reliable deterministic text/table review.
-- Optional correction-learning research with explicit privacy design.
+Candidate builds do not imply publication. Rust crates, npm packages, containers,
+tags, and GitHub Releases require explicit authorization.
 
-## Version and history reconciliation
+## Consumer adoption
 
-The workspace/package version is `0.1.0`; parse and schema contracts each use
-`0.1`; the new error contract separately uses `0.1`. These are independent version axes, governed by
-[release strategy](release-and-environment-strategy.md). No version bump, tag, or
-release is authorized by a milestone name.
+Each application owns its own staged adoption:
 
-The old roadmap's `0.1`–`0.14` headings were planning stages, not shipped package
-versions. The old [TXT-only v0.1 epic #8](https://github.com/2001J/fuzzy-parser/issues/8)
-used a conflicting meaning. It is superseded as a plan, **not completed as an
-acceptance gate**. Its criteria were carried into #2 and #4–#7; those successor
-tickets are now independently reviewed, integrated and closed.
+1. Define and test profiles.
+2. Add preview and correction without persistence.
+3. Add export.
+4. Add explicit confirmation through existing domain services.
+5. Compare supported inputs with the legacy path.
+6. Cut over only the inputs with proven parity and rollback.
 
-| Former stage | Reconciled status / destination |
-| --- | --- |
-| 0.1 Workspace foundation | Implemented workspace and automated checks |
-| 0.2 TXT inspection | Working path; #2 privacy/#4 fixtures/#5 validation/#6 CLI/#7 subprocess matrix independently reviewed and verified |
-| 0.3 Pasted text/dispatch | Text/stdin exist; #5 validates TXT paths, #6 explicit routing independently reviewed and verified |
-| 0.4 CSV / 0.5 XLSX | Adapters, opt-in table selection/provenance and documented resource limits are delivered; extended formats remain #20 |
-| 0.6 Normalization / 0.7 Segmentation | Separate stages and reversible opt-in document composition are delivered; broader heuristics remain later work |
-| 0.8 Schema | Model/validation, shared compiler and contextual text/name extension are independently reviewed and verified |
-| 0.9 Detection / 0.10 Assignment | Scoped enums and local contextual text/name support; composition/options and later coverage remain |
-| 0.11 Explainable result | Canonical source/review extension implemented and independently verified in #10; broader engine-readiness gates remain open |
-| 0.12 Standalone / 0.13 WASM | #11 selected one Node WASM package with Worker isolation; installable packaging/lifecycle remain #18 and standalone tooling remains later |
-| 0.14 Reliability | Required safety/regressions move into readiness tickets; broad fuzzing/benchmarks follow |
+Engine readiness does not authorize host deployment or data migration.
 
-[The dated acceptance audit](audits/2026-08-27-backlog.md) records the code,
-tests, manual probes, and issue dispositions used for this reconciliation.
+## Later
+
+- Additional runtime surfaces justified by measured deployment needs.
+- Property testing, fuzzing, and benchmarks beyond current safety regressions.
+- Text-based PDF extraction, followed later by OCR.
+- Optional correction-learning research with explicit privacy controls.

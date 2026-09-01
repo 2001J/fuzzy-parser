@@ -2,160 +2,122 @@
 
 ## Product statement
 
-Fuzzy Parser is an independent, domain-neutral engine for converting messy human-created text and tabular input into reviewable structured records.
+Fuzzy Parser converts inconsistent human-created text and tabular input into
+structured drafts that remain traceable to their source.
 
-It is intended for situations where people paste or upload inconsistent data instead of providing a clean database export: copied chat lists, improvised spreadsheets, CSV files with shifting columns, and plain-text records that use mixed delimiters or incomplete formatting.
+It is for applications whose users paste lists, upload improvised spreadsheets,
+or receive files with changing labels and incomplete values. The parser should
+arrange what it can, identify what it cannot safely interpret, and preserve
+everything needed for review.
 
-## Core user outcome
+## User outcome
 
-A user or consuming application should be able to provide:
+A person should be able to paste or upload data without understanding parser
+schemas. The consuming application selects a reusable profile and presents the
+result as:
 
-1. Raw input.
-2. A description of the fields it wants.
-3. Optional locale, aliases, constraints, and parsing hints.
+- proposed records and fields;
+- normalized values where safe;
+- concise review reasons;
+- unresolved or unused content;
+- source evidence for every suggestion;
+- copy/export/correction options before confirmation.
 
-The parser should return:
+The parser produces a draft, not unquestionable truth.
 
-- Candidate records.
-- Candidate field values.
-- Normalized values where safe.
-- Confidence and explanations.
-- Warnings and unresolved ambiguity.
-- Source locations for every extracted value.
-- Rejected or unused fragments instead of silently losing them.
+## Independent engine
 
-The result is a draft for review, not an unquestionable truth.
+Fuzzy Parser is a domain-neutral engine with several interfaces:
 
-## Independent product and embedded engine
+- a Rust application API;
+- lower-level Rust crates;
+- a command-line tool;
+- a Node/WebAssembly package;
+- a possible future standalone review application.
 
-The project has two valid product shapes that must share one parser core.
-The first delivery priority is a **reviewable, independently usable import
-engine**, validated through its first real consumer, QualEvents. That consumer
-does not define the engine's identity, domain model, public contract, or
-dependencies. Standalone review tooling is later; library/CLI use stays supported.
+All interfaces use the same core. Consumer-specific concepts, schemas,
+identifiers, and dependencies do not belong in parser behavior.
 
-### Standalone tool
-
-A user pastes text or uploads a supported file, defines or selects an output schema, reviews the structured preview, corrects uncertain values, and exports the result.
-
-### Embedded engine
-
-Any application supplies uploaded/pasted input and its schema/options. No
-consumer-specific constants, schemas, identifiers, imports, or dependencies
-belong in generic engine behavior. Examples for consumers may exist as isolated
-synthetic fixtures, never as compiled-in profiles or conditional domain rules.
-
-QualEvents intends to use the engine for its supported text and tabular import
-processing, not just optional pasted-text assistance. Its Event/Guest/Contributor
-concepts and profiles remain in the host. Its adoption and cutover are separate
-from completion of generic engine capabilities.
-
-The consuming application owns:
-
-- Business terminology.
-- Permissions, business scope, duplicate policy, and qualification.
-- Domain-specific validation.
-- Review workflow.
-- Corrections, export, and the decision to confirm an import.
-- Persistence.
-- Messaging or downstream side effects.
-- Whether a warning blocks an import.
-
-The parser owns generic extraction, normalization, segmentation, candidate
-detection, assignment, uncertainty, and provenance. The
-[integration strategy](integration-strategy.md) defines the reusable boundary
-and the separate first-consumer handoff.
-
-### Verified independence gate
-
-Independence is demonstrated across unrelated caller profiles with the first
-consumer absent. The authoritative [acceptance gate](testing-strategy.md#cross-profile-conformance-and-independence--implemented)
-and [capability matrix](conformance.md) are completed in
-[#19](https://github.com/2001J/fuzzy-parser/issues/19) for the implemented
-capability set.
-
-## Initial target inputs
-
-The initial target sources are listed below. Adapters exist today, but complete
-review/integration readiness is not implied; see [current state](current-state.md).
-
-- Pasted multiline text.
-- Standard input.
-- UTF-8 `.txt` files.
-- `.csv` files with common delimiter detection.
-- `.xlsx` workbooks with source coordinates preserved.
-
-Future adapters may include text-based PDF and OCR, but those are separate extraction concerns and must not delay the deterministic core.
-
-## Initial target fields
-
-The schema system should eventually support generic field types such as:
-
-- Free text.
-- Person name candidate.
-- Phone number.
-- Email.
-- Integer and decimal.
-- Currency.
-- Date and time.
-- Boolean.
-- Enum with caller-provided aliases.
-
-The parser must not infer domain meaning that the caller did not supply.
+QualEvents is the first real consumer and a useful validation case. It does not
+define the engine. Its profiles, business rules, review screens, exports,
+confirmation, persistence, and messaging stay in the host application.
 
 ## Product principles
 
+### Profiles belong to applications
+
+An application developer defines and versions its vocabulary once. End users
+paste or upload data; they do not rebuild a schema for every import.
+
 ### Preserve before interpreting
 
-Raw input must remain available even after normalization and assignment.
+Raw input and source references remain available after extraction,
+normalization, assignment, and review.
 
 ### Admit uncertainty
 
-Unknown, ambiguous, missing, conflicting, and low-confidence states are valid outputs.
+Missing, ambiguous, conflicting, and unresolved values are valid outputs. The
+parser should abstain rather than manufacture certainty.
 
-### Explain results
+### Explain suggestions
 
-A field assignment should expose the evidence that caused it: pattern match, label proximity, schema alias, position, uniqueness, or caller configuration.
-
-### Be schema-driven, not domain-fixed
-
-Business assumptions are supplied by the caller. The parser remains reusable across products.
+Assignments expose reasons and source evidence. Heuristic scores are not
+calibrated accuracy probabilities.
 
 ### Review before side effects
 
-The parser produces structured drafts. It does not send messages, create production records, charge money, or generate access credentials.
+Parsing does not create records, send messages, charge money, or authorize a
+workflow. Consuming applications validate and explicitly confirm drafts.
 
 ### Deterministic first
 
-Start with deterministic rules and measurable heuristics. Machine learning or LLM assistance may later be optional, but must not become required for basic operation.
+Deterministic rules and measurable heuristics come before optional machine
+learning or LLM assistance. Basic operation must not depend on a remote model.
 
-### Fast enough, then measured
+### One core, simple integration
 
-Rust is chosen for a safe reusable core and future native/WebAssembly integration. Performance work should follow benchmarks rather than assumptions.
+Applications should call a library, not operate a queue or separate service
+unless a future cross-language need clearly justifies one.
 
-## Explicit non-goals for the initial releases
+## Product boundaries
+
+The parser owns:
+
+- format extraction;
+- canonical values and provenance;
+- normalization and record segmentation;
+- candidate detection and schema assignment;
+- generic constraints;
+- warnings, review reasons, and unused evidence.
+
+The consuming application owns:
+
+- authorization and business scope;
+- field meaning and profile selection;
+- duplicate and qualification policies;
+- correction and approval workflows;
+- exports and persistence;
+- messaging and downstream effects.
+
+## Near-term direction
+
+The immediate product work is to make real messy-list review easier without
+weakening provenance or uncertainty:
+
+- broader locale-aware phone, currency, date, and datetime interpretation;
+- declared TSV and delimited-text handling;
+- richer workbook display and sheet metadata;
+- reusable profile examples across unrelated domains;
+- a clear standalone review/export experience built on the same contracts.
+
+See [Current state](current-state.md) for implemented behavior and
+[Roadmap](roadmap.md) for sequencing.
+
+## Non-goals
 
 - Perfect interpretation of arbitrary documents.
-- Supporting every file type.
-- Replacing human review.
-- Automatically learning from private data without an explicit design.
-- Executing spreadsheet formulas or macros.
-- Domain-specific guest, pledge, inventory, or payment logic in the parser core.
-- Generating production side effects from parser output.
-- OCR, scanned PDF, or image understanding before the text and table pipeline is reliable.
-
-## Long-term direction
-
-The parser may eventually be distributed as:
-
-- A Rust library.
-- A CLI binary.
-- A WebAssembly/npm package for TypeScript applications.
-- A native Node binding where server-side performance justifies it.
-- An HTTP service for language-independent integration.
-- A standalone review application.
-
-All surfaces should converge on the same versioned request and response contracts.
-They are alternatives to evaluate, not a sequence of prerequisites. The
-[roadmap](roadmap.md) schedules one reusable boundary and retains
-broader consumers, standalone tooling, and PDF/OCR as later work.
+- Silent automatic approval.
+- Domain-specific guest, pledge, inventory, or payment rules in the core.
+- Executing spreadsheet formulas, macros, or external links.
+- OCR or image understanding before deterministic text/table behavior is solid.
+- Automatic learning from private data without an explicit privacy design.

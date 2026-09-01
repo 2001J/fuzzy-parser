@@ -1,5 +1,9 @@
 # 2026-08-30 — Node/WASM Runtime Evaluation
 
+> **Historical evaluation.** Current integration guidance lives in the
+> [Integration guide](../integration-strategy.md). Measurements and conclusions
+> here describe the dated experiment only.
+
 ## Scope
 
 This is an evaluation-only `wasm32-unknown-unknown` cdylib in
