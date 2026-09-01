@@ -60,6 +60,10 @@ the exact version and leave every `publish_*` input false. The workflow:
 3. builds, tests, installs and packs `@fuzzy-parser/node` with a SHA-256 file;
 4. stores them only as GitHub Actions run artifacts.
 
+Each checksum file names only its adjacent archive basename, so downloaded
+archive/checksum pairs can be verified from any directory with
+`shasum -a 256 --check <archive>.sha256`.
+
 This is reversible and does not create a tag, GitHub Release, npm version or
 container image.
 
