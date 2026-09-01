@@ -85,13 +85,150 @@ fn csv_row_limit_counts_blank_logical_rows_without_dropping_exact_input() {
     assert!(read_csv_bytes(None, bytes, "blank.csv", exact).is_ok());
     let table = read_csv_table_bytes(None, bytes, "blank.csv", exact).unwrap();
     assert_eq!(table.manifest[0].rows.len(), 3);
+    assert_eq!(
+        table.manifest[0]
+            .rows
+            .iter()
+            .map(|row| (
+                row.source_row,
+                row.blank,
+                row.byte_span,
+                row.line_start,
+                row.line_end,
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                1,
+                false,
+                Some(parser_core::TableByteSpan {
+                    byte_start: 0,
+                    byte_end: 3,
+                }),
+                Some(1),
+                Some(1),
+            ),
+            (
+                2,
+                true,
+                Some(parser_core::TableByteSpan {
+                    byte_start: 4,
+                    byte_end: 4,
+                }),
+                Some(2),
+                Some(2),
+            ),
+            (
+                3,
+                false,
+                Some(parser_core::TableByteSpan {
+                    byte_start: 5,
+                    byte_end: 8,
+                }),
+                Some(3),
+                Some(3),
+            ),
+        ]
+    );
+
+    let directory = TempDirectory::new();
+    let path = directory.0.join("blank.csv");
+    fs::write(&path, bytes).unwrap();
+    assert!(read_csv_with_options(&path, exact).is_ok());
+    assert!(read_csv_table_with_options(&path, exact).is_ok());
 
     let one_over = csv_options(bytes.len() as u64, 2, 4);
     for error in [
         read_csv_bytes(None, bytes, "blank.csv", one_over).unwrap_err(),
         read_csv_table_bytes(None, bytes, "blank.csv", one_over).unwrap_err(),
+        read_csv_with_options(&path, one_over).unwrap_err(),
+        read_csv_table_with_options(&path, one_over).unwrap_err(),
     ] {
         assert_resource(error, ResourceLimitKind::CsvRows, 2, 3);
+    }
+}
+
+#[test]
+fn csv_row_scan_stops_at_first_disallowed_row_in_mostly_blank_input() {
+    let bytes = "\n".repeat(50_000);
+    let options = csv_options(bytes.len() as u64, 3, 0);
+
+    for error in [
+        read_csv_bytes(None, bytes.as_bytes(), "mostly-blank.csv", options).unwrap_err(),
+        read_csv_table_bytes(None, bytes.as_bytes(), "mostly-blank.csv", options).unwrap_err(),
+    ] {
+        assert_resource(error, ResourceLimitKind::CsvRows, 3, 4);
+    }
+}
+
+#[test]
+fn csv_row_limit_preserves_quoted_multiline_and_blank_row_provenance() {
+    let bytes = b"a,b\r\n\"c\r\nd\",e\r\n\r\nf,g";
+    let exact = csv_options(bytes.len() as u64, 4, 6);
+    let table = read_csv_table_bytes(None, bytes, "multiline.csv", exact).unwrap();
+
+    assert_eq!(
+        table.manifest[0]
+            .rows
+            .iter()
+            .map(|row| (
+                row.source_row,
+                row.blank,
+                row.byte_span,
+                row.line_start,
+                row.line_end,
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                1,
+                false,
+                Some(parser_core::TableByteSpan {
+                    byte_start: 0,
+                    byte_end: 3,
+                }),
+                Some(1),
+                Some(1),
+            ),
+            (
+                2,
+                false,
+                Some(parser_core::TableByteSpan {
+                    byte_start: 5,
+                    byte_end: 13,
+                }),
+                Some(2),
+                Some(3),
+            ),
+            (
+                3,
+                true,
+                Some(parser_core::TableByteSpan {
+                    byte_start: 15,
+                    byte_end: 15,
+                }),
+                Some(4),
+                Some(4),
+            ),
+            (
+                4,
+                false,
+                Some(parser_core::TableByteSpan {
+                    byte_start: 17,
+                    byte_end: 20,
+                }),
+                Some(5),
+                Some(5),
+            ),
+        ]
+    );
+
+    let one_over = csv_options(bytes.len() as u64, 3, 6);
+    for error in [
+        read_csv_bytes(None, bytes, "multiline.csv", one_over).unwrap_err(),
+        read_csv_table_bytes(None, bytes, "multiline.csv", one_over).unwrap_err(),
+    ] {
+        assert_resource(error, ResourceLimitKind::CsvRows, 3, 4);
     }
 }
 
